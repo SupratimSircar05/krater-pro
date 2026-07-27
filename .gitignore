@@ -8,6 +8,9 @@ web/vite.config.js
 web/vite.config.d.ts
 .env
 .env.local
+.dev.vars
+.dev.vars.*
+.wrangler/
 *.log
 .DS_Store
 .idea/

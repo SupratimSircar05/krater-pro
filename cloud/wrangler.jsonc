@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "krater-pro",
+  "pages_build_output_dir": "./public",
+  "compatibility_date": "2026-07-27",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "krater-pro-cloud",
+      "database_id": "39e1a432-990c-4847-bb65-f0dadd1f7ad2",
+      "migrations_dir": "./migrations"
+    }
+  ]
+}

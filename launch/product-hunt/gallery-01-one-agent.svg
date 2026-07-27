@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1270" height="760" viewBox="0 0 1270 760" role="img" aria-labelledby="asset-title asset-description">
+  <title id="asset-title">Krater Pro — one agent across CLI and IDE</title>
+  <desc id="asset-description">A dark orange Krater Pro launch graphic showing a local command-line coding agent and an integrated browser IDE.</desc>
+  <defs>
+    <linearGradient id="bg-one" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#150D0C"/>
+      <stop offset=".46" stop-color="#08090B"/>
+      <stop offset="1" stop-color="#0D0F13"/>
+    </linearGradient>
+    <radialGradient id="halo-one" cx="0" cy="0" r="1" gradientTransform="translate(190 180) rotate(24) scale(480 410)">
+      <stop stop-color="#E87A46" stop-opacity=".18"/>
+      <stop offset=".62" stop-color="#E87A46" stop-opacity=".03"/>
+      <stop offset="1" stop-color="#E87A46" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="panel-one" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#17191E"/>
+      <stop offset="1" stop-color="#0C0E12"/>
+    </linearGradient>
+    <linearGradient id="orange-line-one" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#FF9461"/>
+      <stop offset="1" stop-color="#E87A46" stop-opacity=".16"/>
+    </linearGradient>
+    <filter id="panel-shadow-one" x="-20%" y="-20%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity=".55"/>
+    </filter>
+    <clipPath id="workbench-clip-one">
+      <rect x="566" y="94" width="634" height="574" rx="22"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1270" height="760" fill="url(#bg-one)"/>
+  <rect width="1270" height="760" fill="url(#halo-one)"/>
+  <path d="M0 679C295 596 455 711 713 655c206-45 365-125 557-99v204H0Z" fill="#E87A46" opacity=".025"/>
+  <circle cx="1190" cy="94" r="180" fill="#E87A46" opacity=".025"/>
+
+  <!-- Canonical mark copied from web/src/assets/krater-pro-mark.svg. -->
+  <svg x="70" y="54" width="68" height="68" viewBox="0 0 64 64" role="img" aria-labelledby="mark-title-one mark-description-one">
+    <title id="mark-title-one">Krater Pro</title>
+    <desc id="mark-description-one">An illuminated orange crater surrounded by an orbital ring.</desc>
+    <defs>
+      <linearGradient id="tile" x1="9" y1="5" x2="55" y2="59" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#3A1710"/>
+        <stop offset=".62" stop-color="#140D0C"/>
+        <stop offset="1" stop-color="#0B0C0F"/>
+      </linearGradient>
+      <radialGradient id="crater" cx="0" cy="0" r="1" gradientTransform="translate(26 24) rotate(49) scale(27)">
+        <stop stop-color="#FFB083"/>
+        <stop offset=".38" stop-color="#F08750"/>
+        <stop offset=".72" stop-color="#B94B2D"/>
+        <stop offset="1" stop-color="#572219"/>
+      </radialGradient>
+      <radialGradient id="basin" cx="0" cy="0" r="1" gradientTransform="translate(37 38) rotate(132) scale(12)">
+        <stop stop-color="#351411"/>
+        <stop offset=".68" stop-color="#6B291D"/>
+        <stop offset="1" stop-color="#D6653C"/>
+      </radialGradient>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="2.4"/>
+      </filter>
+    </defs>
+    <rect x="1" y="1" width="62" height="62" rx="18" fill="url(#tile)"/>
+    <rect x="1.5" y="1.5" width="61" height="61" rx="17.5" fill="none" stroke="#FF9D69" stroke-opacity=".34"/>
+    <ellipse cx="32" cy="34" rx="25" ry="10" transform="rotate(-20 32 34)" fill="none" stroke="#FFC19D" stroke-opacity=".32" stroke-width="1.5"/>
+    <circle cx="32" cy="32" r="19" fill="#E66D3D" fill-opacity=".22" filter="url(#glow)"/>
+    <circle cx="32" cy="32" r="17" fill="url(#crater)"/>
+    <circle cx="37" cy="38" r="7.5" fill="url(#basin)"/>
+    <circle cx="25" cy="25" r="3.5" fill="#7D3021" fill-opacity=".65"/>
+    <circle cx="23.5" cy="23.5" r="1.2" fill="#FFD1B4" fill-opacity=".56"/>
+    <path d="M19.5 30.5c2.8-7.7 9.7-12.2 17.4-11.8" fill="none" stroke="#FFD0B1" stroke-linecap="round" stroke-opacity=".55" stroke-width="1.5"/>
+    <circle cx="50.5" cy="26" r="2.2" fill="#FFC29D"/>
+    <circle cx="12.5" cy="40.5" r="1.4" fill="#FF9A63" fill-opacity=".75"/>
+  </svg>
+
+  <text x="156" y="84" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="27" font-weight="800" letter-spacing="-.7">KRATER PRO</text>
+  <text x="156" y="109" fill="#A7A5A0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="600" letter-spacing="1.6">AGENTIC CODING WORKSPACE</text>
+
+  <rect x="70" y="157" width="182" height="32" rx="16" fill="#E87A46" fill-opacity=".12" stroke="#E87A46" stroke-opacity=".38"/>
+  <circle cx="91" cy="173" r="5" fill="#FF9461"/>
+  <text x="106" y="179" fill="#FFC29D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="700" letter-spacing="1.2">LOCAL-FIRST · BYOK</text>
+
+  <text x="70" y="258" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="58" font-weight="780" letter-spacing="-2.4">
+    <tspan x="70" dy="0">One agent.</tspan>
+    <tspan x="70" dy="67">Terminal + IDE.</tspan>
+  </text>
+  <text x="70" y="426" fill="#B8B5AF" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="21" font-weight="440">
+    <tspan x="70" dy="0">Keep the conversation, project, approvals,</tspan>
+    <tspan x="70" dy="32">and model decision coherent as you work.</tspan>
+  </text>
+
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="620">
+    <circle cx="80" cy="520" r="10" fill="#E87A46" fill-opacity=".18" stroke="#FF9461"/>
+    <path d="m75 520 3 3 7-8" fill="none" stroke="#FFB083" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="102" y="526" fill="#E5E2DD">First-class CLI</text>
+
+    <circle cx="80" cy="568" r="10" fill="#E87A46" fill-opacity=".18" stroke="#FF9461"/>
+    <path d="m75 568 3 3 7-8" fill="none" stroke="#FFB083" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="102" y="574" fill="#E5E2DD">Integrated browser IDE</text>
+
+    <circle cx="80" cy="616" r="10" fill="#E87A46" fill-opacity=".18" stroke="#FF9461"/>
+    <path d="m75 616 3 3 7-8" fill="none" stroke="#FFB083" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="102" y="622" fill="#E5E2DD">Visible tool approvals</text>
+  </g>
+
+  <!-- Illustrated Krater Pro workbench. -->
+  <rect x="566" y="94" width="634" height="574" rx="22" fill="url(#panel-one)" stroke="#34363E" stroke-width="1.5" filter="url(#panel-shadow-one)"/>
+  <g clip-path="url(#workbench-clip-one)" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif">
+    <rect x="566" y="94" width="634" height="58" fill="#111318"/>
+    <circle cx="594" cy="123" r="6" fill="#E35B50"/>
+    <circle cx="614" cy="123" r="6" fill="#E9AE42"/>
+    <circle cx="634" cy="123" r="6" fill="#5CB86A"/>
+    <rect x="661" y="108" width="215" height="30" rx="8" fill="#1B1E24" stroke="#30333B"/>
+    <circle cx="679" cy="123" r="5" fill="#FF9461"/>
+    <text x="692" y="129" fill="#E4E1DC" font-size="13" font-weight="650">krater-pro · Local</text>
+    <rect x="1001" y="108" width="172" height="30" rx="8" fill="#26150F" stroke="#7B3A25"/>
+    <text x="1087" y="129" text-anchor="middle" fill="#FFB083" font-size="12" font-weight="700">Auto · Smart Router</text>
+
+    <rect x="566" y="152" width="149" height="516" fill="#0F1115"/>
+    <text x="584" y="181" fill="#7F828A" font-size="11" font-weight="700" letter-spacing="1.4">EXPLORER</text>
+    <rect x="579" y="198" width="123" height="29" rx="7" fill="#171A20" stroke="#292C34"/>
+    <text x="590" y="217" fill="#737780" font-size="12">Filter files…</text>
+    <g fill="#B8BAC0" font-size="12">
+      <text x="585" y="253">⌄  src</text>
+      <text x="603" y="280" fill="#FFB083">◇  agent.ts</text>
+      <text x="603" y="307">◇  router.ts</text>
+      <text x="603" y="334">◇  tools.ts</text>
+      <text x="585" y="368">⌄  web</text>
+      <text x="603" y="395">◇  App.tsx</text>
+      <text x="585" y="429">▸  skills</text>
+      <text x="585" y="463">#  README.md</text>
+    </g>
+    <line x1="714.5" y1="152" x2="714.5" y2="668" stroke="#2B2D34"/>
+
+    <rect x="715" y="152" width="296" height="47" fill="#121419"/>
+    <rect x="727" y="161" width="130" height="38" rx="8" fill="#1D2026"/>
+    <circle cx="743" cy="180" r="4" fill="#E87A46"/>
+    <text x="754" y="185" fill="#E8E5E0" font-size="12" font-weight="650">agent.ts</text>
+    <text x="839" y="184" fill="#747780" font-size="12">×</text>
+
+    <rect x="715" y="199" width="296" height="302" fill="#111318"/>
+    <g font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="12.5">
+      <g fill="#545861" text-anchor="end">
+        <text x="746" y="232">18</text>
+        <text x="746" y="258">19</text>
+        <text x="746" y="284">20</text>
+        <text x="746" y="310">21</text>
+        <text x="746" y="336">22</text>
+        <text x="746" y="362">23</text>
+        <text x="746" y="388">24</text>
+        <text x="746" y="414">25</text>
+      </g>
+      <text x="765" y="232" fill="#C792EA">export async function</text>
+      <text x="932" y="232" fill="#82AAFF">runTask</text>
+      <text x="765" y="258" fill="#E5E2DD">(session, task) {</text>
+      <text x="785" y="284" fill="#C792EA">const</text>
+      <text x="829" y="284" fill="#E5E2DD">route =</text>
+      <text x="902" y="284" fill="#82AAFF">await</text>
+      <text x="785" y="310" fill="#82AAFF">selectModel</text>
+      <text x="883" y="310" fill="#E5E2DD">(task);</text>
+      <text x="785" y="336" fill="#C792EA">return</text>
+      <text x="843" y="336" fill="#82AAFF">agent</text>
+      <text x="883" y="336" fill="#E5E2DD">.run({</text>
+      <text x="805" y="362" fill="#F78C6C">workspace</text>
+      <text x="890" y="362" fill="#E5E2DD">, route,</text>
+      <text x="805" y="388" fill="#F78C6C">approval</text>
+      <text x="886" y="388" fill="#E5E2DD">:</text>
+      <text x="901" y="388" fill="#C3E88D">"ask"</text>
+      <text x="785" y="414" fill="#E5E2DD">});</text>
+      <text x="765" y="440" fill="#E5E2DD">}</text>
+    </g>
+
+    <rect x="715" y="501" width="296" height="167" fill="#0C0E12"/>
+    <rect x="715" y="501" width="296" height="38" fill="#111318"/>
+    <text x="733" y="525" fill="#FFB083" font-size="11" font-weight="750" letter-spacing="1.2">TERMINAL</text>
+    <text x="816" y="525" fill="#747780" font-size="11" font-weight="650">SOURCE CONTROL</text>
+    <rect x="730" y="554" width="266" height="96" rx="8" fill="#080A0D" stroke="#24272E"/>
+    <g font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="12">
+      <text x="744" y="578" fill="#FF9461">$</text>
+      <text x="760" y="578" fill="#D8D5D0">npm test</text>
+      <text x="744" y="604" fill="#7DD39A">✓ 240+ tests passed</text>
+      <text x="744" y="630" fill="#858992">Completed in 3.8s</text>
+    </g>
+
+    <rect x="1011" y="152" width="189" height="516" fill="#121419"/>
+    <line x1="1011" y1="152" x2="1011" y2="668" stroke="#2B2D34"/>
+    <text x="1031" y="181" fill="#7F828A" font-size="11" font-weight="700" letter-spacing="1.4">KRATER AGENT</text>
+    <rect x="1028" y="200" width="155" height="67" rx="12" fill="#1A1D23" stroke="#30333B"/>
+    <text x="1042" y="224" fill="#B7BAC1" font-size="11">Map this project and</text>
+    <text x="1042" y="243" fill="#B7BAC1" font-size="11">repair the failing test.</text>
+    <rect x="1028" y="283" width="155" height="160" rx="12" fill="#21140F" stroke="#713722"/>
+    <circle cx="1046" cy="305" r="7" fill="#E87A46"/>
+    <text x="1060" y="310" fill="#FFB083" font-size="11" font-weight="720">Krater Pro</text>
+    <text x="1042" y="337" fill="#E4E1DC" font-size="11">I found the race in the</text>
+    <text x="1042" y="355" fill="#E4E1DC" font-size="11">session update path.</text>
+    <text x="1042" y="382" fill="#A9ABB1" font-size="11">Proposed action</text>
+    <rect x="1042" y="395" width="55" height="27" rx="7" fill="#E87A46"/>
+    <text x="1069.5" y="413" text-anchor="middle" fill="#140D0C" font-size="10" font-weight="800">ALLOW</text>
+    <rect x="1104" y="395" width="52" height="27" rx="7" fill="#1A1C21" stroke="#3A3D45"/>
+    <text x="1130" y="413" text-anchor="middle" fill="#D4D1CC" font-size="10" font-weight="700">DENY</text>
+    <rect x="1028" y="459" width="155" height="37" rx="9" fill="#15171C" stroke="#2D3037"/>
+    <text x="1042" y="482" fill="#A9ABB1" font-size="10.5">1,295 in · 45 out</text>
+    <rect x="1028" y="603" width="155" height="45" rx="10" fill="#191B20" stroke="#343740"/>
+    <text x="1042" y="630" fill="#7F828A" font-size="11">Ask Krater…</text>
+  </g>
+
+  <rect x="566" y="94" width="634" height="5" rx="2.5" fill="url(#orange-line-one)"/>
+
+  <text x="70" y="710" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Built by</text>
+  <a href="https://www.linkedin.com/in/supratimsircar/">
+    <text x="125" y="710" fill="#FF9461" text-decoration="underline" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="650">Supratim</text>
+  </a>
+  <text x="196" y="710" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">with ❤️</text>
+  <text x="1200" y="710" text-anchor="end" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Local CLI · Browser IDE · Your Krater API key</text>
+</svg>

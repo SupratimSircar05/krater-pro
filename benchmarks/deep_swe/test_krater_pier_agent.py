@@ -61,7 +61,7 @@ class KraterPierAgentTests(unittest.TestCase):
             )
 
     def test_command_is_bounded_and_never_contains_key(self) -> None:
-        secret = "kr_live_should_never_appear"
+        secret = "kr_test_should_never_appear"
         command = build_agent_command(
             "Fix the repository; echo 'quoted safely'.",
             base_url=DEFAULT_BASE_URL,
@@ -251,7 +251,7 @@ class KraterPierAgentAsyncTests(unittest.IsolatedAsyncioTestCase):
             )
             logs = root / "logs"
             logs.mkdir()
-            secret = "kr_live_adapter_handoff_test"
+            secret = "kr_test_adapter_handoff"
             with patch.dict(os.environ, {"KRATER_API_KEY": secret}):
                 agent = KraterProAgent(
                     logs_dir=logs,

@@ -1,0 +1,21 @@
+{
+  "name": "@krater-pro/cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run guard:secrets && wrangler pages dev public --binding RATE_LIMIT_SALT=krater-pro-local-rate-limit-v1",
+    "migrate:local": "wrangler d1 migrations apply krater-pro-cloud --local",
+    "migrate:remote": "wrangler d1 migrations apply krater-pro-cloud --remote",
+    "deploy": "npm run guard:secrets && wrangler pages deploy public --project-name krater-pro",
+    "test": "vitest run tests/*.test.ts",
+    "e2e": "node scripts/e2e.mjs",
+    "guard:secrets": "node scripts/guard-secrets.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.114.0"
+  }
+}

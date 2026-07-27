@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1270" height="760" viewBox="0 0 1270 760" role="img" aria-labelledby="asset-title asset-description">
+  <title id="asset-title">Krater Pro projects and Cloud Lab</title>
+  <desc id="asset-description">A dark orange Krater Pro launch graphic showing local, public GitHub, and scratch projects plus a bounded Cloud Lab with accounts and saved virtual progress.</desc>
+  <defs>
+    <linearGradient id="bg-projects" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0B0C0F"/>
+      <stop offset=".56" stop-color="#08090B"/>
+      <stop offset="1" stop-color="#1B0E0B"/>
+    </linearGradient>
+    <radialGradient id="halo-projects" cx="0" cy="0" r="1" gradientTransform="translate(1015 300) rotate(148) scale(550 390)">
+      <stop stop-color="#E87A46" stop-opacity=".12"/>
+      <stop offset=".7" stop-color="#E87A46" stop-opacity=".02"/>
+      <stop offset="1" stop-color="#E87A46" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cloud-card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#22130F"/>
+      <stop offset=".48" stop-color="#141419"/>
+      <stop offset="1" stop-color="#101217"/>
+    </linearGradient>
+    <filter id="project-shadow" x="-20%" y="-20%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity=".5"/>
+    </filter>
+  </defs>
+
+  <rect width="1270" height="760" fill="url(#bg-projects)"/>
+  <rect width="1270" height="760" fill="url(#halo-projects)"/>
+  <circle cx="1167" cy="638" r="250" fill="none" stroke="#E87A46" stroke-opacity=".035" stroke-width="80"/>
+
+  <!-- Canonical mark copied from web/src/assets/krater-pro-mark.svg. -->
+  <svg x="70" y="48" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="mark-title-projects mark-description-projects">
+    <title id="mark-title-projects">Krater Pro</title>
+    <desc id="mark-description-projects">An illuminated orange crater surrounded by an orbital ring.</desc>
+    <defs>
+      <linearGradient id="tile" x1="9" y1="5" x2="55" y2="59" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#3A1710"/>
+        <stop offset=".62" stop-color="#140D0C"/>
+        <stop offset="1" stop-color="#0B0C0F"/>
+      </linearGradient>
+      <radialGradient id="crater" cx="0" cy="0" r="1" gradientTransform="translate(26 24) rotate(49) scale(27)">
+        <stop stop-color="#FFB083"/>
+        <stop offset=".38" stop-color="#F08750"/>
+        <stop offset=".72" stop-color="#B94B2D"/>
+        <stop offset="1" stop-color="#572219"/>
+      </radialGradient>
+      <radialGradient id="basin" cx="0" cy="0" r="1" gradientTransform="translate(37 38) rotate(132) scale(12)">
+        <stop stop-color="#351411"/>
+        <stop offset=".68" stop-color="#6B291D"/>
+        <stop offset="1" stop-color="#D6653C"/>
+      </radialGradient>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="2.4"/>
+      </filter>
+    </defs>
+    <rect x="1" y="1" width="62" height="62" rx="18" fill="url(#tile)"/>
+    <rect x="1.5" y="1.5" width="61" height="61" rx="17.5" fill="none" stroke="#FF9D69" stroke-opacity=".34"/>
+    <ellipse cx="32" cy="34" rx="25" ry="10" transform="rotate(-20 32 34)" fill="none" stroke="#FFC19D" stroke-opacity=".32" stroke-width="1.5"/>
+    <circle cx="32" cy="32" r="19" fill="#E66D3D" fill-opacity=".22" filter="url(#glow)"/>
+    <circle cx="32" cy="32" r="17" fill="url(#crater)"/>
+    <circle cx="37" cy="38" r="7.5" fill="url(#basin)"/>
+    <circle cx="25" cy="25" r="3.5" fill="#7D3021" fill-opacity=".65"/>
+    <circle cx="23.5" cy="23.5" r="1.2" fill="#FFD1B4" fill-opacity=".56"/>
+    <path d="M19.5 30.5c2.8-7.7 9.7-12.2 17.4-11.8" fill="none" stroke="#FFD0B1" stroke-linecap="round" stroke-opacity=".55" stroke-width="1.5"/>
+    <circle cx="50.5" cy="26" r="2.2" fill="#FFC29D"/>
+    <circle cx="12.5" cy="40.5" r="1.4" fill="#FF9A63" fill-opacity=".75"/>
+  </svg>
+
+  <text x="152" y="76" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="25" font-weight="800" letter-spacing="-.6">KRATER PRO</text>
+  <text x="152" y="100" fill="#9B9994" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="650" letter-spacing="1.5">PROJECTS + CLOUD LAB</text>
+  <rect x="1006" y="58" width="194" height="35" rx="17.5" fill="#E87A46" fill-opacity=".11" stroke="#E87A46" stroke-opacity=".38"/>
+  <text x="1103" y="81" text-anchor="middle" fill="#FFB083" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="750">YOU CHOOSE THE SPACE</text>
+
+  <text x="70" y="182" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="52" font-weight="790" letter-spacing="-2">Work where the code is.</text>
+  <text x="70" y="222" fill="#B0ADA7" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20">Switch projects without mixing sessions, filesystem roots, or unsaved work.</text>
+
+  <!-- Project cards -->
+  <rect x="70" y="270" width="354" height="152" rx="20" fill="#111318" stroke="#32353D" filter="url(#project-shadow)"/>
+  <rect x="94" y="294" width="48" height="48" rx="13" fill="#E87A46" fill-opacity=".13" stroke="#E87A46" stroke-opacity=".5"/>
+  <path d="M104 309h12l4 5h13v17h-29Z" fill="none" stroke="#FFB083" stroke-width="2.2" stroke-linejoin="round"/>
+  <text x="160" y="312" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="740">Local folder</text>
+  <text x="160" y="337" fill="#92959C" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Use an existing absolute path</text>
+  <line x1="94" y1="360" x2="400" y2="360" stroke="#292C33"/>
+  <text x="94" y="392" fill="#B8BAC0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Your repository · your Git history</text>
+
+  <rect x="458" y="270" width="354" height="152" rx="20" fill="#111318" stroke="#32353D" filter="url(#project-shadow)"/>
+  <rect x="482" y="294" width="48" height="48" rx="13" fill="#E87A46" fill-opacity=".13" stroke="#E87A46" stroke-opacity=".5"/>
+  <circle cx="506" cy="316" r="10" fill="none" stroke="#FFB083" stroke-width="2"/>
+  <circle cx="500" cy="313" r="2" fill="#FFB083"/>
+  <circle cx="512" cy="313" r="2" fill="#FFB083"/>
+  <path d="M500 323c4 3 8 3 12 0M506 326v5" fill="none" stroke="#FFB083" stroke-width="1.7" stroke-linecap="round"/>
+  <text x="548" y="312" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="740">Public GitHub</text>
+  <text x="548" y="337" fill="#92959C" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Open an isolated shallow clone</text>
+  <line x1="482" y1="360" x2="788" y2="360" stroke="#292C33"/>
+  <text x="482" y="392" fill="#B8BAC0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Fresh session · confined clone root</text>
+
+  <rect x="846" y="270" width="354" height="152" rx="20" fill="#111318" stroke="#61402F" filter="url(#project-shadow)"/>
+  <rect x="870" y="294" width="48" height="48" rx="13" fill="#E87A46" fill-opacity=".13" stroke="#E87A46" stroke-opacity=".5"/>
+  <path d="m894 303 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" fill="none" stroke="#FFB083" stroke-width="1.9" stroke-linejoin="round"/>
+  <text x="936" y="312" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="740">Scratch</text>
+  <text x="936" y="337" fill="#92959C" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Start clean without a project</text>
+  <line x1="870" y1="360" x2="1176" y2="360" stroke="#292C33"/>
+  <text x="870" y="392" fill="#B8BAC0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Disposable workspace · no setup</text>
+
+  <!-- Cloud Lab -->
+  <rect x="70" y="458" width="742" height="211" rx="24" fill="url(#cloud-card)" stroke="#77402C" filter="url(#project-shadow)"/>
+  <rect x="94" y="482" width="142" height="29" rx="14.5" fill="#E87A46" fill-opacity=".14" stroke="#E87A46" stroke-opacity=".42"/>
+  <text x="172" y="501" text-anchor="middle" fill="#FFC09B" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="760" letter-spacing="1.1">KRATER CLOUD LAB</text>
+  <text x="94" y="550" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="29" font-weight="760">Explore safely before installing.</text>
+  <text x="94" y="582" fill="#A9A6A0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="15">Create an account, save virtual progress, and bring your own Krater API key.</text>
+
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12.5" font-weight="700">
+    <rect x="94" y="610" width="131" height="34" rx="10" fill="#111318" stroke="#373A42"/>
+    <text x="159.5" y="632" text-anchor="middle" fill="#D4D1CC">ACCOUNT + SAVE</text>
+    <rect x="235" y="610" width="91" height="34" rx="10" fill="#111318" stroke="#373A42"/>
+    <text x="280.5" y="632" text-anchor="middle" fill="#D4D1CC">USER BYOK</text>
+    <rect x="336" y="610" width="165" height="34" rx="10" fill="#2A1510" stroke="#713A28"/>
+    <text x="418.5" y="632" text-anchor="middle" fill="#FFB083">VIRTUAL · NO SHELL</text>
+  </g>
+
+  <rect x="619" y="497" width="159" height="130" rx="18" fill="#0D0F13" stroke="#343740"/>
+  <rect x="640" y="519" width="117" height="17" rx="5" fill="#1D2026"/>
+  <rect x="640" y="547" width="74" height="10" rx="5" fill="#E87A46" fill-opacity=".52"/>
+  <rect x="640" y="568" width="100" height="8" rx="4" fill="#41444C"/>
+  <rect x="640" y="586" width="87" height="8" rx="4" fill="#34373E"/>
+  <circle cx="740" cy="610" r="7" fill="#E87A46"/>
+  <path d="m737 610 2 2 4-5" fill="none" stroke="#140D0C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Trust card -->
+  <rect x="846" y="458" width="354" height="211" rx="24" fill="#111318" stroke="#32353D" filter="url(#project-shadow)"/>
+  <text x="872" y="493" fill="#8E9198" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="750" letter-spacing="1.3">EVIDENCE, NOT HYPE</text>
+  <text x="872" y="535" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="25" font-weight="750">100-task expert catalog</text>
+  <text x="872" y="566" fill="#A4A6AC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Validated harness · 10 categories</text>
+  <line x1="872" y1="587" x2="1174" y2="587" stroke="#2B2E35"/>
+  <circle cx="883" cy="616" r="6" fill="#E87A46"/>
+  <text x="900" y="621" fill="#D5D2CD" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="650">Official suites do not all pass.</text>
+  <text x="872" y="647" fill="#898C93" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12.5">Limits and observed failures are public.</text>
+
+  <text x="70" y="720" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Built by</text>
+  <a href="https://www.linkedin.com/in/supratimsircar/">
+    <text x="125" y="720" fill="#FF9461" text-decoration="underline" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="650">Supratim</text>
+  </a>
+  <text x="196" y="720" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">with ❤️</text>
+  <text x="1200" y="720" text-anchor="end" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Local workspaces for real code · Cloud Lab for safe evaluation</text>
+</svg>

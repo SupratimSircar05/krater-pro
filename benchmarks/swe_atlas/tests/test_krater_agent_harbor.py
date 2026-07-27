@@ -77,7 +77,7 @@ class HarborAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_actual_harbor_api_uses_host_only_ephemeral_secret(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            secret = "kr_live_harbor_host_only_test"
+            secret = "kr_test_harbor_host_only"
             agent = self.fixture(root)
             environment = FakeHarborEnvironment()
             context = AgentContext()

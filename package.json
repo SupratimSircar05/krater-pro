@@ -20,7 +20,8 @@
     "krater-pro": "./dist/cli.js"
   },
   "workspaces": [
-    "web"
+    "web",
+    "cloud"
   ],
   "files": [
     "dist",
@@ -49,6 +50,14 @@
     "prepack": "npm run build",
     "dev": "tsx src/cli.ts",
     "dev:web": "tsx src/cli.ts web --dev",
+    "cloud:dev": "npm run dev --workspace @krater-pro/cloud",
+    "cloud:migrate:local": "npm run migrate:local --workspace @krater-pro/cloud",
+    "cloud:migrate:remote": "npm run migrate:remote --workspace @krater-pro/cloud",
+    "cloud:deploy": "npm run guard:secrets && npm run deploy --workspace @krater-pro/cloud",
+    "cloud:test": "npm run test --workspace @krater-pro/cloud",
+    "cloud:e2e": "npm run e2e --workspace @krater-pro/cloud",
+    "cloud:guard": "npm run guard:secrets && npm run guard:secrets --workspace @krater-pro/cloud",
+    "guard:secrets": "node scripts/guard-secrets.mjs",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",

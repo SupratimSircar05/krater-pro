@@ -22,6 +22,12 @@ Krater Pro is a clean-room implementation. It is not affiliated with Krater,
 Anthropic, Claude, or Claude Code. See
 [UPSTREAM_REFERENCE.md](UPSTREAM_REFERENCE.md).
 
+Try the hosted [Krater Pro Cloud Lab](https://krater-pro.pages.dev/) to create
+an account and save a bounded virtual workspace before installing. Cloud Lab
+has no shell, Git clone, or access to local files; full agentic coding runs in
+the local CLI and IDE. Live Cloud Lab inference uses only the visitor's own
+transient Krater API key.
+
 ## Highlights
 
 - First-class `krater` and `krater-pro` terminal commands

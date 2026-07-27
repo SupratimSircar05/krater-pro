@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#08090b">
+    <meta name="description" content="Krater Pro is an expert agentic coding workspace with a polished local CLI and IDE, smart model routing, and an account-based Cloud Lab powered by Krater.ai.">
+    <meta name="robots" content="index, follow">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Krater Pro — Build at escape velocity">
+    <meta property="og:description" content="An expert coding agent for your terminal, desktop, and a safe virtual Cloud Lab.">
+    <meta property="og:url" content="https://krater-pro.pages.dev/">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Krater Pro — Build at escape velocity">
+    <meta name="twitter:description" content="An expert coding agent for your terminal, desktop, and a safe virtual Cloud Lab.">
+    <title>Krater Pro — Agentic coding at escape velocity</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header" id="site-header">
+      <a class="brand" href="/" aria-label="Krater Pro home">
+        <img src="/logo.svg" alt="" width="38" height="38">
+        <span>Krater Pro</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#why">Why Krater</a>
+        <a href="#surfaces">Ways to build</a>
+        <a href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <button class="button button--quiet" id="header-auth-button" type="button">Sign in</button>
+        <button class="button button--primary button--compact" id="header-launch-button" type="button">Open Cloud Lab</button>
+      </nav>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open navigation">☰</button>
+    </header>
+
+    <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile navigation" hidden>
+      <a href="#why">Why Krater</a>
+      <a href="#surfaces">Ways to build</a>
+      <a href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <button class="button button--quiet" id="mobile-auth-button" type="button">Sign in</button>
+      <button class="button button--primary" id="mobile-launch-button" type="button">Open Cloud Lab</button>
+    </nav>
+
+    <main id="main-content">
+      <div id="marketing-view">
+        <section class="hero">
+          <div class="hero__glow" aria-hidden="true"></div>
+          <div class="eyebrow"><span class="status-dot"></span> The agentic coding workspace for real work</div>
+          <h1>Turn hard problems into<br><span>shipped code.</span></h1>
+          <p class="hero__lead">Krater Pro gives you an expert coding agent across terminal, desktop IDE, and a private Cloud Lab—powered by Krater.ai and tuned for accuracy, cost, and momentum.</p>
+          <div class="hero__actions">
+            <button class="button button--primary button--large" id="hero-launch-button" type="button">
+              Try Cloud Lab
+              <span aria-hidden="true">→</span>
+            </button>
+            <a class="button button--secondary button--large" href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">
+              <span aria-hidden="true">⌘</span>
+              Get the local IDE
+            </a>
+          </div>
+          <p class="hero__note">Your projects sync to your account. Your Krater API key stays in memory and is never saved.</p>
+
+          <div class="product-window" aria-label="Preview of Krater Pro agentic IDE">
+            <div class="product-window__bar">
+              <span class="window-dot window-dot--red"></span>
+              <span class="window-dot window-dot--amber"></span>
+              <span class="window-dot window-dot--green"></span>
+              <div class="window-title"><img src="/logo.svg" alt="" width="17" height="17"> krater-pro · orbit-api</div>
+              <span class="window-model">◉ Auto · Kimi K3</span>
+            </div>
+            <div class="product-window__body">
+              <aside class="mock-explorer" aria-hidden="true">
+                <div class="mock-label">EXPLORER</div>
+                <div>⌄ orbit-api</div>
+                <div class="mock-file">⌄ src</div>
+                <div class="mock-file mock-file--active">◇ router.ts</div>
+                <div class="mock-file">◇ cache.ts</div>
+                <div class="mock-file">◇ provider.ts</div>
+                <div>▱ tests</div>
+              </aside>
+              <div class="mock-editor" aria-hidden="true">
+                <div class="mock-tab">router.ts <span>×</span></div>
+                <pre><code><i>1</i> <b>export async function</b> routeTask(task: Task) {
+<i>2</i>   <b>const</b> signal = analyze(task);
+<i>3</i>   <b>const</b> model = await pickModel({
+<i>4</i>     accuracy: signal.complexity,
+<i>5</i>     budget: task.budget,
+<i>6</i>     cacheHit: signal.semanticMatch
+<i>7</i>   });
+<i>8</i>
+<i>9</i>   <b>return</b> runAgent(model, task);
+<i>10</i> }</code></pre>
+              </div>
+              <aside class="mock-agent">
+                <div class="mock-agent__head"><span>◉</span> KRATER AGENT</div>
+                <div class="mock-message mock-message--user">Make routing resilient to provider failures.</div>
+                <div class="mock-thinking"><span></span> Inspecting provider and retry paths</div>
+                <div class="mock-message mock-message--agent"><strong>Implemented and verified.</strong><br>Retries now preserve usage accounting, reject incomplete streams, and fall back safely.</div>
+                <div class="mock-checks">
+                  <span>✓ 240+ tests</span>
+                  <span>✓ typecheck</span>
+                </div>
+              </aside>
+            </div>
+            <div class="product-window__status">
+              <span>main*</span><span>◉ confined workspace</span><span class="push-right">1,340 tokens · cached</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="signal-strip" aria-label="Krater Pro capabilities">
+          <div><strong>100</strong><span>expert benchmark tasks</span></div>
+          <div><strong>40+</strong><span>language playbooks</span></div>
+          <div><strong>3</strong><span>coding surfaces</span></div>
+          <div><strong>1</strong><span>focused shipping loop</span></div>
+        </section>
+
+        <section class="section" id="why">
+          <div class="section-heading">
+            <span class="eyebrow eyebrow--plain">Built for the difficult 10%</span>
+            <h2>More than another chat box.</h2>
+            <p>Krater Pro combines deliberate model choice, real tools, durable project context, and cost-aware execution into one opinionated coding environment.</p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature-card feature-card--wide">
+              <span class="feature-icon">⌁</span>
+              <div>
+                <h3>Smart Coding Router</h3>
+                <p>Let Krater Pro weigh task complexity, accuracy needs, and cost before choosing a model—or pin Kimi K3 yourself when you know what you want.</p>
+              </div>
+              <div class="router-visual" aria-hidden="true">
+                <span class="router-task">Your task</span>
+                <span class="router-line"></span>
+                <span class="router-core">◉</span>
+                <div><span>accuracy</span><span>cost</span><span>latency</span></div>
+              </div>
+            </article>
+            <article class="feature-card">
+              <span class="feature-icon">◎</span>
+              <h3>Agentic by design</h3>
+              <p>Plan, inspect, edit, run, verify, and recover in a tight loop—with workspace boundaries and human-readable actions.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-icon">↻</span>
+              <h3>Context without the tax</h3>
+              <p>Prompt caching, reusable context, bounded search, and usage telemetry keep long sessions focused and cost-conscious.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-icon">⌘</span>
+              <h3>Language-native judgment</h3>
+              <p>Structured playbooks cover mainstream, systems, functional, data, mobile, infrastructure, and hardware languages.</p>
+            </article>
+            <article class="feature-card">
+              <span class="feature-icon">✓</span>
+              <h3>Benchmarked in the open</h3>
+              <p>A 100-task expert suite plus adapters for DeepSWE, SWE-bench Pro, and SWE-Atlas make validation reproducible—not hand-wavy.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section surfaces" id="surfaces">
+          <div class="section-heading">
+            <span class="eyebrow eyebrow--plain">One agent, where you work</span>
+            <h2>Start light. Go all the way.</h2>
+          </div>
+          <div class="surface-grid">
+            <article class="surface-card surface-card--cloud">
+              <div class="surface-card__label">TRY IT NOW</div>
+              <span class="surface-icon">☁</span>
+              <h3>Cloud Lab</h3>
+              <p>A safe virtual scratch workspace for saved files, project conversations, and Kimi K3 assistance. No install required.</p>
+              <ul>
+                <li>Private account and saved progress</li>
+                <li>Virtual files and editor tabs</li>
+                <li>Your own memory-only Krater key</li>
+              </ul>
+              <button class="text-link" id="surface-launch-button" type="button">Launch Cloud Lab <span aria-hidden="true">→</span></button>
+            </article>
+            <article class="surface-card">
+              <div class="surface-card__label">FULL POWER</div>
+              <span class="surface-icon">▣</span>
+              <h3>Local IDE</h3>
+              <p>The complete browser-based coding cockpit bound to your machine, with the full Krater Pro agent beside your editor.</p>
+              <ul>
+                <li>Local, GitHub, and scratch projects</li>
+                <li>Filesystem, search, and terminal tools</li>
+                <li>Streaming agent runs and telemetry</li>
+              </ul>
+              <a class="text-link" href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">Install from GitHub <span aria-hidden="true">↗</span></a>
+            </article>
+            <article class="surface-card">
+              <div class="surface-card__label">FASTEST LOOP</div>
+              <span class="surface-icon">&gt;_</span>
+              <h3>CLI</h3>
+              <p>Bring the same agent into the terminal, script one-shot tasks, or work interactively without leaving your keyboard.</p>
+              <ul>
+                <li><code>krater</code> interactive mode</li>
+                <li>Explicit model or smart routing</li>
+                <li>Project-confined command execution</li>
+              </ul>
+              <a class="text-link" href="https://github.com/SupratimSircar05/krater-pro#readme" target="_blank" rel="noopener noreferrer">Read the docs <span aria-hidden="true">↗</span></a>
+            </article>
+          </div>
+        </section>
+
+        <section class="section launch-panel">
+          <img src="/logo.svg" alt="" width="70" height="70">
+          <div>
+            <span class="eyebrow eyebrow--plain">Ready for liftoff?</span>
+            <h2>Bring the problem. Krater Pro brings the loop.</h2>
+            <p>Create a free Cloud Lab account, then connect your own Krater.ai API key when you are ready to run Kimi K3.</p>
+          </div>
+          <div class="launch-panel__actions">
+            <button class="button button--primary" id="footer-launch-button" type="button">Create free account</button>
+            <a class="button button--secondary" href="https://krater.ai/pricing" target="_blank" rel="noopener noreferrer">Krater.ai plans ↗</a>
+          </div>
+        </section>
+      </div>
+
+      <section class="lab" id="lab-view" aria-label="Krater Pro Cloud Lab" hidden>
+        <header class="lab-header">
+          <a class="brand brand--lab" href="/" id="lab-home-link" aria-label="Return to Krater Pro home">
+            <img src="/logo.svg" alt="" width="34" height="34">
+            <span>Krater Pro</span>
+            <em>Cloud Lab</em>
+          </a>
+          <div class="lab-header__status">
+            <span class="connection-pill" id="api-connection-pill"><i></i> API key needed</span>
+            <button class="button button--quiet button--compact" id="connect-key-button" type="button">Connect Krater.ai</button>
+          </div>
+          <div class="lab-mobile-tools" aria-label="Cloud Lab panels">
+            <button id="mobile-projects-button" type="button" aria-expanded="false">Projects</button>
+            <button id="mobile-agent-button" type="button" aria-expanded="false">Agent</button>
+          </div>
+          <div class="account-menu">
+            <button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-popover">
+              <span id="account-avatar">K</span>
+              <span id="account-email">Account</span>
+              <span aria-hidden="true">⌄</span>
+            </button>
+            <div class="account-popover" id="account-popover" hidden>
+              <button id="popover-connect-key-button" type="button">Connect Krater.ai</button>
+              <a href="https://krater.ai/developers" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
+              <a href="https://krater.ai/pricing" target="_blank" rel="noopener noreferrer">Krater.ai pricing ↗</a>
+              <hr>
+              <button id="logout-button" type="button">Log out</button>
+              <button class="danger-text" id="delete-account-button" type="button">Delete account</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="lab-shell">
+          <aside class="project-rail">
+            <div class="rail-heading">
+              <span>PROJECTS</span>
+              <button class="mini-button" id="new-project-button" type="button" aria-label="Create project" title="Create project">+</button>
+            </div>
+            <div class="project-list" id="project-list"></div>
+            <div class="rail-empty" id="project-empty" hidden>
+              <span>◎</span>
+              <p>Your first workspace is one click away.</p>
+              <button class="button button--secondary button--compact" id="empty-new-project-button" type="button">New project</button>
+            </div>
+            <div class="rail-foot">
+              <span>Virtual workspace</span>
+              <button id="about-cloud-button" type="button" aria-label="About Cloud Lab">?</button>
+            </div>
+          </aside>
+
+          <section class="editor-pane">
+            <div class="editor-toolbar">
+              <div class="file-tabs" id="file-tabs" role="tablist" aria-label="Open files"></div>
+              <button class="mini-button editor-add-file" id="new-file-button" type="button" aria-label="Create file" title="Create file">+</button>
+            </div>
+            <div class="editor-empty" id="editor-empty">
+              <img src="/logo.svg" alt="" width="54" height="54">
+              <h2>Select or create a project</h2>
+              <p>Build in a safe virtual workspace, then take your project into the full local IDE when you need Git and terminal tools.</p>
+            </div>
+            <div class="editor-workspace" id="editor-workspace" hidden>
+              <div class="breadcrumb" id="file-breadcrumb">project / README.md</div>
+              <div class="editor-frame">
+                <div class="line-numbers" id="line-numbers" aria-hidden="true">1</div>
+                <textarea id="code-editor" aria-label="Code editor" spellcheck="false" wrap="off"></textarea>
+              </div>
+            </div>
+            <div class="editor-status">
+              <span id="save-status" role="status">No project selected</span>
+              <span class="editor-status__right"><span id="file-language">Plain text</span><span id="cursor-position">Ln 1, Col 1</span></span>
+            </div>
+          </section>
+
+          <aside class="chat-pane">
+            <div class="chat-heading">
+              <div>
+                <span class="agent-orb">◉</span>
+                <div><strong>Krater Agent</strong><span>Kimi K3</span></div>
+              </div>
+              <button class="mini-button" id="clear-chat-button" type="button" aria-label="Clear conversation" title="Clear conversation">↻</button>
+            </div>
+            <div class="chat-messages" id="chat-messages" aria-live="polite" aria-label="Conversation">
+              <div class="welcome-message">
+                <span class="agent-orb agent-orb--large">◉</span>
+                <h2>What are we building?</h2>
+                <p>I can reason about the files in this virtual project, explain code, draft changes, and help debug with Kimi K3.</p>
+              </div>
+            </div>
+            <form class="chat-form" id="chat-form">
+              <label class="sr-only" for="chat-input">Message Krater Agent</label>
+              <textarea id="chat-input" rows="3" placeholder="Ask Krater Agent…" maxlength="12000"></textarea>
+              <div class="chat-form__foot">
+                <span id="chat-model-label">moonshotai/kimi-k3</span>
+                <button id="send-chat-button" type="submit" aria-label="Send message" disabled>↑</button>
+              </div>
+            </form>
+            <div class="usage-bar" aria-label="Session usage">
+              <span>Session usage</span>
+              <strong id="usage-summary">0 tokens</strong>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="site-footer">
+      <div>
+        <a class="brand brand--footer" href="/">
+          <img src="/logo.svg" alt="" width="31" height="31">
+          <span>Krater Pro</span>
+        </a>
+        <p>Built by <a href="https://www.linkedin.com/in/supratimsircar/" target="_blank" rel="noopener noreferrer">Supratim</a> with ❤️</p>
+      </div>
+      <nav aria-label="Footer navigation">
+        <a href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://krater.ai/developers" target="_blank" rel="noopener noreferrer">Krater API</a>
+        <a href="https://krater.ai/pricing" target="_blank" rel="noopener noreferrer">Pricing</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/terms.html">Terms</a>
+        <button id="footer-signin-button" type="button">Sign in</button>
+      </nav>
+    </footer>
+
+    <dialog class="modal" id="auth-dialog" aria-labelledby="auth-title">
+      <button class="modal-close" id="auth-close-button" type="button" aria-label="Close">×</button>
+      <div class="modal-brand"><img src="/logo.svg" alt="" width="46" height="46"></div>
+      <h2 id="auth-title">Welcome to Cloud Lab</h2>
+      <p id="auth-copy">Sign in to continue your projects from any session.</p>
+      <div class="auth-tabs" role="tablist" aria-label="Authentication">
+        <button id="login-tab" type="button" role="tab" aria-selected="true" aria-controls="auth-form">Sign in</button>
+        <button id="register-tab" type="button" role="tab" aria-selected="false" aria-controls="auth-form">Create account</button>
+      </div>
+      <form id="auth-form">
+        <label for="auth-email">Email</label>
+        <input id="auth-email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+        <label for="auth-password">Password</label>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128" placeholder="At least 12 characters">
+        <p class="form-error" id="auth-error" role="alert"></p>
+        <button class="button button--primary button--full" id="auth-submit-button" type="submit">Sign in</button>
+      </form>
+      <p class="account-disclosure" id="account-disclosure" hidden>
+        By creating an account, you agree to the <a href="/terms.html">Terms</a> and acknowledge the
+        <a href="/privacy.html">Privacy Notice</a>.
+      </p>
+      <p class="modal-fineprint">Your account stores Cloud Lab projects. Krater API keys are never saved.</p>
+    </dialog>
+
+    <dialog class="modal modal--key" id="key-dialog" aria-labelledby="key-title">
+      <button class="modal-close" id="key-close-button" type="button" aria-label="Close">×</button>
+      <div class="modal-brand"><img src="/logo.svg" alt="" width="46" height="46"></div>
+      <h2 id="key-title">Connect Krater.ai</h2>
+      <p>Use your own API key to power Kimi K3. It is held only in this page’s memory, sent directly to this site’s secure API, and forgotten when the page closes.</p>
+      <form id="key-form">
+        <label for="api-key-input">Krater API key</label>
+        <div class="secret-input">
+          <input id="api-key-input" name="apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required maxlength="4096" placeholder="Paste your key">
+          <button id="toggle-key-button" type="button" aria-label="Show API key">Show</button>
+        </div>
+        <p class="form-error" id="key-error" role="alert"></p>
+        <button class="button button--primary button--full" id="key-submit-button" type="submit">Validate and connect</button>
+      </form>
+      <div class="key-links">
+        <a href="https://krater.ai/developers" target="_blank" rel="noopener noreferrer">Create an API key ↗</a>
+        <a href="https://krater.ai/pricing" target="_blank" rel="noopener noreferrer">Compare Krater plans ↗</a>
+      </div>
+      <p class="key-disclosure">
+        Connecting sends your key and each inference payload to Krater.ai as described in the
+        <a href="/privacy.html">Privacy Notice</a>.
+      </p>
+    </dialog>
+
+    <dialog class="modal modal--compact" id="project-dialog" aria-labelledby="project-title">
+      <button class="modal-close" id="project-close-button" type="button" aria-label="Close">×</button>
+      <h2 id="project-title">Create a project</h2>
+      <p>Start with a lightweight virtual workspace you can revisit anytime.</p>
+      <form id="project-form">
+        <label for="project-name-input">Project name</label>
+        <input id="project-name-input" type="text" required minlength="1" maxlength="80" placeholder="my-next-project">
+        <p class="form-error" id="project-error" role="alert"></p>
+        <button class="button button--primary button--full" type="submit">Create project</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal modal--compact" id="file-dialog" aria-labelledby="file-title">
+      <button class="modal-close" id="file-close-button" type="button" aria-label="Close">×</button>
+      <h2 id="file-title">Create a file</h2>
+      <p>Use a relative path such as <code>src/index.ts</code>.</p>
+      <form id="file-form">
+        <label for="file-path-input">File path</label>
+        <input id="file-path-input" type="text" required maxlength="180" placeholder="src/index.ts">
+        <p class="form-error" id="file-error" role="alert"></p>
+        <button class="button button--primary button--full" type="submit">Create file</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal modal--compact" id="confirm-dialog" aria-labelledby="confirm-title">
+      <button class="modal-close" id="confirm-close-button" type="button" aria-label="Close">×</button>
+      <h2 id="confirm-title">Confirm action</h2>
+      <p id="confirm-copy"></p>
+      <div class="confirm-actions">
+        <button class="button button--secondary" id="confirm-cancel-button" type="button">Cancel</button>
+        <button class="button button--danger" id="confirm-action-button" type="button">Delete</button>
+      </div>
+    </dialog>
+
+    <dialog class="modal modal--compact" id="cloud-info-dialog" aria-labelledby="cloud-info-title">
+      <button class="modal-close" id="cloud-info-close-button" type="button" aria-label="Close">×</button>
+      <h2 id="cloud-info-title">About Cloud Lab</h2>
+      <p>Cloud Lab is a safe virtual scratch workspace. It does not execute code or access a real filesystem, terminal, or Git repository.</p>
+      <p>For the full agentic toolset—including local files, Git, terminal commands, project switching, and sandboxed execution—install the local Krater Pro CLI and IDE.</p>
+      <a class="button button--primary button--full" href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">Get Krater Pro on GitHub ↗</a>
+    </dialog>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>

@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1270" height="760" viewBox="0 0 1270 760" role="img" aria-labelledby="asset-title asset-description">
+  <title id="asset-title">Krater Pro Smart Coding Router</title>
+  <desc id="asset-description">A dark Krater Pro launch graphic showing a coding task flowing through an auditable, cost-aware model router with an exact Kimi K3 override.</desc>
+  <defs>
+    <linearGradient id="bg-router" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#08090B"/>
+      <stop offset=".52" stop-color="#0D0E12"/>
+      <stop offset="1" stop-color="#1A0E0B"/>
+    </linearGradient>
+    <radialGradient id="router-halo" cx="0" cy="0" r="1" gradientTransform="translate(644 396) rotate(90) scale(350 520)">
+      <stop stop-color="#E87A46" stop-opacity=".14"/>
+      <stop offset=".65" stop-color="#E87A46" stop-opacity=".025"/>
+      <stop offset="1" stop-color="#E87A46" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="router-card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1D1512"/>
+      <stop offset="1" stop-color="#111318"/>
+    </linearGradient>
+    <linearGradient id="router-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFB083"/>
+      <stop offset=".5" stop-color="#E87A46"/>
+      <stop offset="1" stop-color="#A7432A"/>
+    </linearGradient>
+    <filter id="router-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity=".58"/>
+    </filter>
+    <marker id="router-arrow" viewBox="0 0 12 12" refX="9" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <path d="M1 1l9 5-9 5Z" fill="#E87A46"/>
+    </marker>
+  </defs>
+
+  <rect width="1270" height="760" fill="url(#bg-router)"/>
+  <rect width="1270" height="760" fill="url(#router-halo)"/>
+  <path d="M-40 632C233 513 402 677 659 601c224-67 401-187 651-113" fill="none" stroke="#E87A46" stroke-opacity=".055" stroke-width="90"/>
+
+  <!-- Canonical mark copied from web/src/assets/krater-pro-mark.svg. -->
+  <svg x="70" y="48" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="mark-title-router mark-description-router">
+    <title id="mark-title-router">Krater Pro</title>
+    <desc id="mark-description-router">An illuminated orange crater surrounded by an orbital ring.</desc>
+    <defs>
+      <linearGradient id="tile" x1="9" y1="5" x2="55" y2="59" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#3A1710"/>
+        <stop offset=".62" stop-color="#140D0C"/>
+        <stop offset="1" stop-color="#0B0C0F"/>
+      </linearGradient>
+      <radialGradient id="crater" cx="0" cy="0" r="1" gradientTransform="translate(26 24) rotate(49) scale(27)">
+        <stop stop-color="#FFB083"/>
+        <stop offset=".38" stop-color="#F08750"/>
+        <stop offset=".72" stop-color="#B94B2D"/>
+        <stop offset="1" stop-color="#572219"/>
+      </radialGradient>
+      <radialGradient id="basin" cx="0" cy="0" r="1" gradientTransform="translate(37 38) rotate(132) scale(12)">
+        <stop stop-color="#351411"/>
+        <stop offset=".68" stop-color="#6B291D"/>
+        <stop offset="1" stop-color="#D6653C"/>
+      </radialGradient>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="2.4"/>
+      </filter>
+    </defs>
+    <rect x="1" y="1" width="62" height="62" rx="18" fill="url(#tile)"/>
+    <rect x="1.5" y="1.5" width="61" height="61" rx="17.5" fill="none" stroke="#FF9D69" stroke-opacity=".34"/>
+    <ellipse cx="32" cy="34" rx="25" ry="10" transform="rotate(-20 32 34)" fill="none" stroke="#FFC19D" stroke-opacity=".32" stroke-width="1.5"/>
+    <circle cx="32" cy="32" r="19" fill="#E66D3D" fill-opacity=".22" filter="url(#glow)"/>
+    <circle cx="32" cy="32" r="17" fill="url(#crater)"/>
+    <circle cx="37" cy="38" r="7.5" fill="url(#basin)"/>
+    <circle cx="25" cy="25" r="3.5" fill="#7D3021" fill-opacity=".65"/>
+    <circle cx="23.5" cy="23.5" r="1.2" fill="#FFD1B4" fill-opacity=".56"/>
+    <path d="M19.5 30.5c2.8-7.7 9.7-12.2 17.4-11.8" fill="none" stroke="#FFD0B1" stroke-linecap="round" stroke-opacity=".55" stroke-width="1.5"/>
+    <circle cx="50.5" cy="26" r="2.2" fill="#FFC29D"/>
+    <circle cx="12.5" cy="40.5" r="1.4" fill="#FF9A63" fill-opacity=".75"/>
+  </svg>
+
+  <text x="152" y="76" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="25" font-weight="800" letter-spacing="-.6">KRATER PRO</text>
+  <text x="152" y="100" fill="#9B9994" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="650" letter-spacing="1.5">SMART CODING ROUTER</text>
+  <rect x="1040" y="58" width="160" height="35" rx="17.5" fill="#E87A46" fill-opacity=".11" stroke="#E87A46" stroke-opacity=".38"/>
+  <text x="1120" y="81" text-anchor="middle" fill="#FFB083" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="750">AUTO OR EXACT</text>
+
+  <text x="635" y="178" text-anchor="middle" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="52" font-weight="790" letter-spacing="-2">Route for accuracy.&#160;&#160;Control for cost.</text>
+  <text x="635" y="218" text-anchor="middle" fill="#B0ADA7" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20">Auditable automatic selection from the live Krater catalog—or pin the model you choose.</text>
+
+  <!-- Task card -->
+  <rect x="70" y="284" width="292" height="212" rx="22" fill="#121419" stroke="#32353D" filter="url(#router-shadow)"/>
+  <rect x="90" y="304" width="89" height="28" rx="14" fill="#21242B"/>
+  <text x="134.5" y="323" text-anchor="middle" fill="#B9BBC1" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="750" letter-spacing="1.2">YOUR TASK</text>
+  <text x="94" y="369" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="720">Repair this race condition</text>
+  <text x="94" y="398" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="720">and run the test suite.</text>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12.5" font-weight="650">
+    <rect x="94" y="428" width="70" height="30" rx="8" fill="#1C1F25" stroke="#30343C"/>
+    <text x="129" y="448" text-anchor="middle" fill="#B5B7BD">tools</text>
+    <rect x="172" y="428" width="84" height="30" rx="8" fill="#1C1F25" stroke="#30343C"/>
+    <text x="214" y="448" text-anchor="middle" fill="#B5B7BD">high risk</text>
+    <rect x="264" y="428" width="75" height="30" rx="8" fill="#1C1F25" stroke="#30343C"/>
+    <text x="301.5" y="448" text-anchor="middle" fill="#B5B7BD">large ctx</text>
+  </g>
+
+  <path d="M371 390h84" fill="none" stroke="#E87A46" stroke-width="2.5" stroke-linecap="round" marker-end="url(#router-arrow)"/>
+  <text x="413" y="375" text-anchor="middle" fill="#8E8C88" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="650">CLASSIFY</text>
+
+  <!-- Router -->
+  <rect x="466" y="265" width="338" height="250" rx="28" fill="url(#router-card)" stroke="#8A432B" stroke-width="1.5" filter="url(#router-shadow)"/>
+  <rect x="466" y="265" width="338" height="5" rx="2.5" fill="url(#router-accent)"/>
+  <circle cx="635" cy="334" r="39" fill="#E87A46" fill-opacity=".12" stroke="#E87A46" stroke-opacity=".52"/>
+  <circle cx="635" cy="334" r="25" fill="#E87A46" fill-opacity=".17" stroke="#FF9461"/>
+  <circle cx="635" cy="334" r="8" fill="#FF9461"/>
+  <path d="M635 300v16M669 334h-16M635 368v-16M601 334h16" stroke="#FFB083" stroke-width="2" stroke-linecap="round"/>
+  <text x="635" y="402" text-anchor="middle" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="24" font-weight="760">Smart Coding Router</text>
+  <text x="635" y="433" text-anchor="middle" fill="#B7B3AD" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">capability gates → quality target → cost frontier</text>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" font-weight="700">
+    <rect x="494" y="458" width="86" height="31" rx="9" fill="#291710" stroke="#6C3423"/>
+    <text x="537" y="478" text-anchor="middle" fill="#FFC09B">tool calling</text>
+    <rect x="590" y="458" width="88" height="31" rx="9" fill="#291710" stroke="#6C3423"/>
+    <text x="634" y="478" text-anchor="middle" fill="#FFC09B">context fit</text>
+    <rect x="688" y="458" width="88" height="31" rx="9" fill="#291710" stroke="#6C3423"/>
+    <text x="732" y="478" text-anchor="middle" fill="#FFC09B">price data</text>
+  </g>
+
+  <path d="M814 390h84" fill="none" stroke="#E87A46" stroke-width="2.5" stroke-linecap="round" marker-end="url(#router-arrow)"/>
+  <text x="856" y="375" text-anchor="middle" fill="#8E8C88" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="650">DECIDE</text>
+
+  <!-- Decision card -->
+  <rect x="909" y="284" width="291" height="212" rx="22" fill="#121419" stroke="#61402F" filter="url(#router-shadow)"/>
+  <rect x="929" y="304" width="121" height="28" rx="14" fill="#E87A46" fill-opacity=".13" stroke="#E87A46" stroke-opacity=".32"/>
+  <text x="991" y="323" text-anchor="middle" fill="#FFC09B" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="750" letter-spacing="1">ROUTE LOCKED</text>
+  <text x="933" y="369" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="19" font-weight="750">Qualified model</text>
+  <text x="933" y="399" fill="#FF9461" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="16" font-weight="700">from live catalog</text>
+  <line x1="933" y1="420" x2="1176" y2="420" stroke="#2F3239"/>
+  <text x="933" y="449" fill="#92959C" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12">Visible tier · confidence · rationale</text>
+  <text x="933" y="474" fill="#92959C" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12">Fixed for conversation coherence</text>
+
+  <!-- Feature cards -->
+  <rect x="70" y="559" width="354" height="119" rx="18" fill="#111318" stroke="#2D3037"/>
+  <circle cx="105" cy="593" r="14" fill="#E87A46" fill-opacity=".15" stroke="#E87A46" stroke-opacity=".55"/>
+  <path d="M99 593h12M105 587v12" stroke="#FFB083" stroke-width="2" stroke-linecap="round"/>
+  <text x="132" y="598" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="17" font-weight="730">Explainable Auto mode</text>
+  <text x="94" y="635" fill="#96999F" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">See the decision—not just the model name.</text>
+
+  <rect x="458" y="559" width="354" height="119" rx="18" fill="#111318" stroke="#2D3037"/>
+  <circle cx="493" cy="593" r="14" fill="#E87A46" fill-opacity=".15" stroke="#E87A46" stroke-opacity=".55"/>
+  <path d="M487 597l12-12M491 585h8v8" fill="none" stroke="#FFB083" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="520" y="598" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="17" font-weight="730">Exact override</text>
+  <text x="482" y="629" fill="#FF9461" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="13">moonshotai/kimi-k3</text>
+  <text x="482" y="651" fill="#96999F" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12.5">Your choice bypasses routing.</text>
+
+  <rect x="846" y="559" width="354" height="119" rx="18" fill="#111318" stroke="#2D3037"/>
+  <circle cx="881" cy="593" r="14" fill="#E87A46" fill-opacity=".15" stroke="#E87A46" stroke-opacity=".55"/>
+  <path d="M875 593h12M878 588h6M879 598h4" stroke="#FFB083" stroke-width="2" stroke-linecap="round"/>
+  <text x="908" y="598" fill="#F2F0EC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="17" font-weight="730">Token-aware controls</text>
+  <text x="870" y="635" fill="#96999F" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="13.5">Caching · compaction · bounded output.</text>
+
+  <text x="70" y="720" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Built by</text>
+  <a href="https://www.linkedin.com/in/supratimsircar/">
+    <text x="125" y="720" fill="#FF9461" text-decoration="underline" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="650">Supratim</text>
+  </a>
+  <text x="196" y="720" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">with ❤️</text>
+  <text x="1200" y="720" text-anchor="end" fill="#85827D" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14">Designed for lower unnecessary cost—not guaranteed outcomes</text>
+</svg>

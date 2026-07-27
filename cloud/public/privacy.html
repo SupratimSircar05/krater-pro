@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#08090b">
+    <meta name="description" content="Privacy Notice for Krater Pro Cloud Lab.">
+    <meta name="robots" content="index, follow">
+    <title>Privacy Notice — Krater Pro</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="legal-page">
+    <a class="skip-link" href="#legal-content">Skip to content</a>
+    <header class="legal-header">
+      <a class="brand" href="/" aria-label="Krater Pro home">
+        <img src="/logo.svg" alt="" width="38" height="38">
+        <span>Krater Pro</span>
+      </a>
+      <nav aria-label="Legal navigation">
+        <a href="/">Home</a>
+        <a href="/terms.html">Terms</a>
+        <a href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      </nav>
+    </header>
+
+    <main class="legal-shell" id="legal-content">
+      <header class="legal-hero">
+        <span class="eyebrow eyebrow--plain">Trust, in plain language</span>
+        <h1>Privacy Notice</h1>
+        <p class="legal-effective">Effective July 27, 2026</p>
+        <p>Krater Pro is built to make its data boundaries understandable. This notice explains what the hosted Cloud Lab handles, why it handles it, and what leaves it when you ask Kimi K3 for help.</p>
+      </header>
+
+      <aside class="legal-summary" aria-labelledby="privacy-short-version">
+        <span class="legal-summary__icon" aria-hidden="true">◎</span>
+        <div>
+          <h2 id="privacy-short-version">The short version</h2>
+          <p>Cloud Lab saves your account and virtual projects so you can return to them. It does not save your Krater API key. When you request inference, the key and bounded project context go to Krater.ai. This application includes no advertising trackers or product analytics.</p>
+        </div>
+      </aside>
+
+      <div class="legal-layout">
+        <nav class="legal-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#scope">Scope</a>
+          <a href="#data">Data handled</a>
+          <a href="#uses">How data is used</a>
+          <a href="#providers">Service providers</a>
+          <a href="#retention">Retention and deletion</a>
+          <a href="#choices">Your choices</a>
+          <a href="#security">Security boundaries</a>
+          <a href="#changes">Changes and contact</a>
+        </nav>
+
+        <article class="legal-copy">
+          <section id="scope">
+            <h2>1. Scope</h2>
+            <p>This notice applies to the hosted Krater Pro Cloud Lab and its account, project, and inference features. The local Krater Pro CLI and IDE run on your computer and have different data flows determined by how you configure and use them.</p>
+          </section>
+
+          <section id="data">
+            <h2>2. Data Cloud Lab handles</h2>
+
+            <h3>Account records</h3>
+            <p>Cloud Lab stores your normalized email address, a slow password-derived hash, its unique salt and iteration count, and account timestamps in Cloudflare D1. It does not store your plaintext password.</p>
+
+            <h3>Virtual projects</h3>
+            <p>Cloud Lab stores project names, virtual file paths and contents, the active file path, saved user and assistant chat messages, and project timestamps. These are virtual scratch projects; Cloud Lab does not read your device filesystem or Git repositories.</p>
+
+            <h3>Essential session data</h3>
+            <p>After authentication, Cloud Lab sets an essential session cookie that lasts for up to seven days. The cookie is marked Secure, HttpOnly, and SameSite=Strict. The database stores a hash of the session token, its account association, and issue and expiry times—not the raw cookie token.</p>
+
+            <h3>Abuse-prevention records</h3>
+            <p>Registration, login, project-mutation, key-validation, and chat routes use temporary rate limits. The database stores a salted hash derived from the requesting IP address and, for signed-in routes, the account identifier, plus the rate-limit scope, time window, count, and expiry. The application does not store the raw IP address in its rate-limit table.</p>
+
+            <h3>Your Krater.ai API key and inference payloads</h3>
+            <p>Your Krater API key is transient request data. The Krater Pro application code does not write it to D1, browser storage, application logs, project snapshots, or responses, and does not echo it back to the page. The page keeps a connected key only in memory until you leave or reload the page, log out, or close it. Cloudflare necessarily processes the encrypted request as the hosting provider, so its independent infrastructure practices also apply.</p>
+            <p>Each inference request sends your supplied API key to Krater.ai together with your prompt, bounded context from your saved virtual files (with the active file considered first), and a bounded portion of recent saved project chat. Krater.ai processes that information to generate the response.</p>
+          </section>
+
+          <section id="uses">
+            <h2>3. How the data is used</h2>
+            <p>The hosted service uses this data only to:</p>
+            <ul>
+              <li>create and authenticate your Cloud Lab account;</li>
+              <li>save, load, update, and delete your virtual projects;</li>
+              <li>protect authentication and inference routes from automated abuse;</li>
+              <li>send an inference request to Krater.ai when you explicitly ask the agent; and</li>
+              <li>operate, secure, diagnose, and maintain the service.</li>
+            </ul>
+            <p>Cloud Lab does not include advertising pixels, behavioral advertising, or product-analytics scripts. Krater Pro does not sell your account or project data.</p>
+          </section>
+
+          <section id="providers">
+            <h2>4. Service providers and disclosures</h2>
+            <h3>Cloudflare</h3>
+            <p>Cloudflare processes hosting, network, security, cookie, and database traffic for the Pages application and D1 database. Cloudflare may handle operational network data under its own service terms and privacy practices.</p>
+
+            <h3>Krater.ai</h3>
+            <p>Krater.ai receives the API key and inference payload described above only when you validate a key or submit a chat request. Your use of its API, model, account, and paid plan is also governed by Krater.ai’s own terms and privacy practices. Review those practices before sending sensitive material.</p>
+
+            <h3>Required disclosures</h3>
+            <p>Information may be disclosed when reasonably necessary to comply with a valid legal obligation, protect users or the service, or investigate abuse. No disclosure can make a model prompt appropriate for secrets; avoid submitting credentials, private keys, or regulated data.</p>
+          </section>
+
+          <section id="retention">
+            <h2>5. Retention and deletion</h2>
+            <ul>
+              <li><strong>Account and projects:</strong> retained in the active service until you delete individual projects or delete your account.</li>
+              <li><strong>Sessions:</strong> tokens stop authorizing requests at expiry. Logout removes the current session row. Expired rows, including short rotation-overlap rows, are removed opportunistically during authenticated traffic or through operational cleanup. Account deletion cascades to all associated session rows.</li>
+              <li><strong>Rate-limit records:</strong> cease being used after their short security windows. Expired hashed records are deleted opportunistically when later protected traffic runs; without later traffic, they may remain until operational cleanup.</li>
+              <li><strong>Krater API keys:</strong> not retained by this application.</li>
+            </ul>
+            <p>Deleting your account removes the account, projects, and sessions from the active service through database cascade deletion. Temporary IP-derived security records are not linked to an account; they cease being used after their short security window and are removed opportunistically by later protected traffic or operational cleanup.</p>
+            <p>Cloudflare D1 Time Travel may retain prior database snapshots for Cloudflare’s applicable limited disaster-recovery window after active deletion. Those historical snapshots are not used for ordinary Cloud Lab access. If a disaster-recovery restore reintroduces data that had been deleted, it will be removed again when the restoration is discovered or when you report it.</p>
+          </section>
+
+          <section id="choices">
+            <h2>6. Your choices</h2>
+            <p>You can delete a virtual project, clear its saved chat, log out, or remove your account from the active service through the Cloud Lab account menu. You can disconnect an API key by leaving or reloading the page, logging out, or closing it. Use public GitHub Issues only for non-sensitive questions. For a request involving your identity or private details, contact the maker privately through LinkedIn first; never include passwords or API keys.</p>
+          </section>
+
+          <section id="security">
+            <h2>7. Security boundaries</h2>
+            <p>Cloud Lab uses bounded inputs, same-origin mutation checks, secure session cookies, hashed passwords and session tokens, per-account project access checks, and a restrictive content security policy. No Internet service can promise absolute security. Use unique account credentials and do not place secrets in virtual files or prompts.</p>
+          </section>
+
+          <section id="changes">
+            <h2>8. Changes and contact</h2>
+            <p>This notice may change when Cloud Lab’s features or data flows change. Material updates will appear on this page with a revised effective date.</p>
+            <p>For non-sensitive questions, use <a href="https://github.com/SupratimSircar05/krater-pro/issues" target="_blank" rel="noopener noreferrer">Krater Pro GitHub Issues</a>. For a privacy request involving your identity or private details, contact <a href="https://www.linkedin.com/in/supratimsircar/" target="_blank" rel="noopener noreferrer">Supratim privately on LinkedIn</a> first. Never send passwords or API keys through either channel.</p>
+          </section>
+        </article>
+      </div>
+    </main>
+
+    <footer class="legal-footer">
+      <div>
+        <a class="brand brand--footer" href="/">
+          <img src="/logo.svg" alt="" width="31" height="31">
+          <span>Krater Pro</span>
+        </a>
+        <p>Built by <a href="https://www.linkedin.com/in/supratimsircar/" target="_blank" rel="noopener noreferrer">Supratim</a> with ❤️</p>
+      </div>
+      <nav aria-label="Footer navigation">
+        <a href="/">Home</a>
+        <a href="/terms.html">Terms</a>
+        <a href="https://github.com/SupratimSircar05/krater-pro" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>
