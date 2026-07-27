@@ -91,10 +91,12 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
 });
 
 test("write-capable release automation pins actions and isolates permission", async () => {
-  const workflow = await readFile(
-    join(repositoryRoot, ".github", "workflows", "desktop-release.yml"),
-    "utf8",
-  );
+  const workflow = (
+    await readFile(
+      join(repositoryRoot, ".github", "workflows", "desktop-release.yml"),
+      "utf8",
+    )
+  ).replaceAll("\r\n", "\n");
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.match(
     workflow,
