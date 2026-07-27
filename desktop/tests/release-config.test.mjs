@@ -22,6 +22,7 @@ test("desktop release config covers every requested native format", async () => 
   );
   for (const required of [
     "productName: Krater Pro",
+    "desktopName: krater-pro",
     "version}-${arch}",
     "dmg",
     "zip",
@@ -37,6 +38,8 @@ test("desktop release config covers every requested native format", async () => 
     "afterPack: desktop/scripts/after-pack.mjs",
     "entitlements: desktop/entitlements.mac.plist",
     "entitlementsInherit: desktop/entitlements.mac.inherit.plist",
+    "maintainer: Supratim Sircar <supratimsircar@users.noreply.github.com>",
+    "syncDesktopName: true",
   ]) {
     assert.ok(config.includes(required), `missing desktop config: ${required}`);
   }

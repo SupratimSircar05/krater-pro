@@ -18,6 +18,7 @@ files:
 
 extraMetadata:
   main: desktop/main.mjs
+  desktopName: krater-pro
 
 asar: true
 compression: maximum
@@ -86,6 +87,9 @@ portable:
 linux:
   icon: icon.png
   executableName: krater-pro
+  maintainer: Supratim Sircar <supratimsircar@users.noreply.github.com>
+  vendor: Supratim Sircar
+  syncDesktopName: true
   category: Development
   synopsis: Agentic coding IDE powered by the Krater API
   description: Krater Pro is a local, approval-aware agentic coding IDE and CLI.
