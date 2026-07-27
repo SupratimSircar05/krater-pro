@@ -13,3 +13,6 @@ web/vite.config.d.ts
 .idea/
 .krater/
 coverage/
+benchmarks/swe_atlas/.artifacts/
+benchmarks/swe_atlas/.work/
+benchmarks/swe_atlas/results/

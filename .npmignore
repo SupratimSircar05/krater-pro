@@ -1,0 +1,10 @@
+**/__pycache__/
+**/*.py[cod]
+**/*.test.ts
+**/test_*.py
+**/.DS_Store
+
+benchmarks/**/.artifacts/
+benchmarks/**/.build/
+benchmarks/**/.work/
+benchmarks/**/results/

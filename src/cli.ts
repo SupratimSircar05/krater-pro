@@ -10,11 +10,17 @@ import {
   openKraterDeveloperPage,
 } from "./browser-auth.js";
 import {
+  type KraterConfig,
   loadConfig,
   requireApiKey,
   type ConfigOverrides,
   type ResponseStyle,
 } from "./config.js";
+import {
+  ROUTER_FALLBACK_MODEL,
+  isAutomaticModel,
+  selectCodingModel,
+} from "./model-selection.js";
 import { KraterProvider } from "./provider.js";
 import { startServer } from "./server.js";
 import { formatUsageEvent, sanitizeTerminalText } from "./telemetry.js";
@@ -90,6 +96,17 @@ function eventPrinter(event: AgentEvent): void {
     case "usage":
       process.stdout.write(`${dim}${formatUsageEvent(event)}${reset}\n`);
       break;
+    case "route": {
+      const confidence = Math.round(event.confidence * 100);
+      const reason = event.reasons[0]
+        ? ` · ${sanitizeTerminalText(event.reasons[0])}`
+        : "";
+      process.stdout.write(
+        `${cyan}◇ Smart Router${reset} ${sanitizeTerminalText(event.model)} ` +
+          `${dim}· ${event.tier} · ${confidence}% confidence · ${event.catalog} catalog${reason}${reset}\n`,
+      );
+      break;
+    }
     case "done":
       process.stdout.write("\n");
       break;
@@ -113,22 +130,50 @@ function createApprovalHandler(
   };
 }
 
-function createAgent(
+async function createAgent(
   options: GlobalOptions,
+  prompt: string,
   readline?: Interface,
-): { agent: AgentSession; source: string; model: string; cwd: string } {
-  const config = loadConfig(globalOverrides(options));
+  loadedConfig?: KraterConfig,
+): Promise<{ agent: AgentSession; source: string; model: string; cwd: string }> {
+  const config = loadedConfig ?? loadConfig(globalOverrides(options));
   const apiKey = requireApiKey(config);
+  const selection = await selectCodingModel({
+    requestedModel: config.model,
+    prompt,
+    contextCharacters: prompt.length,
+    expectedOutputTokens: config.maxOutputTokens,
+    loadModels: (signal) =>
+      new KraterProvider({
+        apiKey,
+        baseURL: config.baseURL,
+        model: ROUTER_FALLBACK_MODEL,
+        maxOutputTokens: config.maxOutputTokens,
+      }).listModels(signal),
+  });
+  if (selection.decision) {
+    const decision = selection.decision;
+    eventPrinter({
+      type: "route",
+      model: decision.model,
+      tier: decision.tier,
+      confidence: decision.confidence,
+      complexity: decision.assessment.complexity,
+      risk: decision.assessment.risk,
+      reasons: decision.reasons,
+      catalog: selection.catalog === "fallback" ? "fallback" : "live",
+    });
+  }
   return {
     agent: new AgentSession({
       provider: new KraterProvider({
         apiKey,
         baseURL: config.baseURL,
-        model: config.model,
+        model: selection.model,
         maxOutputTokens: config.maxOutputTokens,
       }),
       cwd: config.cwd,
-      model: config.model,
+      model: selection.model,
       autoApprove: options.yes,
       onEvent: eventPrinter,
       requestApproval: createApprovalHandler(readline),
@@ -139,7 +184,7 @@ function createAgent(
       sessionTokenBudget: config.sessionTokenBudget,
     }),
     source: config.apiKeySource,
-    model: config.model,
+    model: selection.model,
     cwd: config.cwd,
   };
 }
@@ -149,7 +194,7 @@ async function runPrompt(prompt: string, options: GlobalOptions): Promise<void> 
     ? createInterface({ input: process.stdin, output: process.stdout })
     : undefined;
   try {
-    const { agent } = createAgent(options, readline);
+    const { agent } = await createAgent(options, prompt, readline);
     await agent.run(prompt);
   } finally {
     readline?.close();
@@ -161,9 +206,16 @@ async function interactive(options: GlobalOptions): Promise<void> {
     throw new Error("No prompt provided. Pass a prompt or run Krater Pro in a terminal.");
   }
   const readline = createInterface({ input: process.stdin, output: process.stdout });
-  const { agent, source, model, cwd } = createAgent(options, readline);
+  const config = loadConfig(globalOverrides(options));
+  requireApiKey(config);
+  const configuredModel = isAutomaticModel(config.model)
+    ? "Auto · Smart Router"
+    : config.model;
+  let active:
+    | { agent: AgentSession; source: string; model: string; cwd: string }
+    | undefined;
   process.stdout.write(
-    `\n${logo()}\n${dim}${model} · ${cwd} · key from ${source}${reset}\n` +
+    `\n${logo()}\n${dim}${configuredModel} · ${config.cwd} · key from ${config.apiKeySource}${reset}\n` +
       `${dim}${CREATOR_CREDIT} · ${CREATOR_PROFILE}${reset}\n` +
       `${dim}Type /help for commands, or describe a coding task.${reset}\n\n`,
   );
@@ -179,7 +231,8 @@ async function interactive(options: GlobalOptions): Promise<void> {
       if (!input) continue;
       if (["/exit", "/quit"].includes(input)) break;
       if (input === "/clear") {
-        agent.clear();
+        active?.agent.clear();
+        if (isAutomaticModel(config.model)) active = undefined;
         process.stdout.write(`${dim}Conversation cleared.${reset}\n`);
         continue;
       }
@@ -195,7 +248,8 @@ async function interactive(options: GlobalOptions): Promise<void> {
         continue;
       }
       try {
-        await agent.run(input);
+        active ??= await createAgent(options, input, readline, config);
+        await active.agent.run(input);
       } catch {
         // The event stream already printed the actionable error.
       }
@@ -209,7 +263,10 @@ function addGlobalOptions(command: Command): Command {
   return command
     .option("-k, --api-key <key>", "Krater API key (overrides env and .env)")
     .option("--base-url <url>", "Krater-compatible OpenAI API base URL")
-    .option("-m, --model <id>", "model ID returned by Krater /v1/models")
+    .option(
+      "-m, --model <id>",
+      'model ID returned by Krater /v1/models, or "auto" for Smart Router',
+    )
     .option("-C, --cwd <path>", "workspace directory", process.cwd())
     .option("-y, --yes", "approve file edits and shell commands automatically", false)
     .option(
@@ -273,7 +330,9 @@ program
     const provider = new KraterProvider({
       apiKey: requireApiKey(config),
       baseURL: config.baseURL,
-      model: config.model,
+      model: isAutomaticModel(config.model)
+        ? ROUTER_FALLBACK_MODEL
+        : config.model,
       maxOutputTokens: config.maxOutputTokens,
     });
     const models = await provider.listModels();
@@ -310,7 +369,11 @@ auth
     const config = loadConfig(globalOverrides(options));
     process.stdout.write(
       config.apiKey
-        ? `${green}Key configured (unverified)${reset} · ${config.apiKeySource} · ${config.model}\n`
+        ? `${green}Key configured (unverified)${reset} · ${config.apiKeySource} · ${
+            isAutomaticModel(config.model)
+              ? "Auto · Smart Router"
+              : config.model
+          }\n`
         : `${red}No key configured${reset} · run krater auth login\n`,
     );
   });

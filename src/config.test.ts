@@ -42,6 +42,7 @@ describe("loadConfig", () => {
       apiKeySource: "missing",
       baseURL: DEFAULT_BASE_URL,
       model: DEFAULT_MODEL,
+      modelSource: "default",
       cwd: await realpath(cwd),
       port: DEFAULT_PORT,
       host: DEFAULT_HOST,
@@ -79,6 +80,7 @@ describe("loadConfig", () => {
     expect(config.apiKeySource).toBe(".env");
     expect(config.baseURL).toBe("https://file.krater.test/v1");
     expect(config.model).toBe("file/model");
+    expect(config.modelSource).toBe(".env");
     expect(config.port).toBe(4401);
     expect(config.host).toBe("localhost");
     expect(config.contextChars).toBe(150_000);
@@ -137,6 +139,7 @@ describe("loadConfig", () => {
     expect(config.apiKeySource).toBe("command");
     expect(config.baseURL).toBe("https://command.krater.test/v1");
     expect(config.model).toBe("command/model");
+    expect(config.modelSource).toBe("command");
     expect(config.port).toBe(4403);
     expect(config.host).toBe("command-host");
     expect(config.contextChars).toBe(170_000);
@@ -169,6 +172,7 @@ describe("loadConfig", () => {
     expect(config.apiKeySource).toBe("environment");
     expect(config.baseURL).toBe("https://environment.krater.test/v1");
     expect(config.model).toBe("environment/model");
+    expect(config.modelSource).toBe("environment");
     expect(config.host).toBe("environment-host");
   });
 

@@ -1,0 +1,21 @@
+jobs_dir: benchmarks/swe_atlas/results/rf
+n_attempts: 1
+n_concurrent_trials: 1
+timeout_multiplier: 1.0
+quiet: false
+
+environment:
+  type: docker
+  force_build: false
+  delete: true
+
+agents:
+  - import_path: benchmarks.swe_atlas.krater_agent:KraterProAtlasAgent
+    model_name: moonshotai/kimi-k3
+    extra_allowed_hosts:
+      - api.krater.ai
+    kwargs:
+      task_kind: rf
+
+datasets:
+  - path: benchmarks/swe_atlas/.work/rf

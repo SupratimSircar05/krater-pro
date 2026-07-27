@@ -456,6 +456,91 @@ describe("CLI safety gates", () => {
     expect(json).toContain("[REDACTED_KRATER_API_KEY]");
     expect(markdown).toMatch(/sha256: [a-f0-9]{64}/);
   });
+
+  it("resolves auto once and records the concrete model for a comparable run", async () => {
+    const invocation = await temporaryDirectory("krater-router-benchmark-");
+    await writeFile(
+      join(invocation, ".env"),
+      "KRATER_API_KEY=kr_test_router_secret\n",
+    );
+    const providerFactory = vi.fn((providerOptions) => ({
+      async complete(
+        _messages: unknown,
+        _tools: unknown,
+        onText: (text: string) => void,
+      ) {
+        const text = `completed with ${providerOptions.model}`;
+        onText(text);
+        return {
+          message: { role: "assistant" as const, content: text },
+          usage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
+        };
+      },
+      async listModels() {
+        return [
+          {
+            id: "cheap/model",
+            pricing: { prompt: 0.1, completion: 0.2 },
+            context_length: 128_000,
+            supported_parameters: ["tools"],
+            benchmarks: {
+              artificial_analysis: {
+                coding_index: 30,
+                agentic_index: 25,
+                intelligence_index: 30,
+              },
+            },
+          },
+          {
+            id: "moonshotai/kimi-k3",
+            pricing: { prompt: 3, completion: 15 },
+            context_length: 1_048_576,
+            supported_parameters: ["tools"],
+            benchmarks: {
+              artificial_analysis: {
+                coding_index: 76.2,
+                agentic_index: 50.1,
+                intelligence_index: 57.1,
+              },
+            },
+          },
+        ];
+      },
+    }));
+    const stdout = vi.fn();
+
+    const result = await runBenchmarkCli(
+      [
+        "--live",
+        "--task",
+        "KC-001",
+        "--model",
+        "auto",
+        "--output",
+        join(invocation, "router-report"),
+      ],
+      {
+        catalog: makeCatalog(),
+        cwd: invocation,
+        providerFactory,
+        stdout,
+      },
+    );
+
+    expect(result.mode).toBe("live");
+    if (result.mode !== "live") throw new Error("expected a live result");
+    expect(providerFactory).toHaveBeenCalledTimes(2);
+    expect(providerFactory.mock.calls[0][0].model).toBe(
+      "moonshotai/kimi-k3",
+    );
+    expect(providerFactory.mock.calls[1][0].model).toBe(
+      "moonshotai/kimi-k3",
+    );
+    expect(result.report.run.model).toBe("moonshotai/kimi-k3");
+    expect(stdout.mock.calls.flat().join("")).toMatch(
+      /Smart Router selected moonshotai\/kimi-k3/i,
+    );
+  });
 });
 
 describe("honest execution scoring", () => {

@@ -18,6 +18,7 @@ describe("consumeSseEvents", () => {
   it("parses frames split across transport chunks and requires done", async () => {
     const events: StreamEvent[] = [];
     const response = streamedResponse([
+      'data: {"type":"route","model":"moonshotai/kimi-k3","tier":"balanced","confidence":0.92,"complexity":"advanced","risk":"medium","reasons":["Best quality-cost fit."],"catalog":"live"}\n\n',
       'data: {"type":"te',
       'xt","text":"hel',
       'lo"}\n\ndata: {"type":"usage","totalTokens":3}\n',
@@ -28,6 +29,16 @@ describe("consumeSseEvents", () => {
       "done",
     );
     expect(events).toEqual([
+      {
+        type: "route",
+        model: "moonshotai/kimi-k3",
+        tier: "balanced",
+        confidence: 0.92,
+        complexity: "advanced",
+        risk: "medium",
+        reasons: ["Best quality-cost fit."],
+        catalog: "live",
+      },
       { type: "text", text: "hello" },
       { type: "usage", totalTokens: 3 },
       { type: "done" },

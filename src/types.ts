@@ -1,3 +1,5 @@
+import type { AvailableModel } from "./router.js";
+
 export type JsonObject = Record<string, unknown>;
 
 export interface ToolCall {
@@ -28,9 +30,31 @@ export interface Usage {
   completionTokens?: number;
   totalTokens?: number;
   cachedTokens?: number;
+  providerRequests?: number;
+}
+
+export class ProviderCompletionError extends Error {
+  constructor(
+    message: string,
+    readonly usage: Usage,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "ProviderCompletionError";
+  }
 }
 
 export type AgentEvent =
+  | {
+      type: "route";
+      model: string;
+      tier: "economy" | "balanced" | "premium";
+      confidence: number;
+      complexity: "routine" | "standard" | "advanced" | "expert";
+      risk: "low" | "medium" | "high";
+      reasons: string[];
+      catalog: "live" | "fallback";
+    }
   | { type: "text"; text: string }
   | { type: "tool"; id: string; name: string; args: JsonObject }
   | {
@@ -72,7 +96,7 @@ export interface ChatProvider {
     onText: (text: string) => void,
     signal?: AbortSignal,
   ): Promise<AssistantTurn>;
-  listModels(signal?: AbortSignal): Promise<Array<{ id: string; ownedBy?: string }>>;
+  listModels(signal?: AbortSignal): Promise<AvailableModel[]>;
 }
 
 export interface ApprovalRequest {

@@ -33,6 +33,11 @@ import {
   type KraterConfig,
 } from "../src/config.js";
 import {
+  ROUTER_FALLBACK_MODEL,
+  isAutomaticModel,
+  selectCodingModel,
+} from "../src/model-selection.js";
+import {
   KraterProvider,
   type KraterProviderOptions,
 } from "../src/provider.js";
@@ -1248,16 +1253,42 @@ export async function runBenchmarkCli(
   }
   const config = loadConfig({ cwd: invocationCwd, model: options.model });
   const apiKey = requireApiKey(config);
-  const provider = (dependencies.providerFactory ?? ((providerOptions) =>
-    new KraterProvider(providerOptions)))({
+  const providerFactory =
+    dependencies.providerFactory ??
+    ((providerOptions: KraterProviderOptions) =>
+      new KraterProvider(providerOptions));
+  let resolvedModel = config.model;
+  if (isAutomaticModel(config.model)) {
+    const catalogProvider = providerFactory({
+      apiKey,
+      baseURL: config.baseURL,
+      model: ROUTER_FALLBACK_MODEL,
+      maxOutputTokens: config.maxOutputTokens,
+    });
+    const selection = await selectCodingModel({
+      requestedModel: config.model,
+      prompt: taskPrompt(plan.selectedTasks[0]),
+      contextCharacters: taskPrompt(plan.selectedTasks[0]).length,
+      expectedOutputTokens: config.maxOutputTokens,
+      loadModels: (signal) => catalogProvider.listModels(signal),
+      signal: dependencies.signal,
+    });
+    resolvedModel = selection.model;
+    const decision = selection.decision!;
+    output(
+      `Smart Router selected ${decision.model} (${decision.tier}, ` +
+        `${Math.round(decision.confidence * 100)}% confidence; ${selection.catalog} catalog).\n`,
+    );
+  }
+  const provider = providerFactory({
     apiKey,
     baseURL: config.baseURL,
-    model: config.model,
+    model: resolvedModel,
     maxOutputTokens: config.maxOutputTokens,
   });
 
   output(
-    `Live Krater Pro benchmark: ${plan.selectedTasks.length} task(s), model ${config.model}.\n` +
+    `Live Krater Pro benchmark: ${plan.selectedTasks.length} task(s), model ${resolvedModel}.\n` +
       "This may consume substantial Krater credits. API key contents will not be logged.\n",
   );
   const startedAtMs = Date.now();
@@ -1268,7 +1299,7 @@ export async function runBenchmarkCli(
     const result = await runOneTask(
       task,
       provider,
-      config.model,
+      resolvedModel,
       apiKey,
       {
         contextChars: config.contextChars,
@@ -1292,7 +1323,7 @@ export async function runBenchmarkCli(
   const report = buildReport(
     catalog,
     plan,
-    config.model,
+    resolvedModel,
     config.apiKeySource,
     {
       contextChars: config.contextChars,
@@ -1315,7 +1346,7 @@ export async function runBenchmarkCli(
       : plan.selection === "category"
         ? plan.selectedTasks[0].category
         : "all";
-  const stem = `${timestamp}-${safeReportComponent(config.model)}-${safeReportComponent(selectionLabel)}`;
+  const stem = `${timestamp}-${safeReportComponent(resolvedModel)}-${safeReportComponent(selectionLabel)}`;
   const paths = await resolveReportPaths(options.output, invocationCwd, stem);
   await writeReport(report, paths);
   output(`JSON report: ${paths.json}\nMarkdown report: ${paths.markdown}\n`);

@@ -11,9 +11,20 @@ import express, { type Express, type Request, type Response } from "express";
 import { AgentSession } from "./agent.js";
 import { browserAuthCapabilities } from "./browser-auth.js";
 import type { KraterConfig } from "./config.js";
+import {
+  ROUTER_FALLBACK_MODEL,
+  isAutomaticModel,
+  selectCodingModel,
+} from "./model-selection.js";
 import { ProjectRegistry, type ProjectRecord } from "./projects.js";
 import { KraterProvider } from "./provider.js";
+import type { AvailableModel } from "./router.js";
+import { sanitizeTerminalText } from "./telemetry.js";
 import type { AgentEvent, ApprovalRequest } from "./types.js";
+import {
+  Workspace,
+  WorkspaceRevisionConflictError,
+} from "./workspace.js";
 
 export interface ServerOptions {
   dev?: boolean;
@@ -28,6 +39,9 @@ interface PendingApproval {
 const LOCAL_SESSION_COOKIE = "krater_pro_local";
 const MAX_BROWSER_SESSIONS = 64;
 const SESSION_IDLE_MS = 60 * 60 * 1_000;
+const MAX_IDE_COMMAND_BYTES = 8_192;
+const MAX_IDE_COMMAND_TIMEOUT_MS = 120_000;
+const MAX_IDE_TERMINALS = 4;
 
 class BrowserSession {
   readonly id = randomUUID();
@@ -41,7 +55,15 @@ class BrowserSession {
   private running = false;
   private lastActivity = Date.now();
 
-  constructor(private readonly config: KraterConfig) {}
+  constructor(
+    private readonly config: KraterConfig,
+    private readonly loadModels: (
+      apiKey: string,
+      signal?: AbortSignal,
+    ) => Promise<AvailableModel[]>,
+    readonly projectId: string,
+    private readonly invalidateProjectCaches: (projectId: string) => void,
+  ) {}
 
   get isRunning(): boolean {
     return this.running;
@@ -49,6 +71,10 @@ class BrowserSession {
 
   get lastUsedAt(): number {
     return this.lastActivity;
+  }
+
+  invalidateWorkspaceCache(): void {
+    this.agent?.invalidateToolCache();
   }
 
   private touch(): void {
@@ -113,6 +139,8 @@ class BrowserSession {
         cwd: this.config.cwd,
         model,
         onEvent: (event) => this.emit(event),
+        onWorkspaceMutation: () =>
+          this.invalidateProjectCaches(this.projectId),
         requestApproval: this.requestApproval,
         contextCharBudget: this.config.contextChars,
         toolOutputCharBudget: this.config.toolOutputChars,
@@ -142,7 +170,39 @@ class BrowserSession {
     this.activeController = controller;
     this.activeSignal = controller.signal;
     try {
-      await this.ensureAgent(apiKey, model).run(message, controller.signal);
+      let resolvedModel = model;
+      if (isAutomaticModel(model)) {
+        if (this.agent && this.agentModel) {
+          resolvedModel = this.agentModel;
+        } else {
+          const selection = await selectCodingModel({
+            requestedModel: model,
+            prompt: message,
+            contextCharacters: message.length,
+            expectedOutputTokens: this.config.maxOutputTokens,
+            loadModels: (routeSignal) =>
+              this.loadModels(apiKey, routeSignal),
+            signal: controller.signal,
+          });
+          resolvedModel = selection.model;
+          const decision = selection.decision!;
+          this.emit({
+            type: "route",
+            model: decision.model,
+            tier: decision.tier,
+            confidence: decision.confidence,
+            complexity: decision.assessment.complexity,
+            risk: decision.assessment.risk,
+            reasons: decision.reasons,
+            catalog:
+              selection.catalog === "fallback" ? "fallback" : "live",
+          });
+        }
+      }
+      await this.ensureAgent(apiKey, resolvedModel).run(
+        message,
+        controller.signal,
+      );
     } finally {
       signal.removeEventListener("abort", forwardAbort);
       this.running = false;
@@ -235,6 +295,27 @@ function sendError(response: Response, status: number, message: string): void {
   response.status(status).json({ error: { message } });
 }
 
+function sendWorkspaceError(response: Response, error: unknown): void {
+  if (error instanceof WorkspaceRevisionConflictError) {
+    sendError(response, 409, error.message);
+    return;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") {
+    sendError(response, 404, "Workspace path was not found.");
+    return;
+  }
+  sendError(response, 400, (error as Error).message || "Workspace request failed.");
+}
+
+function singleQuery(
+  request: Request,
+  name: string,
+): string | undefined {
+  const value = request.query[name];
+  return typeof value === "string" ? value : undefined;
+}
+
 function writeEvent(response: Response, event: AgentEvent): void {
   if (!response.writableEnded) {
     response.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -264,12 +345,43 @@ export async function createApp(
   const localToken = randomBytes(32).toString("base64url");
   app.locals.localToken = localToken;
   const projects = new ProjectRegistry(config.cwd);
+  let ideWorkspace = new Workspace(projects.current().path);
   const sessions = new Map<string, BrowserSession>();
   let projectChanging = false;
+  let activeWorkspaceOperations = 0;
+  const terminalControllers = new Set<AbortController>();
   const modelCache = new Map<
     string,
-    { expiresAt: number; models: Array<{ id: string; ownedBy?: string }> }
+    { expiresAt: number; models: AvailableModel[] }
   >();
+  const loadModels = async (
+    apiKey: string,
+    signal?: AbortSignal,
+  ): Promise<{ models: AvailableModel[]; cached: boolean }> => {
+    const cacheKey = createHash("sha256")
+      .update(config.baseURL)
+      .update("\0")
+      .update(apiKey)
+      .digest("hex");
+    const cached = modelCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { models: cached.models, cached: true };
+    }
+    const provider = new KraterProvider({
+      apiKey,
+      baseURL: config.baseURL,
+      model: isAutomaticModel(config.model)
+        ? ROUTER_FALLBACK_MODEL
+        : config.model,
+      maxOutputTokens: config.maxOutputTokens,
+    });
+    const models = await provider.listModels(signal);
+    modelCache.set(cacheKey, {
+      expiresAt: Date.now() + 5 * 60 * 1_000,
+      models,
+    });
+    return { models, cached: false };
+  };
 
   const disposeSessions = (): void => {
     for (const session of sessions.values()) session.dispose();
@@ -277,6 +389,13 @@ export async function createApp(
   };
   const hasRunningSession = (): boolean =>
     [...sessions.values()].some((session) => session.isRunning);
+  const invalidateWorkspaceSessions = (projectId: string): void => {
+    for (const session of sessions.values()) {
+      if (session.projectId === projectId) {
+        session.invalidateWorkspaceCache();
+      }
+    }
+  };
   const beginProjectChange = (response: Response): boolean => {
     if (projectChanging) {
       sendError(response, 409, "Another project change is already in progress.");
@@ -290,11 +409,64 @@ export async function createApp(
       );
       return false;
     }
+    if (activeWorkspaceOperations > 0) {
+      sendError(
+        response,
+        409,
+        "Wait for active editor, Git, or terminal work before changing projects.",
+      );
+      return false;
+    }
     projectChanging = true;
     return true;
   };
+  const beginWorkspaceOperation = (response: Response): boolean => {
+    if (projectChanging) {
+      sendError(response, 409, "Wait for the project change to finish.");
+      return false;
+    }
+    activeWorkspaceOperations += 1;
+    return true;
+  };
+  const finishWorkspaceOperation = (): void => {
+    activeWorkspaceOperations = Math.max(0, activeWorkspaceOperations - 1);
+  };
+  const requireCurrentProject = (
+    request: Request,
+    response: Response,
+    operation: string,
+  ): ProjectRecord | undefined => {
+    if (
+      request.query.projectId !== undefined &&
+      typeof request.query.projectId !== "string"
+    ) {
+      sendError(response, 400, `${operation} "projectId" must be a single value.`);
+      return undefined;
+    }
+    const projectId = singleQuery(request, "projectId")?.trim() ?? "";
+    if (!projectId) {
+      sendError(
+        response,
+        400,
+        `${operation} "projectId" must be a non-empty string.`,
+      );
+      return undefined;
+    }
+    const current = projects.current();
+    if (projectId !== current.id) {
+      sendError(
+        response,
+        409,
+        `This ${operation.toLowerCase()} request belongs to a different project. Reload the workspace.`,
+      );
+      return undefined;
+    }
+    return current;
+  };
 
   app.locals.shutdown = () => {
+    for (const controller of terminalControllers) controller.abort();
+    terminalControllers.clear();
     disposeSessions();
     modelCache.clear();
   };
@@ -340,7 +512,7 @@ export async function createApp(
     next();
   });
 
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "7mb" }));
 
   app.use("/api", (_request, response, next) => {
     response.setHeader("Cache-Control", "no-store");
@@ -353,6 +525,8 @@ export async function createApp(
     response.json({
       configured: Boolean(config.apiKey),
       model: config.model,
+      modelSource: config.modelSource,
+      smartRouting: isAutomaticModel(config.model),
       cwd: currentProject.path,
       projectId: currentProject.id,
       projectKind: currentProject.kind,
@@ -384,11 +558,15 @@ export async function createApp(
     }
     if (!beginProjectChange(response)) return;
 
+    const previous = projects.current();
     try {
       const current = projects.select(id);
+      const nextWorkspace = new Workspace(current.path);
+      ideWorkspace = nextWorkspace;
       disposeSessions();
       response.json(projectPayload(projects, current));
     } catch (error) {
+      projects.select(previous.id);
       sendError(response, 404, (error as Error).message);
     } finally {
       projectChanging = false;
@@ -404,11 +582,15 @@ export async function createApp(
     }
     if (!beginProjectChange(response)) return;
 
+    const previous = projects.current();
     try {
       const current = await projects.addLocal(path);
+      const nextWorkspace = new Workspace(current.path);
+      ideWorkspace = nextWorkspace;
       disposeSessions();
       response.status(201).json(projectPayload(projects, current));
     } catch (error) {
+      projects.select(previous.id);
       sendError(response, 400, (error as Error).message);
     } finally {
       projectChanging = false;
@@ -426,11 +608,15 @@ export async function createApp(
     }
     if (!beginProjectChange(response)) return;
 
+    const previous = projects.current();
     try {
       const current = await projects.createScratch(suppliedName?.trim() || undefined);
+      const nextWorkspace = new Workspace(current.path);
+      ideWorkspace = nextWorkspace;
       disposeSessions();
       response.status(201).json(projectPayload(projects, current));
     } catch (error) {
+      projects.select(previous.id);
       sendError(response, 500, (error as Error).message);
     } finally {
       projectChanging = false;
@@ -445,17 +631,21 @@ export async function createApp(
     }
     if (!beginProjectChange(response)) return;
 
+    const previous = projects.current();
     const abort = new AbortController();
     const cancelClone = () => abort.abort();
     request.once("aborted", cancelClone);
     response.once("close", cancelClone);
     try {
       const current = await projects.cloneGitHub(url, abort.signal);
+      const nextWorkspace = new Workspace(current.path);
+      ideWorkspace = nextWorkspace;
       disposeSessions();
       if (!response.writableEnded) {
         response.status(201).json(projectPayload(projects, current));
       }
     } catch (error) {
+      projects.select(previous.id);
       if (!abort.signal.aborted && !response.writableEnded) {
         const message = (error as Error).message;
         const status = message.startsWith("Only public ") ? 400 : 502;
@@ -465,6 +655,274 @@ export async function createApp(
       request.removeListener("aborted", cancelClone);
       response.removeListener("close", cancelClone);
       projectChanging = false;
+    }
+  });
+
+  app.get("/api/ide/tree", async (request, response) => {
+    const project = requireCurrentProject(request, response, "Tree");
+    if (!project) return;
+    const rawPath = request.query.path;
+    const rawDepth = request.query.depth;
+    if (
+      (rawPath !== undefined && typeof rawPath !== "string") ||
+      (rawDepth !== undefined && typeof rawDepth !== "string")
+    ) {
+      sendError(response, 400, 'Tree "path" and "depth" must each be single values.');
+      return;
+    }
+    const suppliedPath = singleQuery(request, "path");
+    const path =
+      suppliedPath === undefined || suppliedPath === "" ? "." : suppliedPath;
+    const depthText = singleQuery(request, "depth");
+    if (depthText !== undefined && !/^[0-6]$/.test(depthText)) {
+      sendError(response, 400, 'Tree "depth" must be an integer from 0 to 6.');
+      return;
+    }
+    if (!beginWorkspaceOperation(response)) return;
+    try {
+      const tree = await ideWorkspace.tree(
+        path,
+        depthText === undefined ? 3 : Number(depthText),
+      );
+      response.json({
+        projectId: project.id,
+        root: ideWorkspace.root,
+        ...tree,
+      });
+    } catch (error) {
+      sendWorkspaceError(response, error);
+    } finally {
+      finishWorkspaceOperation();
+    }
+  });
+
+  app.get("/api/ide/file", async (request, response) => {
+    const project = requireCurrentProject(request, response, "File");
+    if (!project) return;
+    if (
+      request.query.path !== undefined &&
+      typeof request.query.path !== "string"
+    ) {
+      sendError(response, 400, 'File "path" must be a single value.');
+      return;
+    }
+    const path = singleQuery(request, "path") ?? "";
+    if (!path) {
+      sendError(response, 400, 'File "path" must be a non-empty string.');
+      return;
+    }
+    if (!beginWorkspaceOperation(response)) return;
+    try {
+      response.json({
+        projectId: project.id,
+        ...(await ideWorkspace.readTextDocument(path)),
+      });
+    } catch (error) {
+      sendWorkspaceError(response, error);
+    } finally {
+      finishWorkspaceOperation();
+    }
+  });
+
+  app.put("/api/ide/file", async (request, response) => {
+    const projectId =
+      typeof request.body?.projectId === "string"
+        ? request.body.projectId.trim()
+        : "";
+    const path =
+      typeof request.body?.path === "string" ? request.body.path : "";
+    const content = request.body?.content;
+    const hasRevision = Object.prototype.hasOwnProperty.call(
+      request.body ?? {},
+      "revision",
+    );
+    const revision = request.body?.revision;
+    if (!projectId) {
+      sendError(response, 400, 'File "projectId" must be a non-empty string.');
+      return;
+    }
+    if (projectId !== projects.current().id) {
+      sendError(
+        response,
+        409,
+        "This editor request belongs to a different project. Reload the workspace before saving.",
+      );
+      return;
+    }
+    if (!path) {
+      sendError(response, 400, 'File "path" must be a non-empty string.');
+      return;
+    }
+    if (typeof content !== "string") {
+      sendError(response, 400, 'File "content" must be a string.');
+      return;
+    }
+    if (!hasRevision || (revision !== null && typeof revision !== "string")) {
+      sendError(
+        response,
+        400,
+        'File "revision" must be null for a new file or the revision returned when it was opened.',
+      );
+      return;
+    }
+    if (!beginWorkspaceOperation(response)) return;
+    const project = projects.current();
+    try {
+      response.json({
+        projectId: project.id,
+        saved: true,
+        ...(await ideWorkspace.saveTextDocument(path, content, revision)),
+      });
+      invalidateWorkspaceSessions(project.id);
+    } catch (error) {
+      sendWorkspaceError(response, error);
+    } finally {
+      finishWorkspaceOperation();
+    }
+  });
+
+  app.get("/api/ide/git/status", async (request, response) => {
+    const project = requireCurrentProject(request, response, "Git");
+    if (!project) return;
+    if (!beginWorkspaceOperation(response)) return;
+    try {
+      const snapshot = await ideWorkspace.gitStatusSnapshot();
+      response.json({
+        projectId: project.id,
+        ...snapshot,
+        status: sanitizeTerminalText(snapshot.status),
+      });
+    } catch (error) {
+      sendWorkspaceError(response, error);
+    } finally {
+      finishWorkspaceOperation();
+    }
+  });
+
+  app.get("/api/ide/git/diff", async (request, response) => {
+    const project = requireCurrentProject(request, response, "Git");
+    if (!project) return;
+    if (
+      request.query.staged !== undefined &&
+      typeof request.query.staged !== "string"
+    ) {
+      sendError(response, 400, 'Git "staged" must be a single boolean value.');
+      return;
+    }
+    const stagedText = singleQuery(request, "staged");
+    if (
+      stagedText !== undefined &&
+      stagedText !== "true" &&
+      stagedText !== "false"
+    ) {
+      sendError(response, 400, 'Git "staged" must be "true" or "false".');
+      return;
+    }
+    const staged = stagedText === "true";
+    if (!beginWorkspaceOperation(response)) return;
+    try {
+      response.json({
+        projectId: project.id,
+        staged,
+        diff: sanitizeTerminalText(await ideWorkspace.gitDiff(staged)),
+      });
+    } catch (error) {
+      sendWorkspaceError(response, error);
+    } finally {
+      finishWorkspaceOperation();
+    }
+  });
+
+  app.post("/api/ide/terminal", async (request, response) => {
+    const projectId =
+      typeof request.body?.projectId === "string"
+        ? request.body.projectId.trim()
+        : "";
+    const command =
+      typeof request.body?.command === "string" ? request.body.command : "";
+    const timeoutValue = request.body?.timeoutMs;
+    const timeoutMs = timeoutValue === undefined ? 30_000 : timeoutValue;
+    if (!projectId) {
+      sendError(response, 400, 'Terminal "projectId" must be a non-empty string.');
+      return;
+    }
+    if (projectId !== projects.current().id) {
+      sendError(
+        response,
+        409,
+        "This terminal request belongs to a different project. Reload the workspace before running it.",
+      );
+      return;
+    }
+    if (!command.trim()) {
+      sendError(response, 400, 'Terminal "command" must be a non-empty string.');
+      return;
+    }
+    if (
+      command.includes("\0") ||
+      Buffer.byteLength(command, "utf8") > MAX_IDE_COMMAND_BYTES
+    ) {
+      sendError(
+        response,
+        400,
+        `Terminal command must be at most ${MAX_IDE_COMMAND_BYTES} UTF-8 bytes and contain no null bytes.`,
+      );
+      return;
+    }
+    if (
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1_000 ||
+      timeoutMs > MAX_IDE_COMMAND_TIMEOUT_MS
+    ) {
+      sendError(
+        response,
+        400,
+        `Terminal "timeoutMs" must be an integer from 1000 to ${MAX_IDE_COMMAND_TIMEOUT_MS}.`,
+      );
+      return;
+    }
+    if (terminalControllers.size >= MAX_IDE_TERMINALS) {
+      sendError(response, 429, "Too many terminal commands are already running.");
+      return;
+    }
+    if (!beginWorkspaceOperation(response)) return;
+
+    const project = projects.current();
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    request.once("aborted", cancel);
+    response.once("close", cancel);
+    terminalControllers.add(controller);
+    const startedAt = Date.now();
+    try {
+      const result = await ideWorkspace.runCommand(
+        command,
+        timeoutMs,
+        controller.signal,
+      );
+      if (!controller.signal.aborted && !response.writableEnded) {
+        response.json({
+          projectId: project.id,
+          exitCode: result.exitCode,
+          stdout: sanitizeTerminalText(result.stdout),
+          stderr: sanitizeTerminalText(result.stderr),
+          timedOut: result.timedOut,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && !response.writableEnded) {
+        sendWorkspaceError(response, error);
+      }
+    } finally {
+      request.removeListener("aborted", cancel);
+      response.removeListener("close", cancel);
+      terminalControllers.delete(controller);
+      // A command may mutate the workspace before it times out, is cancelled,
+      // or loses its HTTP client. Never let an agent session retain a stale
+      // tool-result cache after any terminal attempt.
+      invalidateWorkspaceSessions(project.id);
+      finishWorkspaceOperation();
     }
   });
 
@@ -483,38 +941,34 @@ export async function createApp(
       return;
     }
     try {
-      const cacheKey = createHash("sha256")
-        .update(config.baseURL)
-        .update("\0")
-        .update(apiKey)
-        .digest("hex");
-      const cached = modelCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        response.setHeader("X-Krater-Cache", "hit");
-        response.json({ models: cached.models });
-        return;
-      }
-      const provider = new KraterProvider({
-        apiKey,
-        baseURL: config.baseURL,
-        model: config.model,
-        maxOutputTokens: config.maxOutputTokens,
-      });
-      const models = await provider.listModels();
-      modelCache.set(cacheKey, {
-        expiresAt: Date.now() + 5 * 60 * 1_000,
-        models,
-      });
-      response.setHeader("X-Krater-Cache", "miss");
-      response.json({ models });
+      const result = await loadModels(apiKey);
+      response.setHeader("X-Krater-Cache", result.cached ? "hit" : "miss");
+      response.json({ models: result.models });
     } catch (error) {
       sendError(response, 502, (error as Error).message);
     }
   });
 
-  app.post("/api/sessions", (_request, response) => {
+  app.post("/api/sessions", (request, response) => {
     if (projectChanging) {
       sendError(response, 409, "Wait for the project change to finish.");
+      return;
+    }
+    const projectId =
+      typeof request.body?.projectId === "string"
+        ? request.body.projectId.trim()
+        : "";
+    const currentProject = projects.current();
+    if (!projectId) {
+      sendError(response, 400, 'Session "projectId" must be a non-empty string.');
+      return;
+    }
+    if (projectId !== currentProject.id) {
+      sendError(
+        response,
+        409,
+        "This session request belongs to a different project. Reload the workspace.",
+      );
       return;
     }
     const now = Date.now();
@@ -535,10 +989,15 @@ export async function createApp(
       oldest[1].dispose();
       sessions.delete(oldest[0]);
     }
-    const session = new BrowserSession({
-      ...config,
-      cwd: projects.current().path,
-    });
+    const session = new BrowserSession(
+      {
+        ...config,
+        cwd: currentProject.path,
+      },
+      async (apiKey, signal) => (await loadModels(apiKey, signal)).models,
+      currentProject.id,
+      invalidateWorkspaceSessions,
+    );
     sessions.set(session.id, session);
     response.status(201).json({ id: session.id });
   });
@@ -558,6 +1017,25 @@ export async function createApp(
     const session = sessions.get(request.params.sessionId);
     if (!session) {
       sendError(response, 404, "Session not found.");
+      return;
+    }
+    const projectId =
+      typeof request.body?.projectId === "string"
+        ? request.body.projectId.trim()
+        : "";
+    if (!projectId) {
+      sendError(response, 400, 'Message "projectId" must be a non-empty string.');
+      return;
+    }
+    if (
+      projectId !== session.projectId ||
+      projectId !== projects.current().id
+    ) {
+      sendError(
+        response,
+        409,
+        "This agent session belongs to a different project. Start a new task in the current workspace.",
+      );
       return;
     }
     if (session.isRunning) {
@@ -636,6 +1114,36 @@ export async function createApp(
         return;
       }
       response.json({ ok: true });
+    },
+  );
+
+  app.use(
+    (
+      error: unknown,
+      request: Request,
+      response: Response,
+      next: (error: unknown) => void,
+    ) => {
+      if (!(request.path === "/api" || request.path.startsWith("/api/"))) {
+        next(error);
+        return;
+      }
+      const parseError = error as {
+        status?: number;
+        type?: string;
+      };
+      if (
+        parseError.status === 413 ||
+        parseError.type === "entity.too.large"
+      ) {
+        sendError(response, 413, "JSON request body exceeds the 7 MB limit.");
+        return;
+      }
+      if (parseError.status === 400) {
+        sendError(response, 400, "Request body must contain valid JSON.");
+        return;
+      }
+      next(error);
     },
   );
 

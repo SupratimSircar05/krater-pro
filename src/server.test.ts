@@ -1,10 +1,19 @@
 import { request as httpRequest, type Server } from "node:http";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, type KraterConfig } from "./config.js";
 import { createApp, startServer } from "./server.js";
+import { Workspace } from "./workspace.js";
 
 const temporaryPaths: string[] = [];
 const servers: Server[] = [];
@@ -108,6 +117,8 @@ describe("Krater Pro HTTP API", () => {
     expect(body).toEqual({
       configured: true,
       model: "test/model",
+      modelSource: "command",
+      smartRouting: false,
       cwd: config.cwd,
       projectId: expect.stringMatching(/^local-/),
       projectKind: "local",
@@ -146,6 +157,8 @@ describe("Krater Pro HTTP API", () => {
 
     const sessionResponse = await apiFetch(`${base}/api/sessions`, {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: initial.currentId }),
     });
     const { id: oldSessionId } = (await sessionResponse.json()) as { id: string };
 
@@ -201,6 +214,83 @@ describe("Krater Pro HTTP API", () => {
     });
   });
 
+  it("rejects stale mutating IDE requests after a project switch", async () => {
+    const cwd = await temporaryDirectory();
+    const base = await serve(loadConfig({ cwd }, {}));
+    const initial = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string };
+    const scratch = (await (
+      await apiFetch(`${base}/api/projects/scratch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "isolation" }),
+      })
+    ).json()) as { current: { id: string; path: string } };
+
+    const staleSave = await apiFetch(`${base}/api/ide/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: initial.projectId,
+        path: "stale-save.txt",
+        content: "must not cross projects\n",
+        revision: null,
+      }),
+    });
+    expect(staleSave.status).toBe(409);
+
+    const staleTerminal = await apiFetch(`${base}/api/ide/terminal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: initial.projectId,
+        command: "touch stale-terminal.txt",
+      }),
+    });
+    expect(staleTerminal.status).toBe(409);
+    await expect(readFile(join(scratch.current.path, "stale-save.txt"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(join(scratch.current.path, "stale-terminal.txt"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rolls back project selection when a registered workspace disappears", async () => {
+    const cwd = await temporaryDirectory();
+    const other = await temporaryDirectory();
+    const base = await serve(loadConfig({ cwd }, {}));
+    const initial = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string; cwd: string };
+    const registered = (await (
+      await apiFetch(`${base}/api/projects/local`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: other }),
+      })
+    ).json()) as { current: { id: string } };
+    await apiFetch(`${base}/api/projects/select`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: initial.projectId }),
+    });
+    await rm(other, { recursive: true, force: true });
+
+    const failed = await apiFetch(`${base}/api/projects/select`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: registered.current.id }),
+    });
+    expect(failed.status).toBe(404);
+    await expect(
+      (await apiFetch(`${base}/api/status`)).json(),
+    ).resolves.toMatchObject({
+      projectId: initial.projectId,
+      cwd: initial.cwd,
+    });
+  });
+
   it("rejects invalid project sources without starting Git", async () => {
     const cwd = await temporaryDirectory();
     const base = await serve(loadConfig({ cwd }, {}));
@@ -228,6 +318,243 @@ describe("Krater Pro HTTP API", () => {
     await expect(unsafeRemote.json()).resolves.toMatchObject({
       error: { message: expect.stringContaining("public https://github.com/") },
     });
+  });
+
+  it("supports project-scoped explorer, conflict-safe editor, Git, and terminal APIs", async () => {
+    const cwd = await temporaryDirectory();
+    const outside = await temporaryDirectory();
+    await mkdir(join(cwd, "src"), { recursive: true });
+    await writeFile(join(cwd, "src", "main.ts"), "export const value = 1;\n");
+    await writeFile(join(cwd, ".env"), "KRATER_API_KEY=must_not_leak\n");
+    await writeFile(join(outside, "outside.ts"), "private\n");
+    await symlink(join(outside, "outside.ts"), join(cwd, "alias.ts"));
+    const workspace = new Workspace(cwd);
+    await workspace.runCommand("git init -q");
+    await workspace.runCommand("git add src/main.ts");
+    await workspace.runCommand(
+      "git -c user.name=Krater -c user.email=krater@example.invalid commit -qm initial",
+    );
+    await writeFile(join(cwd, "src", "main.ts"), "export const value = 2;\n");
+    const base = await serve(loadConfig({ cwd }, {}));
+
+    const statusPayload = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string };
+    const treeResponse = await apiFetch(
+      `${base}/api/ide/tree?depth=2&projectId=${encodeURIComponent(statusPayload.projectId)}`,
+    );
+    expect(treeResponse.status).toBe(200);
+    const tree = (await treeResponse.json()) as {
+      projectId: string;
+      root: string;
+      entries: Array<{ path: string; type: string }>;
+    };
+    expect(tree.projectId).toMatch(/^local-/);
+    expect(tree.root).toBe(await realpath(cwd));
+    expect(tree.entries).toContainEqual(
+      expect.objectContaining({ path: "src/main.ts", type: "file" }),
+    );
+    expect(tree.entries.map((entry) => entry.path)).not.toContain(".env");
+    expect(tree.entries.map((entry) => entry.path)).not.toContain("alias.ts");
+
+    const openedResponse = await apiFetch(
+      `${base}/api/ide/file?path=${encodeURIComponent("src/main.ts")}&projectId=${encodeURIComponent(tree.projectId)}`,
+    );
+    expect(openedResponse.status).toBe(200);
+    const opened = (await openedResponse.json()) as {
+      revision: string;
+      content: string;
+    };
+    expect(opened.content).toBe("export const value = 2;\n");
+
+    const savedResponse = await apiFetch(`${base}/api/ide/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: tree.projectId,
+        path: "src/main.ts",
+        content: "export const value = 3;\n",
+        revision: opened.revision,
+      }),
+    });
+    expect(savedResponse.status).toBe(200);
+    const saved = (await savedResponse.json()) as {
+      saved: boolean;
+      revision: string;
+    };
+    expect(saved.saved).toBe(true);
+    expect(saved.revision).not.toBe(opened.revision);
+    expect(await readFile(join(cwd, "src", "main.ts"), "utf8")).toBe(
+      "export const value = 3;\n",
+    );
+
+    await writeFile(join(cwd, "src", "main.ts"), "external edit\n");
+    const conflict = await apiFetch(`${base}/api/ide/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: tree.projectId,
+        path: "src/main.ts",
+        content: "stale overwrite\n",
+        revision: saved.revision,
+      }),
+    });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      error: { message: expect.stringContaining("changed on disk") },
+    });
+    expect(await readFile(join(cwd, "src", "main.ts"), "utf8")).toBe(
+      "external edit\n",
+    );
+
+    const protectedRead = await apiFetch(
+      `${base}/api/ide/file?path=${encodeURIComponent(".env")}&projectId=${encodeURIComponent(tree.projectId)}`,
+    );
+    expect(protectedRead.status).toBe(400);
+    expect(JSON.stringify(await protectedRead.json())).not.toContain(
+      "must_not_leak",
+    );
+
+    const statusResponse = await apiFetch(
+      `${base}/api/ide/git/status?projectId=${encodeURIComponent(tree.projectId)}`,
+    );
+    expect(statusResponse.status).toBe(200);
+    const status = await statusResponse.json();
+    expect(status).toMatchObject({
+      clean: false,
+      entries: [
+        expect.objectContaining({ path: "src/main.ts" }),
+      ],
+    });
+    expect(JSON.stringify(status)).not.toContain(".env");
+
+    const diffResponse = await apiFetch(
+      `${base}/api/ide/git/diff?projectId=${encodeURIComponent(tree.projectId)}`,
+    );
+    expect(diffResponse.status).toBe(200);
+    const diff = await diffResponse.json();
+    expect(diff.diff).toContain("external edit");
+    expect(JSON.stringify(diff)).not.toContain("must_not_leak");
+
+    const terminalResponse = await apiFetch(`${base}/api/ide/terminal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: tree.projectId,
+        command:
+          'node -e "process.stdout.write(process.cwd() + String(process.env.KRATER_API_KEY))"',
+        timeoutMs: 5_000,
+      }),
+    });
+    expect(terminalResponse.status).toBe(200);
+    await expect(terminalResponse.json()).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: `${await realpath(cwd)}undefined`,
+      stderr: "",
+      timedOut: false,
+    });
+
+    const destructive = await apiFetch(`${base}/api/ide/terminal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: tree.projectId, command: "rm -rf /" }),
+    });
+    expect(destructive.status).toBe(400);
+    await expect(destructive.json()).resolves.toMatchObject({
+      error: { message: expect.stringContaining("irreversibly destroy") },
+    });
+  });
+
+  it("bounds IDE inputs and returns structured JSON parser errors", async () => {
+    const cwd = await temporaryDirectory();
+    const base = await serve(loadConfig({ cwd }, {}));
+    const statusPayload = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string };
+
+    const depth = await apiFetch(
+      `${base}/api/ide/tree?depth=99&projectId=${encodeURIComponent(statusPayload.projectId)}`,
+    );
+    expect(depth.status).toBe(400);
+
+    const missingRevision = await apiFetch(`${base}/api/ide/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: statusPayload.projectId,
+        path: "new.txt",
+        content: "hello",
+      }),
+    });
+    expect(missingRevision.status).toBe(400);
+
+    const longCommand = await apiFetch(`${base}/api/ide/terminal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: statusPayload.projectId,
+        command: "x".repeat(8_193),
+      }),
+    });
+    expect(longCommand.status).toBe(400);
+
+    const escapedButValid = await apiFetch(`${base}/api/ide/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: statusPayload.projectId,
+        path: "escaped.txt",
+        content: "\n".repeat(900_000),
+        revision: null,
+      }),
+    });
+    expect(escapedButValid.status).toBe(200);
+
+    const oversized = await apiFetch(`${base}/api/ide/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: statusPayload.projectId,
+        path: "huge.txt",
+        content: "x".repeat(7_500_000),
+        revision: null,
+      }),
+    });
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toEqual({
+      error: { message: "JSON request body exceeds the 7 MB limit." },
+    });
+  });
+
+  it("blocks project switches while a user terminal command is active", async () => {
+    const cwd = await temporaryDirectory();
+    const base = await serve(loadConfig({ cwd }, {}));
+    const statusPayload = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string };
+    const running = apiFetch(`${base}/api/ide/terminal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: statusPayload.projectId,
+        command: 'node -e "setTimeout(() => {}, 250)"',
+        timeoutMs: 5_000,
+      }),
+    });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+
+    const projectChange = await apiFetch(`${base}/api/projects/scratch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "must-wait" }),
+    });
+    expect(projectChange.status).toBe(409);
+    await expect(projectChange.json()).resolves.toMatchObject({
+      error: { message: expect.stringContaining("editor, Git, or terminal") },
+    });
+
+    const terminal = await running;
+    expect(terminal.status).toBe(200);
   });
 
   it("requires its launch token and rejects cross-origin or rebound requests", async () => {
@@ -281,9 +608,14 @@ describe("Krater Pro HTTP API", () => {
   it("creates and deletes sessions while validating message and approval payloads", async () => {
     const cwd = await temporaryDirectory();
     const base = await serve(loadConfig({ cwd }, {}));
+    const { projectId } = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string };
 
     const createdResponse = await apiFetch(`${base}/api/sessions`, {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId }),
     });
     expect(createdResponse.status).toBe(201);
     const created = (await createdResponse.json()) as { id: string };
@@ -296,7 +628,7 @@ describe("Krater Pro HTTP API", () => {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "   " }),
+        body: JSON.stringify({ projectId, message: "   " }),
       },
     );
     expect(emptyMessage.status).toBe(400);
@@ -309,7 +641,7 @@ describe("Krater Pro HTTP API", () => {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "Hello" }),
+        body: JSON.stringify({ projectId, message: "Hello" }),
       },
     );
     expect(missingKey.status).toBe(401);

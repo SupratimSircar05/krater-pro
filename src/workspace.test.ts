@@ -1,5 +1,7 @@
 import {
   chmod,
+  copyFile,
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -9,12 +11,15 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "./workspace.js";
 
 const temporaryPaths: string[] = [];
+const execFileAsync = promisify(execFile);
 
 async function temporaryDirectory(prefix = "krater-workspace-"): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), prefix));
@@ -82,6 +87,177 @@ describe("Workspace file operations", () => {
     );
   });
 
+  it("returns a bounded structured IDE tree without secrets or symlinks", async () => {
+    const root = await temporaryDirectory();
+    const outside = await temporaryDirectory("krater-tree-outside-");
+    await mkdir(join(root, "src", "nested"), { recursive: true });
+    await mkdir(join(root, "node_modules", "dependency"), { recursive: true });
+    await writeFile(join(root, "src", "main.ts"), "export {}");
+    await writeFile(join(root, "src", "nested", "deep.ts"), "export {}");
+    await writeFile(join(root, ".env"), "TOKEN=private");
+    await writeFile(join(outside, "outside.txt"), "private");
+    await symlink(outside, join(root, "escape"));
+    const workspace = new Workspace(root);
+
+    const tree = await workspace.tree(".", 1);
+
+    expect(tree.path).toBe(".");
+    expect(tree.truncated).toBe(false);
+    expect(tree.entries.map((entry) => entry.path)).toEqual([
+      "node_modules",
+      "src",
+      "src/nested",
+      "src/main.ts",
+    ]);
+    expect(tree.entries.find((entry) => entry.path === "node_modules")).toMatchObject({
+      type: "directory",
+      ignored: true,
+    });
+    expect(tree.entries.map((entry) => entry.path)).not.toContain(".env");
+    expect(tree.entries.map((entry) => entry.path)).not.toContain("escape");
+    expect(tree.entries.map((entry) => entry.path)).not.toContain(
+      "src/nested/deep.ts",
+    );
+  });
+
+  it("treats Krater control data and hard-linked aliases as protected", async () => {
+    const root = await temporaryDirectory();
+    await mkdir(join(root, ".krater", "scratch", "other"), { recursive: true });
+    await writeFile(
+      join(root, ".krater", "scratch", "other", "private.txt"),
+      "cross-project secret\n",
+    );
+    await writeFile(join(root, ".env"), "TOKEN=hard-link-secret\n");
+    await link(join(root, ".env"), join(root, "safe.txt"));
+    const workspace = new Workspace(root);
+
+    const tree = await workspace.tree(".", 3);
+    expect(tree.entries.map((entry) => entry.path)).not.toContain(".krater");
+    expect(tree.entries.map((entry) => entry.path)).not.toContain("safe.txt");
+    await expect(
+      workspace.readTextDocument(".krater/scratch/other/private.txt"),
+    ).rejects.toThrow(/secret or internal/);
+    await expect(
+      workspace.saveTextDocument(
+        ".krater/scratch/other/private.txt",
+        "overwrite\n",
+        null,
+      ),
+    ).rejects.toThrow(/secret or internal/);
+    await expect(workspace.readTextDocument("safe.txt")).rejects.toThrow(
+      /Hard-linked/,
+    );
+    await expect(workspace.readFile("safe.txt")).rejects.toThrow(/Hard-linked/);
+    await expect(
+      workspace.saveTextDocument("safe.txt", "overwrite\n", null),
+    ).rejects.toThrow(/Hard-linked/);
+  });
+
+  it("reads and saves editor documents with optimistic conflict protection", async () => {
+    const root = await temporaryDirectory();
+    const path = join(root, "note.txt");
+    await writeFile(path, "first\n");
+    const workspace = new Workspace(root);
+
+    const opened = await workspace.readTextDocument("note.txt");
+    expect(opened).toMatchObject({
+      path: "note.txt",
+      content: "first\n",
+      size: 6,
+      revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+    });
+
+    const saved = await workspace.saveTextDocument(
+      "note.txt",
+      "second\n",
+      opened.revision,
+    );
+    expect(saved.content).toBe("second\n");
+    expect(saved.revision).not.toBe(opened.revision);
+
+    await writeFile(path, "external change\n");
+    await expect(
+      workspace.saveTextDocument("note.txt", "stale overwrite\n", saved.revision),
+    ).rejects.toMatchObject({ code: "WORKSPACE_REVISION_CONFLICT" });
+    expect(await readFile(path, "utf8")).toBe("external change\n");
+
+    await expect(
+      workspace.saveTextDocument("created.txt", "new\n", null),
+    ).resolves.toMatchObject({ path: "created.txt", content: "new\n" });
+    await expect(
+      workspace.saveTextDocument("created.txt", "overwrite\n", null),
+    ).rejects.toMatchObject({ code: "WORKSPACE_REVISION_CONFLICT" });
+  });
+
+  it("serializes concurrent revisions across Workspace instances", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, "shared.txt"), "base\n");
+    const firstWorkspace = new Workspace(root);
+    const secondWorkspace = new Workspace(root);
+    const opened = await firstWorkspace.readTextDocument("shared.txt");
+
+    const existingResults = await Promise.allSettled([
+      firstWorkspace.saveTextDocument(
+        "shared.txt",
+        "first writer\n",
+        opened.revision,
+      ),
+      secondWorkspace.saveTextDocument(
+        "shared.txt",
+        "second writer\n",
+        opened.revision,
+      ),
+    ]);
+    expect(existingResults.filter((result) => result.status === "fulfilled")).toHaveLength(
+      1,
+    );
+    expect(existingResults.filter((result) => result.status === "rejected")).toHaveLength(
+      1,
+    );
+    expect(
+      existingResults.find((result) => result.status === "rejected"),
+    ).toMatchObject({
+      reason: { code: "WORKSPACE_REVISION_CONFLICT" },
+    });
+
+    const newResults = await Promise.allSettled([
+      firstWorkspace.saveTextDocument("new-shared.txt", "one\n", null),
+      secondWorkspace.saveTextDocument("new-shared.txt", "two\n", null),
+    ]);
+    expect(newResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(newResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+  });
+
+  it("applies editor size, encoding, secret, and symlink boundaries", async () => {
+    const root = await temporaryDirectory();
+    const outside = await temporaryDirectory("krater-editor-outside-");
+    await writeFile(join(root, ".env"), "TOKEN=private");
+    await writeFile(join(root, "large.txt"), "x".repeat(1_000_001));
+    await writeFile(join(root, "invalid.txt"), Buffer.from([0xc3, 0x28]));
+    await writeFile(join(outside, "outside.txt"), "private");
+    await symlink(join(outside, "outside.txt"), join(root, "alias.txt"));
+    const workspace = new Workspace(root);
+
+    await expect(workspace.readTextDocument(".env")).rejects.toThrow(
+      /secret or internal/,
+    );
+    await expect(workspace.readTextDocument("alias.txt")).rejects.toThrow(
+      /symbolic-link|resolves outside/,
+    );
+    await expect(workspace.readTextDocument("large.txt")).rejects.toThrow(
+      /Maximum editor size/,
+    );
+    await expect(workspace.readTextDocument("invalid.txt")).rejects.toThrow(
+      /valid UTF-8/,
+    );
+    await expect(
+      workspace.saveTextDocument("huge.txt", "x".repeat(1_000_001), null),
+    ).rejects.toThrow(/Maximum editor size/);
+    await expect(
+      workspace.saveTextDocument(".env", "replacement", null),
+    ).rejects.toThrow(/secret or internal/);
+  });
+
   it("reads bounded line ranges with stable line numbers", async () => {
     const root = await temporaryDirectory();
     await writeFile(join(root, "notes.txt"), "alpha\nbeta\ngamma\n");
@@ -114,6 +290,28 @@ describe("Workspace file operations", () => {
       "src/one.ts:1: Needle here",
     );
     await expect(workspace.searchFiles("")).rejects.toThrow(/cannot be empty/);
+  });
+
+  it("bounds search output and marks truncated matching lines explicitly", async () => {
+    const root = await temporaryDirectory();
+    const matchingLine = `needle ${"x".repeat(5_000)}`;
+    await Promise.all(
+      Array.from({ length: 40 }, (_, index) =>
+        writeFile(
+          join(root, `match-${String(index).padStart(2, "0")}.txt`),
+          matchingLine,
+        ),
+      ),
+    );
+    const workspace = new Workspace(root);
+
+    const result = await workspace.searchFiles("needle");
+
+    expect(result.length).toBeLessThanOrEqual(120_000);
+    expect(result).toContain("[matching line truncated]");
+    expect(result).toContain(
+      "(Search output truncated at its 120000-character limit.)",
+    );
   });
 
   it("builds a compact project map without indexing dependency contents or secrets", async () => {
@@ -175,6 +373,51 @@ describe("Workspace file operations", () => {
     expect((await readdir(root)).filter((name) => name.includes(".krater-"))).toEqual(
       [],
     );
+  });
+
+  it("rejects an overflow-sized replacement before constructing its output", async () => {
+    const root = await temporaryDirectory();
+    const path = join(root, "many.txt");
+    const original = "a".repeat(1_000);
+    await writeFile(path, original);
+    const workspace = new Workspace(root);
+
+    await expect(
+      workspace.replaceInFile(
+        "many.txt",
+        "a",
+        "🙂".repeat(250_000),
+        true,
+      ),
+    ).rejects.toThrow(/would make many\.txt too large/);
+    expect(await readFile(path, "utf8")).toBe(original);
+  });
+
+  it("does not swallow a post-save parent identity failure as an fsync limitation", async () => {
+    const root = await temporaryDirectory();
+    const workspace = new Workspace(root);
+    const internals = workspace as unknown as {
+      verifiedDirectoryIdentity(directory: string): Promise<{
+        dev: number;
+        ino: number;
+        physical: string;
+      }>;
+    };
+    const verifyIdentity = internals.verifiedDirectoryIdentity.bind(workspace);
+    let identityChecks = 0;
+    vi.spyOn(internals, "verifiedDirectoryIdentity").mockImplementation(
+      async (directory) => {
+        const identity = await verifyIdentity(directory);
+        identityChecks += 1;
+        return identityChecks === 3
+          ? { ...identity, ino: identity.ino + 1 }
+          : identity;
+      },
+    );
+
+    await expect(
+      workspace.writeTextFile("identity.txt", "saved"),
+    ).rejects.toThrow(/Parent directory changed after saving identity\.txt/);
   });
 
   it("rejects lexical traversal, absolute paths, and symlinks escaping the workspace", async () => {
@@ -361,6 +604,93 @@ describe("Workspace command execution", () => {
     );
   });
 
+  it("blocks direct Git metadata reads without blocking normal Git commands", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, ".gitignore"), "dist\n");
+    const workspace = new Workspace(root);
+    await execFileAsync("git", ["init", "-q"], { cwd: root });
+
+    for (const command of [
+      "cat .git/config",
+      "rg url .GIT/config",
+      'node -e "require(\\"node:fs\\").readFileSync(\\".git/config\\")"',
+      "sort .git/config",
+      "find .git -type f",
+      "cat .gitconfig",
+      "cat .git-credentials",
+    ]) {
+      await expect(workspace.runCommand(command, 5_000)).rejects.toThrow(
+        /attempts to read a protected secret file/,
+      );
+    }
+
+    await expect(workspace.runCommand("git status --short", 5_000)).resolves.toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+    });
+    await expect(workspace.runCommand("cat .gitignore", 5_000)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "dist\n",
+    });
+  });
+
+  it("redacts credentials in Git-style URLs from stdout and stderr", async () => {
+    const root = await temporaryDirectory();
+    const workspace = new Workspace(root);
+    await execFileAsync("git", ["init", "-q"], { cwd: root });
+    await execFileAsync(
+      "git",
+      [
+        "remote",
+        "add",
+        "origin",
+        "https://remote-user:remote-secret-123@github.com/acme/project.git",
+      ],
+      { cwd: root },
+    );
+
+    const remotes = await workspace.runCommand("git remote -v", 5_000);
+    expect(remotes.exitCode).toBe(0);
+    expect(remotes.stdout).toContain(
+      "https://[REDACTED]@github.com/acme/project.git",
+    );
+    expect(remotes.stdout).not.toMatch(/remote-user|remote-secret-123/);
+
+    const emitted = await workspace.runCommand(
+      "node -e " +
+        JSON.stringify(
+          'process.stdout.write("https://github.com/acme/project.git?token=query-secret&ref=main");' +
+            'process.stderr.write("ssh://deploy:stderr-secret@git.example.com/acme/project.git");',
+        ),
+      5_000,
+    );
+    expect(emitted.stdout).toBe(
+      "https://github.com/acme/project.git?token=[REDACTED]&ref=main",
+    );
+    expect(emitted.stderr).toBe(
+      "ssh://[REDACTED]@git.example.com/acme/project.git",
+    );
+    expect(`${emitted.stdout}${emitted.stderr}`).not.toMatch(
+      /query-secret|deploy|stderr-secret/,
+    );
+  });
+
+  it("allows direct reads of only the exact environment example filenames", async () => {
+    const root = await temporaryDirectory();
+    const workspace = new Workspace(root);
+    for (const name of [".env.example", ".env.sample", ".env.template"]) {
+      await writeFile(join(root, name), `${name}=placeholder\n`);
+      await expect(workspace.runCommand(`cat ${name}`, 5_000)).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: `${name}=placeholder\n`,
+      });
+    }
+    await writeFile(join(root, ".env.example.backup"), "SECRET=private\n");
+    await expect(
+      workspace.runCommand("cat .env.example.backup", 5_000),
+    ).rejects.toThrow(/attempts to read a protected secret file/);
+  });
+
   it("does not forward provider credentials to model-requested commands", async () => {
     const root = await temporaryDirectory();
     const workspace = new Workspace(root);
@@ -377,6 +707,77 @@ describe("Workspace command execution", () => {
       if (previous === undefined) delete process.env.KRATER_API_KEY;
       else process.env.KRATER_API_KEY = previous;
     }
+  });
+
+  it("confines macOS command writes and indirect secret reads", async () => {
+    if (process.platform !== "darwin") return;
+    const root = await temporaryDirectory();
+    const outside = await temporaryDirectory("krater-command-outside-");
+    const outsideFile = join(outside, "must-remain.txt");
+    await writeFile(join(root, ".env"), "KRATER_API_KEY=sandbox_secret\n");
+    await writeFile(
+      join(root, ".env.example"),
+      "KRATER_API_KEY=example_placeholder\n",
+    );
+    await writeFile(outsideFile, "outside\n");
+    const workspace = new Workspace(root);
+    const script = [
+      'const fs = require("node:fs");',
+      'let value = "";',
+      'try { value = fs.readFileSync(".env", "utf8"); }',
+      'catch { value = "READ_BLOCKED"; }',
+      'let example = "";',
+      'try { example = fs.readFileSync(".env.example", "utf8").trim(); }',
+      'catch { example = "EXAMPLE_BLOCKED"; }',
+      'let outsideValue = "";',
+      `try { outsideValue = fs.readFileSync(${JSON.stringify(outsideFile)}, "utf8"); }`,
+      'catch { outsideValue = "OUTSIDE_READ_BLOCKED"; }',
+      `try { fs.unlinkSync(${JSON.stringify(outsideFile)}); } catch {}`,
+      'process.stdout.write([value, example, outsideValue].join("|"));',
+    ].join(" ");
+
+    const result = await workspace.runCommand(
+      `node -e ${JSON.stringify(script)}`,
+      5_000,
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      "READ_BLOCKED|KRATER_API_KEY=example_placeholder|OUTSIDE_READ_BLOCKED",
+    );
+    expect(result.stdout).not.toContain("sandbox_secret");
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
+  });
+
+  it("blocks mixed-case protected filenames in the macOS command sandbox", async () => {
+    if (process.platform !== "darwin") return;
+    const root = await temporaryDirectory();
+    await writeFile(join(root, ".ENV"), "UPPER_ENV=private\n");
+    await mkdir(join(root, ".KRATER"));
+    await writeFile(join(root, ".KRATER", "session.json"), "internal\n");
+    await writeFile(join(root, "ID_RSA"), "private-key\n");
+    await writeFile(join(root, "SECRET.PEM"), "private-pem\n");
+    await writeFile(join(root, ".Env.Example"), "EXAMPLE=placeholder\n");
+    const workspace = new Workspace(root);
+    const script = [
+      'const fs = require("node:fs");',
+      'const read = (path) => {',
+      'try { return fs.readFileSync(path, "utf8").trim(); }',
+      'catch { return "BLOCKED"; }',
+      "};",
+      'process.stdout.write([".ENV", ".KRATER/session.json", "ID_RSA", "SECRET.PEM", ".Env.Example"].map(read).join("|"));',
+    ].join(" ");
+
+    const result = await workspace.runCommand(
+      `node -e ${JSON.stringify(script)}`,
+      5_000,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "BLOCKED|BLOCKED|BLOCKED|BLOCKED|EXAMPLE=placeholder",
+    });
+    expect(result.stdout).not.toMatch(/private|internal/);
   });
 
   it("terminates a running process group when the task is cancelled", async () => {
@@ -404,10 +805,22 @@ describe("Workspace Git inspection", () => {
     await writeFile(join(root, "identity.pem"), "PRIVATE_KEY_BEFORE\n");
     const workspace = new Workspace(root);
 
-    await workspace.runCommand("git init -q");
-    await workspace.runCommand("git add -f safe.txt .env identity.pem");
-    await workspace.runCommand(
-      "git -c user.name=Krater -c user.email=krater@example.invalid commit -qm initial",
+    await execFileAsync("git", ["init", "-q"], { cwd: root });
+    await execFileAsync("git", ["add", "-f", "safe.txt", ".env", "identity.pem"], {
+      cwd: root,
+    });
+    await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Krater",
+        "-c",
+        "user.email=krater@example.invalid",
+        "commit",
+        "-qm",
+        "initial",
+      ],
+      { cwd: root },
     );
 
     await writeFile(join(root, "safe.txt"), "safe after\n");
@@ -421,13 +834,120 @@ describe("Workspace Git inspection", () => {
     expect(unstaged).not.toContain(".env");
     expect(unstaged).not.toContain("identity.pem");
 
-    await workspace.runCommand("git add -f safe.txt .env identity.pem");
+    await execFileAsync("git", ["add", "-f", "safe.txt", ".env", "identity.pem"], {
+      cwd: root,
+    });
     const staged = await workspace.gitDiff(true);
     expect(staged).toContain("safe after");
     expect(staged).not.toContain("secret_");
     expect(staged).not.toContain("PRIVATE_KEY");
     expect(staged).not.toContain(".env");
     expect(staged).not.toContain("identity.pem");
+  });
+
+  it("returns structured status while omitting protected paths", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, "safe.txt"), "safe\n");
+    await writeFile(join(root, ".env"), "TOKEN=private\n");
+    const workspace = new Workspace(root);
+
+    await workspace.runCommand("git init -q");
+    const snapshot = await workspace.gitStatusSnapshot();
+
+    expect(snapshot.clean).toBe(false);
+    expect(snapshot.entries).toEqual([
+      {
+        index: "?",
+        workingTree: "?",
+        path: "safe.txt",
+      },
+    ]);
+    expect(snapshot.status).toContain("safe.txt");
+    expect(snapshot.status).not.toContain(".env");
+    expect(await workspace.gitStatus()).toBe(snapshot.status);
+  });
+
+  it("omits protected rename and copy pairs from staged diffs", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, ".env"), "KRATER_API_KEY=rename_secret\n");
+    const workspace = new Workspace(root);
+    await execFileAsync("git", ["init", "-q"], { cwd: root });
+    await execFileAsync("git", ["add", "-f", ".env"], { cwd: root });
+    await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Krater",
+        "-c",
+        "user.email=krater@example.invalid",
+        "commit",
+        "-qm",
+        "initial",
+      ],
+      { cwd: root },
+    );
+
+    await execFileAsync("git", ["mv", ".env", "safe-renamed.txt"], { cwd: root });
+    expect(await workspace.gitDiff(true)).toBe("No diff.");
+    await execFileAsync("git", ["mv", "safe-renamed.txt", ".env"], { cwd: root });
+
+    await copyFile(join(root, ".env"), join(root, "safe-copied.txt"));
+    await execFileAsync("git", ["add", "safe-copied.txt"], { cwd: root });
+    const copied = await workspace.gitDiff(true);
+    expect(copied).toBe("No diff.");
+    expect(copied).not.toContain("rename_secret");
+  });
+
+  it("pins Git inspection to the selected workspace despite core.worktree", async () => {
+    const root = await temporaryDirectory();
+    const outside = await temporaryDirectory("krater-git-worktree-outside-");
+    await writeFile(join(root, "safe.txt"), "root before\n");
+    await writeFile(join(outside, "safe.txt"), "outside secret\n");
+    const workspace = new Workspace(root);
+    await workspace.runCommand("git init -q");
+    await workspace.runCommand("git add safe.txt");
+    await workspace.runCommand(
+      "git -c user.name=Krater -c user.email=krater@example.invalid commit -qm initial",
+    );
+    await workspace.runCommand(
+      `git config core.worktree ${JSON.stringify(outside)}`,
+    );
+    await writeFile(join(root, "safe.txt"), "root after\n");
+
+    const snapshot = await workspace.gitStatusSnapshot();
+    const diff = await workspace.gitDiff();
+    expect(snapshot.entries).toContainEqual(
+      expect.objectContaining({ path: "safe.txt" }),
+    );
+    expect(diff).toContain("root after");
+    expect(diff).not.toContain("outside secret");
+  });
+
+  it("returns a bounded preview instead of losing source control on a large diff", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, "large.txt"), `${"a".repeat(140_000)}\n`);
+    const workspace = new Workspace(root);
+    await execFileAsync("git", ["init", "-q"], { cwd: root });
+    await execFileAsync("git", ["add", "large.txt"], { cwd: root });
+    await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Krater",
+        "-c",
+        "user.email=krater@example.invalid",
+        "commit",
+        "-qm",
+        "initial",
+      ],
+      { cwd: root },
+    );
+    await writeFile(join(root, "large.txt"), `${"b".repeat(140_000)}\n`);
+
+    const diff = await workspace.gitDiff();
+
+    expect(diff).toContain("diff preview truncated");
+    expect(diff.length).toBeLessThan(121_000);
   });
 
   it("does not execute repository fsmonitor or textconv helpers", async () => {

@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { parse } from "dotenv";
 
 export const DEFAULT_BASE_URL = "https://api.krater.ai/v1";
-export const DEFAULT_MODEL = "openai/gpt-4o-mini";
+export const AUTO_MODEL = "auto";
+export const DEFAULT_MODEL = AUTO_MODEL;
 export const DEFAULT_PORT = 4317;
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_CONTEXT_CHARS = 120_000;
@@ -44,6 +45,7 @@ export interface KraterConfig {
   maxOutputTokens: number;
   sessionTokenBudget: number;
   apiKeySource: "command" | "environment" | ".env" | "missing";
+  modelSource: "command" | "environment" | ".env" | "default";
 }
 
 function clean(value: string | undefined): string | undefined {
@@ -163,11 +165,18 @@ export function loadConfig(
     );
   }
 
+  const commandModel = clean(overrides.model);
+  const environmentModel = clean(environment.KRATER_MODEL);
+  const fileModel = clean(file.KRATER_MODEL);
   const model =
-    clean(overrides.model) ??
-    clean(environment.KRATER_MODEL) ??
-    clean(file.KRATER_MODEL) ??
-    DEFAULT_MODEL;
+    commandModel ?? environmentModel ?? fileModel ?? DEFAULT_MODEL;
+  const modelSource = commandModel
+    ? "command"
+    : environmentModel
+      ? "environment"
+      : fileModel
+        ? ".env"
+        : "default";
   const port =
     overrides.port === undefined
       ? parsePort(clean(environment.KRATER_PORT) ?? clean(file.KRATER_PORT), DEFAULT_PORT)
@@ -245,6 +254,7 @@ export function loadConfig(
     maxOutputTokens,
     sessionTokenBudget,
     apiKeySource,
+    modelSource,
   };
 }
 

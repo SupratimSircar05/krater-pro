@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "./agent.js";
+import { ProviderCompletionError } from "./types.js";
 import type {
   AgentEvent,
   AssistantTurn,
@@ -117,6 +118,12 @@ describe("AgentSession tool loop", () => {
     );
     expect(provider.calls[0][0].content).not.toContain(cwd);
     expect(provider.calls[0][0].content).toContain("AGENTS.md and CLAUDE.md");
+    expect(provider.calls[0][0].content).toContain(
+      "locate and read the most relevant existing tests before editing",
+    );
+    expect(provider.calls[0][0].content).toContain(
+      "continue refining until it passes",
+    );
     expect(provider.calls[1].at(-1)).toEqual({
       role: "tool",
       tool_call_id: "read-1",
@@ -159,18 +166,21 @@ describe("AgentSession tool loop", () => {
       finalTurn(),
     ]);
     const requestApproval = vi.fn(async () => false);
+    const onWorkspaceMutation = vi.fn();
     const events: AgentEvent[] = [];
     const agent = new AgentSession({
       provider,
       cwd,
       model: "test/model",
       requestApproval,
+      onWorkspaceMutation,
       onEvent: (event) => events.push(event),
     });
 
     await agent.run("Write a file");
 
     expect(requestApproval).toHaveBeenCalledOnce();
+    expect(onWorkspaceMutation).not.toHaveBeenCalled();
     expect(requestApproval.mock.calls[0][0]).toMatchObject({
       toolCallId: "write-1",
       tool: "write_file",
@@ -210,15 +220,18 @@ describe("AgentSession tool loop", () => {
       finalTurn(),
     ]);
     const approve = vi.fn(async () => true);
+    const approvedMutation = vi.fn();
     const approvedAgent = new AgentSession({
       provider: approvedProvider,
       cwd: approvedCwd,
       model: "test/model",
       requestApproval: approve,
+      onWorkspaceMutation: approvedMutation,
     });
 
     await approvedAgent.run("Write approved.txt");
     expect(approve).toHaveBeenCalledOnce();
+    expect(approvedMutation).toHaveBeenCalledOnce();
     expect(await readFile(join(approvedCwd, "approved.txt"), "utf8")).toBe("approved");
 
     const automaticCwd = await temporaryDirectory();
@@ -230,16 +243,19 @@ describe("AgentSession tool loop", () => {
       finalTurn(),
     ]);
     const shouldNotRun = vi.fn(async () => false);
+    const automaticMutation = vi.fn();
     const automaticAgent = new AgentSession({
       provider: automaticProvider,
       cwd: automaticCwd,
       model: "test/model",
       autoApprove: true,
       requestApproval: shouldNotRun,
+      onWorkspaceMutation: automaticMutation,
     });
 
     await automaticAgent.run("Write automatically");
     expect(shouldNotRun).not.toHaveBeenCalled();
+    expect(automaticMutation).toHaveBeenCalledOnce();
     expect(await readFile(join(automaticCwd, "automatic.txt"), "utf8")).toBe(
       "automatic",
     );
@@ -286,11 +302,13 @@ describe("AgentSession tool loop", () => {
       finalTurn(),
     ]);
     const events: AgentEvent[] = [];
+    const onWorkspaceMutation = vi.fn();
     const agent = new AgentSession({
       provider,
       cwd,
       model: "test/model",
       autoApprove: true,
+      onWorkspaceMutation,
       onEvent: (event) => events.push(event),
     });
 
@@ -301,6 +319,7 @@ describe("AgentSession tool loop", () => {
       tool_call_id: "dangerous",
       content: expect.stringContaining("irreversibly destroy data"),
     });
+    expect(onWorkspaceMutation).toHaveBeenCalledOnce();
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_result",
@@ -496,5 +515,79 @@ describe("AgentSession tool loop", () => {
       /Session token budget reached \(12\/12\)/,
     );
     expect(provider.calls).toHaveLength(1);
+  });
+
+  it("accounts failed completion usage before rolling back the turn", async () => {
+    const cwd = await temporaryDirectory();
+    const complete = vi.fn(async () => {
+      throw new ProviderCompletionError(
+        "Krater stopped the response because of provider content filtering.",
+        {
+          promptTokens: 80,
+          completionTokens: 20,
+          totalTokens: 100,
+          cachedTokens: 50,
+          providerRequests: 2,
+        },
+      );
+    });
+    const provider: ChatProvider = {
+      complete,
+      listModels: async () => [],
+    };
+    const events: AgentEvent[] = [];
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      sessionTokenBudget: 100,
+      onEvent: (event) => events.push(event),
+    });
+
+    await expect(agent.run("Trigger a filtered response")).rejects.toThrow(
+      /provider content filtering/i,
+    );
+    expect(agent.history).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: "usage",
+      promptTokens: 80,
+      completionTokens: 20,
+      totalTokens: 100,
+      cachedTokens: 50,
+      providerRequests: 2,
+      sessionPromptTokens: 80,
+      sessionCompletionTokens: 20,
+      sessionTotalTokens: 100,
+      sessionCachedTokens: 50,
+      requestCount: 2,
+    });
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      message: "Krater stopped the response because of provider content filtering.",
+    });
+
+    await expect(agent.run("Try another request")).rejects.toThrow(
+      /Session token budget reached \(100\/100\)/,
+    );
+    expect(complete).toHaveBeenCalledOnce();
+    expect(agent.history).toHaveLength(1);
+  });
+
+  it("restores complete conversation history after a failed or cancelled turn", async () => {
+    const cwd = await temporaryDirectory();
+    const provider = new FakeProvider([finalTurn("First complete answer.")]);
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+    });
+
+    await agent.run("First request");
+    const completeHistory = structuredClone(agent.history);
+
+    await expect(agent.run("Interrupted request")).rejects.toThrow(
+      /ran out of scripted turns/,
+    );
+    expect(agent.history).toEqual(completeHistory);
   });
 });

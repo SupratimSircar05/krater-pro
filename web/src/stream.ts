@@ -1,4 +1,14 @@
 export type StreamEvent =
+  | {
+      type: "route";
+      model: string;
+      tier: "economy" | "balanced" | "premium";
+      confidence: number;
+      complexity: "routine" | "standard" | "advanced" | "expert";
+      risk: "low" | "medium" | "high";
+      reasons: string[];
+      catalog: "live" | "fallback";
+    }
   | { type: "text"; text: string }
   | { type: "tool"; id: string; name: string; args?: unknown }
   | {

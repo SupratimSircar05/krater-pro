@@ -27,6 +27,10 @@ Anthropic, Claude, or Claude Code. See
 - First-class `krater` and `krater-pro` terminal commands
 - Interactive conversations, one-shot prompts, model discovery, and approval
   controls
+- Auditable Smart Coding Router that selects the lowest-cost qualified model
+  from live Krater pricing and capability metadata
+- Full agentic IDE with a safe file explorer, conflict-aware tabbed editor,
+  bounded workspace terminal, Git status/diffs, and the active Krater agent
 - Local app-style GUI with streaming, tool activity, project and model
   selection, settings, responsive layouts, and Allow/Deny actions
 - One-click switching among existing local folders, isolated public GitHub
@@ -94,7 +98,7 @@ variable is safer.
 
 ```dotenv
 KRATER_API_KEY=kr_live_your_key_here
-KRATER_MODEL=moonshotai/kimi-k3
+KRATER_MODEL=auto
 ```
 
 For browser-assisted setup:
@@ -115,6 +119,9 @@ and plan eligibility remain controlled by Krater. Details:
 ```sh
 # One-shot task
 krater "Map this repository and explain its architecture"
+
+# Explicitly request automatic accuracy/cost routing
+krater --model auto "Repair this race condition and run the tests"
 
 # Select workspace and model
 krater -C ../project --model moonshotai/kimi-k3 \
@@ -148,7 +155,15 @@ krater web --host 127.0.0.1 --port 4317
 The server deliberately rejects non-loopback hosts. The GUI uses the server’s
 configured key by default. A key pasted into Settings overrides it for that tab,
 stays only in React memory, and is not saved in browser storage. The selected
-model is saved locally as a non-secret preference.
+model is saved locally as a non-secret preference. `Auto · Smart Router` is the
+default; choosing an exact ID is a hard override and starts a fresh task.
+
+The default IDE view puts the selected project’s file tree, tabbed UTF-8 editor,
+bounded non-interactive terminal, Git status/diffs, and the complete streaming
+Krater agent in one workbench. **Ask Krater** attaches the selected code or
+current file to the same conversation used in Chat view. Agent changes refresh
+the explorer, source control, and clean tabs; unsaved tabs remain untouched and
+revision checks prevent stale saves.
 
 Use the project dropdown in the top bar to switch a registered workspace, open
 an existing absolute local path, shallow-clone a public
@@ -163,7 +178,8 @@ Development mode:
 npm run dev:web
 ```
 
-GUI behavior and API endpoints: [docs/GUI.md](docs/GUI.md).
+- IDE guide: [docs/IDE.md](docs/IDE.md)
+- GUI behavior and API endpoints: [docs/GUI.md](docs/GUI.md)
 
 ## Configuration
 
@@ -174,7 +190,7 @@ directory).
 | --- | --- | --- |
 | `KRATER_API_KEY` | none | Krater bearer credential |
 | `KRATER_BASE_URL` | `https://api.krater.ai/v1` | OpenAI-compatible API root |
-| `KRATER_MODEL` | `openai/gpt-4o-mini` | Model ID for new sessions |
+| `KRATER_MODEL` | `auto` | Smart Router, or an exact model ID as a hard override |
 | `KRATER_HOST` | `127.0.0.1` | Local GUI bind address |
 | `KRATER_PORT` | `4317` | Local GUI port |
 | `KRATER_CONTEXT_CHARS` | `120000` | Estimated context-character budget |
@@ -186,6 +202,27 @@ directory).
 
 Explicit CLI options override environment values, which override `.env`, which
 override defaults.
+
+## Smart Coding Router
+
+When `KRATER_MODEL` is unset or `auto`, Krater Pro classifies the first task in
+a conversation by complexity, risk, context size, and required coding tools. It
+then compares the current `/v1/models` catalog using provider-reported pricing,
+context window, tool support, and coding/agentic quality metadata. Ineligible
+models are removed, the accuracy/cost Pareto frontier is calculated, and the
+least expensive candidate meeting the task’s quality target is chosen.
+
+Because Krater Pro always exposes repository tools to the model, automatic
+routes require tool calling and text-only output. Image, audio, music, speech,
+and other non-chat catalog endpoints remain available as explicit choices but
+cannot be selected automatically.
+
+The CLI and GUI show the chosen model, tier, confidence, catalog source, and
+reasoning. The choice stays fixed for that conversation so context remains
+coherent. `/clear` or a new GUI task reroutes the next prompt. If catalog
+discovery fails, the decision is visibly marked as fallback and uses the
+validated `moonshotai/kimi-k3` profile. Supplying any exact model ID bypasses
+automatic routing completely.
 
 ## Programming-language skills
 
@@ -233,6 +270,22 @@ path and SHA-256 before execution.
 Catalog: [benchmarks/TASKS.md](benchmarks/TASKS.md)
 Methodology: [benchmarks/REPORT.md](benchmarks/REPORT.md)
 
+### Official benchmark adapters
+
+Krater Pro also includes container adapters for DeepSWE, SWE-bench Pro-os, and
+SWE-Atlas. Adapter and infrastructure success is not a correctness score. The
+current evidence is:
+
+| Suite | Current verified status |
+| --- | --- |
+| DeepSWE | Offline adapter passed; official execution is blocked because its 8 GiB task request exceeds the available 7.75 GiB Docker VM. |
+| SWE-Atlas | Offline adapter passed; official execution is blocked because its 16 GiB task request exceeds the available 7.75 GiB Docker VM. |
+| SWE-bench Pro-os | Infrastructure-only path passed. The first exact Kimi K3 patch failed the official evaluator at 0/1 (11/14 tests); a second run ended on an incomplete provider stream and produced no score. |
+
+Krater Pro does not claim that these suites all pass. Reproducible commands,
+resource gates, and result interpretation are recorded in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
 ## Efficiency
 
 Krater Pro reduces avoidable token and latency cost through:
@@ -265,7 +318,12 @@ unrelated provider keys. Obviously destructive commands are blocked even under
 
 Approvals are not a sandbox: an allowed command can execute project code. Review
 the exact command, use version control, and avoid `--yes` on untrusted
-repositories. See [docs/SECURITY.md](docs/SECURITY.md).
+repositories. The IDE terminal is a separate, explicit user action: it uses
+project-ID binding, time/output limits, secret-stripped environment variables,
+and command guards. On macOS it additionally uses `sandbox-exec` when available
+to confine writes and deny protected credential paths. Other platforms do not
+gain an OS sandbox from these controls. See
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ## Development and verification
 
@@ -287,8 +345,10 @@ Live Krater/Kimi and GUI acceptance evidence is documented in
 
 ## Architecture
 
-The terminal and browser use the same `AgentSession`, provider, skill registry,
-tool definitions, and workspace implementation. See
+The terminal, Chat view, and IDE agent use the same `AgentSession`, provider,
+skill registry, tool definitions, and workspace implementation. IDE file,
+terminal, and Git operations share the selected workspace boundary but remain
+separate from model approval state. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Brand

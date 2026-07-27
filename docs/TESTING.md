@@ -26,6 +26,10 @@ Coverage includes:
 - destructive/secret command guards;
 - HTTP status/auth capability/session validation, SSE approval continuation,
   model caching, and loopback-only binding;
+- IDE tree/document APIs, protected reads, 1 MiB editor bounds,
+  revision-conflict saves, current-`projectId` enforcement, Git status/diff,
+  bounded terminal commands, destructive-command rejection, and project-change
+  exclusion while IDE work is active;
 - exactly 100 benchmark tasks, strict schema errors, selection/credit gates,
   workspace isolation, secret exclusion, write/replace-only benchmark approval,
   command denial, default checker non-discovery, explicit checker-trust gates,
@@ -71,6 +75,37 @@ marker string.
 Krater reported streamed usage for both provider turns, including a final total
 of 1,658 tokens. No key value was logged or placed in a report.
 
+## Live Smart Router validation
+
+On 2026-07-27, the built CLI was run with `--model auto` against the live Krater
+catalog. For a standard, low-risk repository-inspection task, Smart Router
+selected `z-ai/glm-5.2` as an economy-tier candidate at 95% confidence. The
+resolved model called `read_file` for `package.json` and returned the required
+marker:
+
+```text
+ROUTER_OK krater-pro 0.1.0
+```
+
+Krater reported 3,585 cumulative tokens and 1,280 cached prompt tokens. The
+catalog source was reported as live. A sandbox-restricted attempt first
+exercised the visible fallback path to `moonshotai/kimi-k3`; the approved
+network run then used live metadata. No key value was printed.
+
+The first GUI automatic-routing trial exposed a genuine catalog-eligibility
+defect: a zero-priced Lyria music endpoint was treated as a text candidate and
+failed upstream. Krater Pro was then tightened to require tool support and
+text-only output modalities for every automatic coding route, with regression
+coverage for media models. The same production GUI flow was rerun successfully:
+Smart Router selected `z-ai/glm-5.2`, rendered its live audit card, called
+`read_file`, and displayed:
+
+```text
+GUI_ROUTER_OK krater-pro 0.1.0
+```
+
+The GUI displayed 3,568 session tokens for the successful trial.
+
 ## GUI acceptance
 
 The production build was exercised in a real in-app browser at desktop and
@@ -89,6 +124,34 @@ The production build was exercised in a real in-app browser at desktop and
 The final branded build should be reloaded after every production rebuild before
 release.
 
+## Agentic IDE acceptance
+
+The final production browser pass must cover the integrated IDE, not only the
+Chat layout:
+
+- IDE is the initial view and switching to Chat preserves the same
+  conversation;
+- Explorer loads the selected project, filters entries, and opens a text file;
+- an editor change shows dirty state, saves, refreshes Git, and survives a
+  reload;
+- an external or agent edit causes a stale-revision save to return a visible
+  conflict instead of overwriting the file;
+- **Ask Krater** places the file path and selected code in the composer without
+  auto-submitting it;
+- a bounded terminal command displays sanitized stdout, exit state, and
+  duration, while a destructive or protected-secret command is rejected;
+- working-tree and staged Git diffs load from the selected repository;
+- a project switch warns about dirty tabs, starts a clean agent task, and
+  cannot reuse an old `projectId`; and
+- agent completion refreshes the tree, Git state, and clean tabs without
+  replacing an unsaved tab.
+
+macOS terminal acceptance should also confirm that `sandbox-exec` is used when
+present and that writes outside the workspace/protected credential reads are
+denied. On a platform without that facility, the record must state that only
+the process, environment, command, timeout, and workspace controls were
+exercised; it must not call the terminal OS-sandboxed.
+
 ## Benchmark policy
 
 Offline validation exercises all 100 task definitions without cost. Live runs
@@ -101,3 +164,19 @@ is denied. Checkers are not discovered or copied merely because `--workspace`
 was supplied. A reviewed checker runs separately as trusted independent code
 only when `--trust-checkers` accompanies both `--live` and `--workspace`; its
 relative path and SHA-256 are shown before execution and recorded in the report.
+
+## Official benchmark execution record
+
+Status observed on 2026-07-27:
+
+| Suite | Adapter/infrastructure evidence | Official correctness evidence |
+| --- | --- | --- |
+| DeepSWE | Offline adapter passed. | Not executed: its 8 GiB task request exceeds the available 7.75 GiB Docker VM. No reward exists. |
+| SWE-Atlas | Offline adapter and configuration/bundle checks passed. | Not executed: its 16 GiB task request exceeds the available 7.75 GiB Docker VM. No Harbor reward exists. |
+| SWE-bench Pro-os | Infrastructure-only container path passed. | First exact `moonshotai/kimi-k3` patch failed at **0/1**, with 11/14 official tests passing. A second rerun ended on an incomplete provider stream and yielded no score. |
+
+The offline and infrastructure rows validate harness behavior only. They are not
+benchmark passes, and Krater Pro currently makes no claim that all three suites
+pass. The failed SWE-bench Pro-os result remains the authoritative scored
+attempt until a later patch passes the official evaluator. Full interpretation:
+[BENCHMARKS.md](BENCHMARKS.md).

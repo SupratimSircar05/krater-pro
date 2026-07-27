@@ -13,7 +13,7 @@ krater-pro
 | --- | --- |
 | `-k, --api-key <key>` | One-invocation Krater key; avoid where shell history is retained |
 | `--base-url <url>` | Krater-compatible OpenAI API root |
-| `-m, --model <id>` | Model returned by Krater `/v1/models` |
+| `-m, --model <id>` | `auto` for Smart Router, or an exact Krater model ID |
 | `-C, --cwd <path>` | Workspace root |
 | `-y, --yes` | Automatically approve mutations and commands |
 | `--context-chars <n>` | Estimated request-context character budget |
@@ -33,8 +33,9 @@ Run without a prompt:
 krater
 ```
 
-The header reports model, workspace, and key source without printing the key.
-Commands:
+The header reports model mode, workspace, and key source without printing the
+key. In automatic mode, the first prompt emits a compact routing audit before
+the model response. Commands:
 
 - `/help`: show the short command card;
 - `/clear`: clear messages, usage totals, and session tool cache;
@@ -43,6 +44,9 @@ Commands:
 Streaming text is printed immediately. Tool calls show their name and compact
 arguments. Read-only actions run immediately. Mutations display an approval
 question with a default of No.
+
+`/clear` also resets Smart Router selection, so the next prompt is classified
+again. An explicit `--model <id>` remains the hard override.
 
 ## One-shot mode
 
@@ -66,6 +70,10 @@ line. Example:
 ```text
 moonshotai/kimi-k3
 ```
+
+The `models` command still works while the configured model is `auto`; it uses a
+real catalog-capable provider internally and never sends `auto` as a completion
+model ID.
 
 ## Account setup
 

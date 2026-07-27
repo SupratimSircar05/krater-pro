@@ -1,0 +1,15 @@
+ARG NODE_IMAGE
+ARG INSTANCE_IMAGE
+
+FROM ${NODE_IMAGE} AS krater_node
+
+FROM ${INSTANCE_IMAGE}
+
+COPY --from=krater_node /usr/local/bin/node /usr/local/bin/node
+COPY krater-pro.mjs /opt/krater-pro/dist/krater-pro.mjs
+COPY skills/ /opt/krater-pro/skills/
+
+RUN chmod 0555 /usr/local/bin/node /opt/krater-pro/dist/krater-pro.mjs \
+    && node /opt/krater-pro/dist/krater-pro.mjs --version
+
+ENTRYPOINT ["/bin/bash"]

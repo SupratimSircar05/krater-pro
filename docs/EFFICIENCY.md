@@ -3,6 +3,25 @@
 Krater Pro applies conservative compression: reduce repeated context and noisy
 tool output without changing technical meaning.
 
+## Accuracy/cost routing
+
+With `KRATER_MODEL=auto`, the Smart Coding Router uses live Krater price,
+context-window, tool-support, and coding-quality metadata. It removes
+incompatible candidates, computes the Pareto frontier, and chooses the least
+expensive model that reaches a task-specific quality threshold. Higher-risk,
+broader, and multi-tool work receives a higher threshold; narrow routine work
+can use an economy model.
+
+Automatic candidates must accept text, return text only, and support tool
+calling. This prevents zero-token media pricing or specialized image/audio
+endpoints from distorting the cost frontier. An explicit model remains a hard
+override.
+
+Routing happens once per conversation, avoiding repeated model discovery and
+preserving coherent context. The local server caches model metadata for five
+minutes. An exact model ID is always a hard override. Catalog failure is not
+silent: the audit marks fallback mode and uses the validated Kimi K3 profile.
+
 ## Stable prefix
 
 The system rules and tool definitions are deterministic and placed before

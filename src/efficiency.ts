@@ -167,7 +167,7 @@ export function emptyUsageTotals(): UsageTotals {
 
 export function addUsage(totals: UsageTotals, usage: Usage): UsageTotals {
   return {
-    requestCount: totals.requestCount + 1,
+    requestCount: totals.requestCount + (usage.providerRequests ?? 1),
     promptTokens: totals.promptTokens + (usage.promptTokens ?? 0),
     completionTokens: totals.completionTokens + (usage.completionTokens ?? 0),
     totalTokens: totals.totalTokens + (usage.totalTokens ?? 0),
