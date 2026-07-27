@@ -8,6 +8,7 @@ const KRATER_MODELS_URL = "https://api.krater.ai/v1/models";
 const KRATER_CHAT_URL = "https://api.krater.ai/v1/chat/completions";
 export const CLOUD_MODEL = "moonshotai/kimi-k3";
 const MAX_UPSTREAM_BYTES = 1024 * 1024;
+const MAX_KRATER_REDIRECTS = 3;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 async function readBoundedResponse(response: Response): Promise<unknown> {
@@ -44,6 +45,38 @@ async function readBoundedResponse(response: Response): Promise<unknown> {
   }
 }
 
+function isRedirectStatus(status: number): boolean {
+  return status === 301
+    || status === 302
+    || status === 303
+    || status === 307
+    || status === 308;
+}
+
+function isTrustedKraterUrl(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase().replace(/\.$/u, "");
+  return url.protocol === "https:"
+    && !url.username
+    && !url.password
+    && (url.port === "" || url.port === "443")
+    && (hostname === "krater.ai" || hostname.endsWith(".krater.ai"));
+}
+
+function canFollowRedirect(method: string, status: number): boolean {
+  return method === "GET"
+    || method === "HEAD"
+    || status === 307
+    || status === 308;
+}
+
+async function discardResponse(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The redirect response body is never exposed to callers.
+  }
+}
+
 async function kraterFetch(
   url: string,
   key: string,
@@ -52,16 +85,71 @@ async function kraterFetch(
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${key}`);
   headers.set("Accept", "application/json");
-  try {
-    return await fetch(url, {
-      ...init,
-      headers,
-      redirect: "error",
-      signal: AbortSignal.timeout(url === KRATER_CHAT_URL ? 60_000 : 15_000),
-    });
-  } catch {
-    throw new HttpError(502, "provider_unavailable", "Krater is temporarily unavailable.");
+  const method = init?.method?.toUpperCase() ?? "GET";
+  const signal = AbortSignal.timeout(
+    url === KRATER_CHAT_URL ? 60_000 : 15_000,
+  );
+  let currentUrl = new URL(url);
+
+  for (let redirects = 0; redirects <= MAX_KRATER_REDIRECTS; redirects += 1) {
+    let response: Response;
+    try {
+      response = await fetch(currentUrl.toString(), {
+        ...init,
+        headers,
+        redirect: "manual",
+        signal,
+      });
+    } catch {
+      throw new HttpError(
+        502,
+        "provider_unavailable",
+        "Krater is temporarily unavailable.",
+      );
+    }
+
+    if (!isRedirectStatus(response.status)) return response;
+    const location = response.headers.get("Location");
+    if (!location || redirects === MAX_KRATER_REDIRECTS) {
+      await discardResponse(response);
+      throw new HttpError(
+        502,
+        "provider_error",
+        "Krater returned an invalid redirect.",
+      );
+    }
+
+    let nextUrl: URL;
+    try {
+      nextUrl = new URL(location, currentUrl);
+    } catch {
+      await discardResponse(response);
+      throw new HttpError(
+        502,
+        "provider_error",
+        "Krater returned an invalid redirect.",
+      );
+    }
+    if (
+      !isTrustedKraterUrl(nextUrl)
+      || !canFollowRedirect(method, response.status)
+    ) {
+      await discardResponse(response);
+      throw new HttpError(
+        502,
+        "provider_error",
+        "Krater returned an unsafe redirect.",
+      );
+    }
+    await discardResponse(response);
+    currentUrl = nextUrl;
   }
+
+  throw new HttpError(
+    502,
+    "provider_error",
+    "Krater returned an invalid redirect.",
+  );
 }
 
 function isAuthFailure(status: number): boolean {

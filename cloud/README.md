@@ -30,8 +30,10 @@ The demo persists only bounded virtual workspace JSON: files, chat messages, and
 an optional active path. A visitor may pass their own Krater API key transiently
 in the dedicated request header to validate it or run the exact
 `moonshotai/kimi-k3` demo. Pages Functions forward that request only to
-`https://api.krater.ai`; the key is never written to D1, cookies, logs, static
-assets, or server configuration.
+`https://api.krater.ai`. If that endpoint redirects, the client follows at most
+three redirects, requires HTTPS, and permits only `krater.ai` or its
+subdomains; it never forwards the key to an off-domain redirect. The key is
+never written to D1, cookies, logs, static assets, or server configuration.
 
 ## Local development
 
@@ -68,6 +70,8 @@ npm run cloud:guard
 
 The Pages project is `krater-pro`. Its output directory is `cloud/public`, and
 the `DB` binding targets the `krater-pro-cloud` D1 database.
+The `global_fetch_strictly_public` compatibility flag keeps provider requests
+on Cloudflare's public-network path and preserves the intended SSRF boundary.
 
 1. Authenticate Wrangler with the intended Cloudflare account.
 2. Configure a unique random production salt of at least 16 bytes with
