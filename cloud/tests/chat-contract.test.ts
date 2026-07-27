@@ -105,7 +105,11 @@ function chatContext(db: D1Database): PagesFunctionContext<CloudEnv> {
         model: CLOUD_MODEL,
       }),
     }),
-    env: { DB: db, RATE_LIMIT_SALT: "test-rate-salt" },
+    env: {
+      DB: db,
+      RATE_LIMIT_SALT: "test-rate-salt",
+      PASSWORD_PEPPER: "test-password-pepper-value-32-bytes",
+    },
     params: { path: ["chat"] },
     waitUntil: () => undefined,
   };

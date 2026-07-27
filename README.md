@@ -10,7 +10,8 @@
 
 Krater Pro is an independent, tool-using coding agent powered by the
 [Krater API](https://api.krater.ai/). The same TypeScript agent runs as an
-interactive CLI and as a polished local React application.
+interactive CLI, a polished local React application, and native macOS,
+Windows, and Linux desktop apps.
 
 It can map a repository, read and search source, load language-specific expert
 skills, edit files, run development commands, inspect Git state, stream model
@@ -37,6 +38,8 @@ transient Krater API key.
   from live Krater pricing and capability metadata
 - Full agentic IDE with a safe file explorer, conflict-aware tabbed editor,
   bounded workspace terminal, Git status/diffs, and the active Krater agent
+- Native macOS, Windows, and Linux apps with a sandboxed Electron renderer,
+  loopback-only ephemeral server, and reproducible GitHub Release automation
 - Local app-style GUI with streaming, tool activity, project and model
   selection, settings, responsive layouts, and Allow/Deny actions
 - One-click switching among existing local folders, isolated public GitHub
@@ -89,6 +92,31 @@ krater web
 ```
 
 Then open [http://127.0.0.1:4317](http://127.0.0.1:4317).
+
+## Desktop apps
+
+Download the macOS DMG/ZIP, Windows installer/portable EXE, or Linux
+AppImage/DEB from
+[GitHub Releases](https://github.com/SupratimSircar05/krater-pro/releases).
+Each release includes `SHA256SUMS.txt`.
+
+The 0.1.0 community binaries are unsigned. macOS Gatekeeper and Windows
+SmartScreen may therefore show an unknown-developer warning; verify the
+checksum before using the operating system's one-app approval flow. Do not
+disable platform security globally.
+
+For a source checkout:
+
+```sh
+npm run desktop:test
+npm run desktop:dev
+```
+
+The native shell loads the same production IDE over a dynamically selected
+`127.0.0.1` port. It disables renderer Node access, uses a memory-only browser
+partition, denies permissions/webviews/downloads, and keeps a pasted API key in
+the existing in-memory Settings flow. Full installation, launch-option,
+security, build, and signing guidance: [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ## Authentication
 
@@ -186,6 +214,7 @@ npm run dev:web
 
 - IDE guide: [docs/IDE.md](docs/IDE.md)
 - GUI behavior and API endpoints: [docs/GUI.md](docs/GUI.md)
+- Native desktop installation and releases: [docs/DESKTOP.md](docs/DESKTOP.md)
 
 ## Configuration
 

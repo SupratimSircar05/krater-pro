@@ -1,0 +1,98 @@
+appId: com.supratimsircar.kraterpro
+productName: Krater Pro
+copyright: Copyright © 2026 Supratim Sircar
+
+directories:
+  output: release
+  buildResources: desktop/assets
+
+files:
+  - dist/**/*
+  - web/dist/**/*
+  - desktop/main.mjs
+  - desktop/runtime.mjs
+  - desktop/window-security.mjs
+  - desktop/assets/icon.png
+  - package.json
+  - LICENSE
+
+extraMetadata:
+  main: desktop/main.mjs
+
+asar: true
+compression: maximum
+npmRebuild: false
+afterPack: desktop/scripts/after-pack.mjs
+
+electronFuses:
+  resetAdHocDarwinSignature: true
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+
+mac:
+  category: public.app-category.developer-tools
+  icon: icon.icns
+  hardenedRuntime: true
+  entitlements: desktop/entitlements.mac.plist
+  entitlementsInherit: desktop/entitlements.mac.inherit.plist
+  darkModeSupport: true
+  artifactName: Krater-Pro-${version}-${arch}.${ext}
+  target:
+    - dmg
+    - zip
+  extendInfo:
+    NSHumanReadableCopyright: Built by Supratim with ❤️
+    NSAppTransportSecurity:
+      NSAllowsArbitraryLoads: false
+      NSAllowsLocalNetworking: true
+      NSExceptionDomains:
+        "127.0.0.1":
+          NSIncludesSubdomains: false
+          NSTemporaryExceptionAllowsInsecureHTTPLoads: true
+        localhost:
+          NSIncludesSubdomains: false
+          NSTemporaryExceptionAllowsInsecureHTTPLoads: true
+
+dmg:
+  title: Krater Pro ${version}
+  writeUpdateInfo: false
+
+win:
+  icon: icon.ico
+  executableName: KraterPro
+  requestedExecutionLevel: asInvoker
+  target:
+    - nsis
+    - portable
+
+nsis:
+  artifactName: Krater-Pro-Setup-${version}-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Krater Pro
+  uninstallDisplayName: Krater Pro
+
+portable:
+  artifactName: Krater-Pro-Portable-${version}-${arch}.${ext}
+
+linux:
+  icon: icon.png
+  executableName: krater-pro
+  category: Development
+  synopsis: Agentic coding IDE powered by the Krater API
+  description: Krater Pro is a local, approval-aware agentic coding IDE and CLI.
+  artifactName: Krater-Pro-${version}-${arch}.${ext}
+  target:
+    - AppImage
+    - deb
+
+deb:
+  priority: optional

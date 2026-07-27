@@ -1,0 +1,22 @@
+{
+  "name": "brace-expansion",
+  "version": "5.0.8",
+  "description": "Callable compatibility facade for brace-expansion 5.0.8.",
+  "type": "commonjs",
+  "main": "index.cjs",
+  "exports": {
+    ".": "./index.cjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.cjs",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "brace-expansion-v5": "npm:brace-expansion@5.0.8"
+  },
+  "engines": {
+    "node": "20 || >=22"
+  },
+  "license": "MIT"
+}

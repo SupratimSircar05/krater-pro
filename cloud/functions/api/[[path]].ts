@@ -28,6 +28,8 @@ import {
   MIN_RATE_LIMIT_SALT_BYTES,
   KEY_VALIDATION_RATE_LIMIT,
   KEY_VALIDATION_RATE_WINDOW_SECONDS,
+  LOGIN_ACCOUNT_RATE_LIMIT,
+  LOGIN_ACCOUNT_RATE_WINDOW_SECONDS,
   PROJECT_MUTATION_RATE_LIMIT,
   PROJECT_MUTATION_RATE_WINDOW_SECONDS,
   assertSameOrigin,
@@ -40,6 +42,8 @@ import {
   randomToken,
   readJson,
   readKraterKey,
+  requirePasswordPepper,
+  requireRateLimitSalt,
   safeErrorResponse,
   sessionCookie,
   sha256,
@@ -97,36 +101,65 @@ function clientAddress(request: Request): string {
   return value && value.length <= 64 ? value : "unknown";
 }
 
+interface RateLimitKey {
+  scope: RateLimitScope;
+  clientHash: string;
+  windowStart: number;
+  expiresAt: number;
+}
+
+async function rateLimitKey(
+  context: PagesFunctionContext<CloudEnv>,
+  scope: RateLimitScope,
+  windowSeconds: number,
+  identity = "",
+  includeIp = true,
+): Promise<RateLimitKey> {
+  const now = unixNow();
+  const windowStart = Math.floor(now / windowSeconds) * windowSeconds;
+  const cloudflareIp = context.request.headers.get("CF-Connecting-IP");
+  const configuredSalt = context.env.RATE_LIMIT_SALT;
+  if (cloudflareIp !== null) requireRateLimitSalt(configuredSalt);
+  const salt = typeof configuredSalt === "string"
+      && textEncoder.encode(configuredSalt).byteLength >= MIN_RATE_LIMIT_SALT_BYTES
+    ? configuredSalt
+    : "krater-pro-local-rate-limit-v1";
+  return {
+    scope,
+    clientHash: await sha256(
+      `${salt}:${scope}:${includeIp ? clientAddress(context.request) : "account"}:${identity}`,
+    ),
+    windowStart,
+    expiresAt: windowStart + (windowSeconds * 2),
+  };
+}
+
+function scheduleRateLimitCleanup(
+  context: PagesFunctionContext<CloudEnv>,
+): void {
+  context.waitUntil(
+    context.env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?")
+      .bind(unixNow())
+      .run()
+      .then(() => undefined)
+      .catch(() => undefined),
+  );
+}
+
 async function enforceRateLimit(
   context: PagesFunctionContext<CloudEnv>,
   scope: RateLimitScope,
   limit: number,
   windowSeconds: number,
   identity = "",
+  includeIp = true,
 ): Promise<void> {
-  const now = unixNow();
-  const windowStart = Math.floor(now / windowSeconds) * windowSeconds;
-  const cloudflareIp = context.request.headers.get("CF-Connecting-IP");
-  const configuredSalt = context.env.RATE_LIMIT_SALT;
-  if (
-    cloudflareIp !== null
-    && (
-      typeof configuredSalt !== "string"
-      || textEncoder.encode(configuredSalt).byteLength < MIN_RATE_LIMIT_SALT_BYTES
-    )
-  ) {
-    throw new HttpError(
-      500,
-      "configuration_error",
-      "Service configuration error.",
-    );
-  }
-  const salt = typeof configuredSalt === "string"
-      && textEncoder.encode(configuredSalt).byteLength >= MIN_RATE_LIMIT_SALT_BYTES
-    ? configuredSalt
-    : "krater-pro-local-rate-limit-v1";
-  const clientHash = await sha256(
-    `${salt}:${clientAddress(context.request)}:${identity}`,
+  const key = await rateLimitKey(
+    context,
+    scope,
+    windowSeconds,
+    identity,
+    includeIp,
   );
   const row = await context.env.DB.prepare(
     `INSERT INTO rate_limits (scope, client_hash, window_start, count, expires_at)
@@ -134,36 +167,62 @@ async function enforceRateLimit(
       ON CONFLICT(scope, client_hash, window_start)
       DO UPDATE SET count = count + 1
       RETURNING count`,
-  ).bind(scope, clientHash, windowStart, windowStart + (windowSeconds * 2))
+  ).bind(key.scope, key.clientHash, key.windowStart, key.expiresAt)
     .first<{ count: number }>();
-  context.waitUntil(
-    context.env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?")
-      .bind(now)
-      .run()
-      .then(() => undefined)
-      .catch(() => undefined),
-  );
+  scheduleRateLimitCleanup(context);
   if (!row || row.count > limit) {
     throw new HttpError(429, "rate_limited", "Too many requests. Try again later.");
   }
 }
 
-async function issueSession(
-  env: CloudEnv,
-  userId: string,
-  now = unixNow(),
-): Promise<string> {
-  const token = randomToken();
-  const tokenHash = await sha256(token);
-  await env.DB.prepare(
-    "INSERT INTO sessions (token_hash, user_id, issued_at, expires_at) VALUES (?, ?, ?, ?)",
-  ).bind(tokenHash, userId, now, now + SESSION_TTL_SECONDS).run();
-  return token;
+async function reserveLoginAccountAttempt(
+  context: PagesFunctionContext<CloudEnv>,
+  email: string,
+): Promise<RateLimitKey> {
+  const key = await rateLimitKey(
+    context,
+    "login_account",
+    LOGIN_ACCOUNT_RATE_WINDOW_SECONDS,
+    email,
+    false,
+  );
+  const row = await context.env.DB.prepare(
+    `INSERT INTO rate_limits (scope, client_hash, window_start, count, expires_at)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT(scope, client_hash, window_start)
+      DO UPDATE SET count = count + 1
+      RETURNING count`,
+  ).bind(key.scope, key.clientHash, key.windowStart, key.expiresAt)
+    .first<{ count: number }>();
+  if (!row || row.count > LOGIN_ACCOUNT_RATE_LIMIT) {
+    throw new HttpError(429, "rate_limited", "Too many requests. Try again later.");
+  }
+  return key;
+}
+
+async function health(context: PagesFunctionContext<CloudEnv>): Promise<Response> {
+  try {
+    requirePasswordPepper(context.env.PASSWORD_PEPPER);
+    requireRateLimitSalt(context.env.RATE_LIMIT_SALT);
+  } catch {
+    throw new HttpError(503, "configuration_error", "Service unavailable.");
+  }
+  try {
+    const result = await context.env.DB.prepare("SELECT 1 AS ready")
+      .first<{ ready: number }>();
+    if (result?.ready !== 1) {
+      throw new Error("D1 readiness query returned no row.");
+    }
+  } catch {
+    throw new HttpError(503, "service_unavailable", "Service unavailable.");
+  }
+  return jsonResponse({ ok: true });
 }
 
 async function requireAuth(
   context: PagesFunctionContext<CloudEnv>,
 ): Promise<AuthState> {
+  requirePasswordPepper(context.env.PASSWORD_PEPPER);
   const token = parseCookies(context.request.headers.get("Cookie")).get(SESSION_COOKIE);
   if (!token || token.length < 40 || token.length > 128) {
     throw new HttpError(401, "unauthorized", "Sign in to continue.");
@@ -225,10 +284,11 @@ async function register(
   context: PagesFunctionContext<CloudEnv>,
 ): Promise<Response> {
   await enforceRateLimit(context, "register", 5, 60 * 60);
+  const pepper = requirePasswordPepper(context.env.PASSWORD_PEPPER);
   const body = await readJson(context.request, 4 * 1024);
   const email = normalizeEmail(body.email);
   const password = validatePassword(body.password);
-  const passwordRecord = await hashPassword(password);
+  const passwordRecord = await hashPassword(password, pepper);
   const id = crypto.randomUUID();
   const now = unixNow();
   const token = randomToken();
@@ -266,22 +326,35 @@ async function login(
   context: PagesFunctionContext<CloudEnv>,
 ): Promise<Response> {
   await enforceRateLimit(context, "login", 10, 15 * 60);
+  const pepper = requirePasswordPepper(context.env.PASSWORD_PEPPER);
   const body = await readJson(context.request, 4 * 1024);
   const email = normalizeEmail(body.email);
+  const accountRateKey = await reserveLoginAccountAttempt(context, email);
   const password = validatePassword(body.password);
   const user = await findUserByEmail(context.env.DB, email);
   const valid = await (user
     ? verifyPassword(
       password,
+      pepper,
       user.password_hash,
       user.password_salt,
       user.password_iterations,
     )
-    : hashPassword(password, EMPTY_SALT).then(() => false));
+    : hashPassword(password, pepper, EMPTY_SALT).then(() => false));
   if (!user || !valid) {
     throw new HttpError(401, "invalid_credentials", "Email or password is incorrect.");
   }
-  const token = await issueSession(context.env, user.id);
+  const token = randomToken();
+  const tokenHash = await sha256(token);
+  const now = unixNow();
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      "DELETE FROM rate_limits WHERE scope = ? AND client_hash = ?",
+    ).bind(accountRateKey.scope, accountRateKey.clientHash),
+    context.env.DB.prepare(
+      "INSERT INTO sessions (token_hash, user_id, issued_at, expires_at) VALUES (?, ?, ?, ?)",
+    ).bind(tokenHash, user.id, now, now + SESSION_TTL_SECONDS),
+  ]);
   return jsonResponse(
     { user: publicUser(user) },
     200,
@@ -347,7 +420,7 @@ async function dispatch(
   if (!["GET", "HEAD"].includes(method)) assertSameOrigin(request);
 
   if (method === "GET" && route === "/health") {
-    return jsonResponse({ ok: true, service: "krater-pro-cloud" });
+    return health(context);
   }
   if (method === "POST" && route === "/auth/register") return register(context);
   if (method === "POST" && route === "/auth/login") return login(context);

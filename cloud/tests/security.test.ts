@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PASSWORD_ITERATIONS,
+  MIN_PASSWORD_PEPPER_BYTES,
   MAX_MESSAGE_BYTES,
   SESSION_COOKIE,
   HttpError,
@@ -11,6 +12,7 @@ import {
   jsonResponse,
   normalizeEmail,
   readKraterKey,
+  requirePasswordPepper,
   safeErrorResponse,
   sessionCookie,
   validateMessages,
@@ -18,6 +20,8 @@ import {
   validateSnapshot,
   verifyPassword,
 } from "../lib/security";
+
+const TEST_PASSWORD_PEPPER = "p".repeat(32);
 
 describe("cloud security helpers", () => {
   it("normalizes email addresses and rejects malformed input", () => {
@@ -27,31 +31,63 @@ describe("cloud security helpers", () => {
   });
 
   it("enforces the password bounds", () => {
-    expect(validatePassword("correct horse battery staple")).toBe(
-      "correct horse battery staple",
-    );
-    expect(() => validatePassword("short")).toThrow(/12 and 128/u);
-    expect(() => validatePassword("x".repeat(129))).toThrow(/12 and 128/u);
+    expect(() => validatePassword("x".repeat(14))).toThrow(/15 and 128/u);
+    expect(validatePassword("x".repeat(15))).toBe("x".repeat(15));
+    expect(validatePassword("x".repeat(128))).toBe("x".repeat(128));
+    expect(() => validatePassword("x".repeat(129))).toThrow(/15 and 128/u);
   });
 
-  it("uses high-iteration salted PBKDF2 and verifies in constant-work code", async () => {
-    const first = await hashPassword("a sufficiently long password");
-    const second = await hashPassword("a sufficiently long password");
+  it("uses peppered, salted PBKDF2 and verifies in constant-work code", async () => {
+    const first = await hashPassword(
+      "a sufficiently long password",
+      TEST_PASSWORD_PEPPER,
+    );
+    const second = await hashPassword(
+      "a sufficiently long password",
+      TEST_PASSWORD_PEPPER,
+    );
     expect(first.iterations).toBe(PASSWORD_ITERATIONS);
-    expect(PASSWORD_ITERATIONS).toBeGreaterThanOrEqual(600_000);
+    expect(PASSWORD_ITERATIONS).toBe(100_000);
     expect(first.salt).not.toBe(second.salt);
     expect(first.hash).not.toBe(second.hash);
     await expect(
       verifyPassword(
         "a sufficiently long password",
+        TEST_PASSWORD_PEPPER,
         first.hash,
         first.salt,
         first.iterations,
       ),
     ).resolves.toBe(true);
     await expect(
-      verifyPassword("a different password", first.hash, first.salt, first.iterations),
+      verifyPassword(
+        "a different password",
+        TEST_PASSWORD_PEPPER,
+        first.hash,
+        first.salt,
+        first.iterations,
+      ),
     ).resolves.toBe(false);
+    await expect(
+      verifyPassword(
+        "a sufficiently long password",
+        "different-password-pepper-value-32",
+        first.hash,
+        first.salt,
+        first.iterations,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("requires an independent password pepper of at least 32 bytes", () => {
+    expect(MIN_PASSWORD_PEPPER_BYTES).toBe(32);
+    expect(requirePasswordPepper(TEST_PASSWORD_PEPPER)).toBe(TEST_PASSWORD_PEPPER);
+    expect(() => requirePasswordPepper("too-short")).toThrow(
+      /Service configuration error/u,
+    );
+    expect(() => requirePasswordPepper(undefined)).toThrow(
+      /Service configuration error/u,
+    );
   });
 
   it("builds host-only secure session cookies", () => {

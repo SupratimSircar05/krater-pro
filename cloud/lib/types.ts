@@ -21,6 +21,7 @@ export interface D1Database {
 export interface CloudEnv {
   DB: D1Database;
   RATE_LIMIT_SALT?: string;
+  PASSWORD_PEPPER?: string;
 }
 
 export interface PagesFunctionContext<Env = CloudEnv> {

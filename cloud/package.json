@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "npm run guard:secrets && wrangler pages dev public --binding RATE_LIMIT_SALT=krater-pro-local-rate-limit-v1",
+    "dev": "npm run guard:secrets && wrangler pages dev public --binding RATE_LIMIT_SALT=krater-pro-local-rate-limit-v1 --binding PASSWORD_PEPPER=krater-pro-local-password-pepper-v1",
     "migrate:local": "wrangler d1 migrations apply krater-pro-cloud --local",
     "migrate:remote": "wrangler d1 migrations apply krater-pro-cloud --remote",
     "deploy": "npm run guard:secrets && wrangler pages deploy public --project-name krater-pro",

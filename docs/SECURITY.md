@@ -106,6 +106,33 @@ Do not expose the port through tunnels, reverse proxies, containers, or port
 forwarding without adding real authentication, authorization, origin/CSRF
 controls, TLS, audit logs, quotas, and multi-user workspace isolation.
 
+## Native desktop shell
+
+The macOS, Windows, and Linux apps run this same server on `127.0.0.1`. By
+default, the launcher selects an available ephemeral port; a fixed port can be
+requested, but the host cannot be changed. A single-instance lock prevents
+accidental duplicate shells, and app shutdown aborts agent activity, denies
+pending approvals, closes HTTP connections, and releases the port.
+
+The Electron renderer has `nodeIntegration` disabled, context isolation and
+sandboxing enabled, no preload bridge, no remote module, and no persistent
+session partition. Permission requests, webviews, downloads, insecure content,
+and navigation away from the exact loopback origin are denied. HTTPS links open
+in the system browser rather than gaining an Electron window. Production
+packages disable DevTools and apply Electron fuses that disable Run-as-Node,
+`NODE_OPTIONS`, CLI inspection, and loading application code outside the ASAR.
+
+An API key inherited by the main process or loaded from the launch workspace's
+`.env` is not exposed to the renderer. A key pasted in Settings follows the
+existing in-memory web flow and disappears when the app exits. Electron does
+not add key storage, IPC, logging, analytics, update services, or crash uploads.
+
+Version 0.1.0 community installers are unsigned and are therefore expected to
+trigger macOS Gatekeeper or Windows SmartScreen warnings. Published release
+checksums provide integrity checking but not publisher identity. See
+[DESKTOP.md](DESKTOP.md) for the warning and future signing/notarization secret
+names.
+
 ## Krater credentials
 
 Krater Pro supports documented bearer API keys. A GUI key remains only in the

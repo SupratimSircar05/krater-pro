@@ -4,7 +4,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 export const SESSION_COOKIE = "__Host-krater_session";
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const SESSION_ROTATE_AFTER_SECONDS = 24 * 60 * 60;
-export const PASSWORD_ITERATIONS = 600_000;
+export const PASSWORD_ITERATIONS = 100_000;
 export const MAX_JSON_BYTES = 600 * 1024;
 export const MAX_SNAPSHOT_BYTES = 512 * 1024;
 export const MAX_PROJECTS = 10;
@@ -19,11 +19,15 @@ export const PROJECT_MUTATION_RATE_LIMIT = 300;
 export const PROJECT_MUTATION_RATE_WINDOW_SECONDS = 60 * 60;
 export const KEY_VALIDATION_RATE_LIMIT = 20;
 export const KEY_VALIDATION_RATE_WINDOW_SECONDS = 15 * 60;
+export const LOGIN_ACCOUNT_RATE_LIMIT = 12;
+export const LOGIN_ACCOUNT_RATE_WINDOW_SECONDS = 15 * 60;
 export const MIN_RATE_LIMIT_SALT_BYTES = 16;
+export const MIN_PASSWORD_PEPPER_BYTES = 32;
 
 export type RateLimitScope =
   | "register"
   | "login"
+  | "login_account"
   | "chat"
   | "key_validate"
   | "project_mutation";
@@ -98,24 +102,71 @@ export function normalizeEmail(value: unknown): string {
 }
 
 export function validatePassword(value: unknown): string {
-  if (typeof value !== "string" || value.length < 12 || value.length > 128) {
+  if (typeof value !== "string" || value.length < 15 || value.length > 128) {
     throw new HttpError(
       400,
       "invalid_password",
-      "Password must be between 12 and 128 characters.",
+      "Password must be between 15 and 128 characters.",
     );
   }
   return value;
 }
 
+export function requirePasswordPepper(value: unknown): string {
+  if (
+    typeof value !== "string"
+    || encoder.encode(value).byteLength < MIN_PASSWORD_PEPPER_BYTES
+  ) {
+    throw new HttpError(
+      500,
+      "configuration_error",
+      "Service configuration error.",
+    );
+  }
+  return value;
+}
+
+export function requireRateLimitSalt(value: unknown): string {
+  if (
+    typeof value !== "string"
+    || encoder.encode(value).byteLength < MIN_RATE_LIMIT_SALT_BYTES
+  ) {
+    throw new HttpError(
+      500,
+      "configuration_error",
+      "Service configuration error.",
+    );
+  }
+  return value;
+}
+
+async function prehashPassword(
+  password: string,
+  pepper: string,
+): Promise<ArrayBuffer> {
+  const hmacKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(pepper),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return crypto.subtle.sign("HMAC", hmacKey, encoder.encode(password));
+}
+
 export async function hashPassword(
   password: string,
+  pepper: string,
   salt = randomToken(16),
   iterations = PASSWORD_ITERATIONS,
 ): Promise<{ hash: string; salt: string; iterations: number }> {
+  const prehash = await prehashPassword(
+    password,
+    requirePasswordPepper(pepper),
+  );
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(password),
+    prehash,
     "PBKDF2",
     false,
     ["deriveBits"],
@@ -135,13 +186,14 @@ export async function hashPassword(
 
 export async function verifyPassword(
   password: string,
+  pepper: string,
   expectedHash: string,
   salt: string,
   iterations: number,
 ): Promise<boolean> {
   let actualHash: string;
   try {
-    actualHash = (await hashPassword(password, salt, iterations)).hash;
+    actualHash = (await hashPassword(password, pepper, salt, iterations)).hash;
   } catch {
     return false;
   }

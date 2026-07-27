@@ -243,7 +243,10 @@ try {
     expectStatus(response, 200);
     const body = await readJson(response);
     ensure(body.ok === true, "health response was not ready");
-    ensure(body.service === "krater-pro-cloud", "health service identity was incorrect");
+    ensure(
+      Object.keys(body).length === 1,
+      "health response exposed more than minimal readiness",
+    );
   });
 
   await verify("first registration and secure cookie", async () => {

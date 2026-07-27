@@ -254,8 +254,8 @@ import {
     const errorElement = byId("auth-error");
     errorElement.textContent = "";
 
-    if (password.length < 12) {
-      errorElement.textContent = "Use at least 12 characters for your password.";
+    if (password.length < 15) {
+      errorElement.textContent = "Use at least 15 characters for your password.";
       return;
     }
 

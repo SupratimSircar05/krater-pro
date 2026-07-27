@@ -39,7 +39,7 @@ const plausibleLiveKeyPatterns = [
 ];
 
 const configDefinitionPattern =
-  /(?:^|[\r\n,{])\s*["']?KRATER_API_KEY["']?\s*[:=]/m;
+  /(?:^|[\r\n,{])\s*["']?(?:KRATER_API_KEY|PASSWORD_PEPPER|RATE_LIMIT_SALT)["']?\s*[:=]/m;
 
 function parseDotEnvValue(source, name) {
   const line = source
@@ -67,6 +67,12 @@ async function readConfiguredSecrets() {
   const candidates = new Set();
   if (process.env.KRATER_API_KEY) {
     candidates.add(process.env.KRATER_API_KEY);
+  }
+  if (process.env.PASSWORD_PEPPER) {
+    candidates.add(process.env.PASSWORD_PEPPER);
+  }
+  if (process.env.RATE_LIMIT_SALT) {
+    candidates.add(process.env.RATE_LIMIT_SALT);
   }
 
   try {

@@ -1,7 +1,7 @@
 {
   "name": "krater-pro",
   "version": "0.1.0",
-  "description": "Krater Pro: an independent Krater-powered coding agent for the terminal and web.",
+  "description": "Krater Pro: an independent Krater-powered coding agent for terminal, web, and native desktop.",
   "author": {
     "name": "Supratim Sircar",
     "url": "https://www.linkedin.com/in/supratimsircar/"
@@ -57,6 +57,16 @@
     "cloud:test": "npm run test --workspace @krater-pro/cloud",
     "cloud:e2e": "npm run e2e --workspace @krater-pro/cloud",
     "cloud:guard": "npm run guard:secrets && npm run guard:secrets --workspace @krater-pro/cloud",
+    "social:preview": "node scripts/build-social-preview.mjs",
+    "desktop:icons": "node desktop/scripts/generate-icons.mjs",
+    "desktop:test": "vitest run desktop/tests",
+    "desktop:start": "electron desktop/main.mjs",
+    "desktop:dev": "npm run build && npm run desktop:icons && electron desktop/main.mjs",
+    "desktop:prepare": "npm run build && npm run desktop:icons && npm run desktop:test",
+    "desktop:dist": "npm run desktop:prepare && node desktop/scripts/build.mjs",
+    "desktop:dist:mac": "npm run desktop:prepare && node desktop/scripts/build.mjs --mac",
+    "desktop:dist:win": "npm run desktop:prepare && node desktop/scripts/build.mjs --win",
+    "desktop:dist:linux": "npm run desktop:prepare && node desktop/scripts/build.mjs --linux",
     "guard:secrets": "node scripts/guard-secrets.mjs",
     "start": "node dist/cli.js",
     "test": "vitest run",
@@ -68,23 +78,33 @@
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
+  "overrides": {
+    "brace-expansion": "$brace-expansion"
+  },
   "keywords": [
     "krater",
     "coding-agent",
     "ai",
-    "cli"
+    "cli",
+    "desktop",
+    "electron",
+    "ide"
   ],
   "license": "MIT",
   "dependencies": {
     "commander": "^14.0.0",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
-    "openai": "^5.0.0",
-    "tsx": "^4.20.0"
+    "openai": "^5.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
+    "brace-expansion": "file:vendor/brace-expansion-compat",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "sharp": "0.35.3",
+    "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vite": "^7.0.0",
     "vitest": "^3.2.0"

@@ -63,7 +63,7 @@
             <h2>2. Data Cloud Lab handles</h2>
 
             <h3>Account records</h3>
-            <p>Cloud Lab stores your normalized email address, a slow password-derived hash, its unique salt and iteration count, and account timestamps in Cloudflare D1. It does not store your plaintext password.</p>
+            <p>Cloud Lab stores your normalized email address, a password-derived hash, its unique salt and iteration count, and account timestamps in Cloudflare D1. Before the salted 100,000-iteration PBKDF2-SHA256 step, the service keys the password with HMAC-SHA-256 using an independent deployment secret. That pepper is held in the service environment and is not stored in D1. Cloud Lab does not store your plaintext password or the pepper alongside account records. Existing password hashes depend on that pepper; losing or replacing it prevents password verification unless an account migration has been planned.</p>
 
             <h3>Virtual projects</h3>
             <p>Cloud Lab stores project names, virtual file paths and contents, the active file path, saved user and assistant chat messages, and project timestamps. These are virtual scratch projects; Cloud Lab does not read your device filesystem or Git repositories.</p>
@@ -72,7 +72,7 @@
             <p>After authentication, Cloud Lab sets an essential session cookie that lasts for up to seven days. The cookie is marked Secure, HttpOnly, and SameSite=Strict. The database stores a hash of the session token, its account association, and issue and expiry times—not the raw cookie token.</p>
 
             <h3>Abuse-prevention records</h3>
-            <p>Registration, login, project-mutation, key-validation, and chat routes use temporary rate limits. The database stores a salted hash derived from the requesting IP address and, for signed-in routes, the account identifier, plus the rate-limit scope, time window, count, and expiry. The application does not store the raw IP address in its rate-limit table.</p>
+            <p>Registration, login, project-mutation, key-validation, and chat routes use temporary rate limits. The database stores secret-salted hashes derived from the requesting IP address, the normalized login email for a separate IP-independent login bucket, and, for signed-in routes, the account identifier, plus the rate-limit scope, time window, count, and expiry. The application does not store the raw IP address or raw login email in its rate-limit table.</p>
 
             <h3>Your Krater.ai API key and inference payloads</h3>
             <p>Your Krater API key is transient request data. The Krater Pro application code does not write it to D1, browser storage, application logs, project snapshots, or responses, and does not echo it back to the page. The page keeps a connected key only in memory until you leave or reload the page, log out, or close it. Cloudflare necessarily processes the encrypted request as the hosting provider, so its independent infrastructure practices also apply.</p>
@@ -123,7 +123,7 @@
 
           <section id="security">
             <h2>7. Security boundaries</h2>
-            <p>Cloud Lab uses bounded inputs, same-origin mutation checks, secure session cookies, hashed passwords and session tokens, per-account project access checks, and a restrictive content security policy. No Internet service can promise absolute security. Use unique account credentials and do not place secrets in virtual files or prompts.</p>
+            <p>Cloud Lab uses bounded inputs, same-origin mutation checks, secure session cookies, independently peppered and per-user salted password hashing, hashed session tokens, per-account project access checks, and a restrictive content security policy. No Internet service can promise absolute security. Use unique account credentials and do not place secrets in virtual files or prompts.</p>
           </section>
 
           <section id="changes">

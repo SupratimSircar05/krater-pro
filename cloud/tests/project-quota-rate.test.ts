@@ -4,11 +4,14 @@ import { CLOUD_MODEL } from "../lib/krater";
 import {
   KEY_VALIDATION_RATE_LIMIT,
   KEY_VALIDATION_RATE_WINDOW_SECONDS,
+  LOGIN_ACCOUNT_RATE_LIMIT,
+  LOGIN_ACCOUNT_RATE_WINDOW_SECONDS,
   MAX_ACCOUNT_PROJECT_BYTES,
   MAX_PROJECTS,
   PROJECT_MUTATION_RATE_LIMIT,
   PROJECT_MUTATION_RATE_WINDOW_SECONDS,
   SESSION_COOKIE,
+  hashPassword,
 } from "../lib/security";
 import type {
   CloudEnv,
@@ -29,6 +32,9 @@ const snapshot = {
 interface DatabaseOptions {
   userId?: string;
   sessionExpiresAt?: number;
+  readiness?: "ready" | "empty" | "error";
+  rateCounts?: Map<string, number>;
+  userRow?: Record<string, unknown>;
   insertRow?: Record<string, unknown> | null;
   updateRow?: Record<string, unknown> | null;
   existingProject?: boolean;
@@ -50,7 +56,19 @@ class QuotaStatement implements D1PreparedStatement {
 
   async first<T>(): Promise<T | null> {
     const userId = this.options.userId ?? "user-a";
-    if (this.query.includes("RETURNING count")) return { count: 1 } as T;
+    if (this.query === "SELECT 1 AS ready") {
+      if (this.options.readiness === "error") {
+        throw new Error("Synthetic D1 failure.");
+      }
+      return this.options.readiness === "empty" ? null : { ready: 1 } as T;
+    }
+    if (this.query.includes("RETURNING count")) {
+      if (!this.options.rateCounts) return { count: 1 } as T;
+      const key = `${String(this.values[0])}:${String(this.values[1])}:${String(this.values[2])}`;
+      const count = (this.options.rateCounts.get(key) ?? 0) + 1;
+      this.options.rateCounts.set(key, count);
+      return { count } as T;
+    }
     if (this.query.includes("FROM sessions s")) {
       return {
         token_hash: "token-hash",
@@ -60,6 +78,9 @@ class QuotaStatement implements D1PreparedStatement {
         user_email: `${userId}@example.com`,
         user_created_at: timestamp - 60,
       } as T;
+    }
+    if (this.query.includes("FROM users WHERE email")) {
+      return (this.options.userRow ?? null) as T | null;
     }
     if (this.query.startsWith("INSERT INTO projects")) {
       return (this.options.insertRow ?? null) as T | null;
@@ -92,6 +113,15 @@ class QuotaStatement implements D1PreparedStatement {
   }
 
   async run<T>(): Promise<D1Result<T>> {
+    if (
+      this.query === "DELETE FROM rate_limits WHERE scope = ? AND client_hash = ?"
+      && this.options.rateCounts
+    ) {
+      const prefix = `${String(this.values[0])}:${String(this.values[1])}:`;
+      for (const key of this.options.rateCounts.keys()) {
+        if (key.startsWith(prefix)) this.options.rateCounts.delete(key);
+      }
+    }
     return { success: true, results: [] };
   }
 }
@@ -107,8 +137,10 @@ class QuotaDatabase implements D1Database {
     return statement;
   }
 
-  async batch<T>(): Promise<Array<D1Result<T>>> {
-    return [];
+  async batch<T>(statements: D1PreparedStatement[]): Promise<Array<D1Result<T>>> {
+    const results: Array<D1Result<T>> = [];
+    for (const statement of statements) results.push(await statement.run<T>());
+    return results;
   }
 }
 
@@ -134,6 +166,7 @@ function context(
     env: {
       DB: db,
       RATE_LIMIT_SALT: "test-rate-limit-salt-value",
+      PASSWORD_PEPPER: "test-password-pepper-value-32-bytes",
       ...envOverrides,
     },
     params: {},
@@ -148,9 +181,65 @@ function rateScope(db: QuotaDatabase): unknown {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("project quotas and mutation limits", () => {
+  it("reports minimal readiness only when secrets and D1 are ready", async () => {
+    const response = await onRequest(context(
+      new QuotaDatabase({ readiness: "ready" }),
+      "GET",
+      "/api/health",
+    ));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+  });
+
+  it("returns generic 503 readiness errors for missing or short secrets", async () => {
+    const cases: Array<Partial<CloudEnv>> = [
+      { PASSWORD_PEPPER: undefined },
+      { PASSWORD_PEPPER: "too-short" },
+      { RATE_LIMIT_SALT: undefined },
+      { RATE_LIMIT_SALT: "short" },
+    ];
+    for (const overrides of cases) {
+      const db = new QuotaDatabase({ readiness: "ready" });
+      const response = await onRequest(context(
+        db,
+        "GET",
+        "/api/health",
+        undefined,
+        undefined,
+        overrides,
+      ));
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "configuration_error",
+          message: "Service unavailable.",
+        },
+      });
+      expect(db.statements).toHaveLength(0);
+    }
+  });
+
+  it("returns generic 503 readiness errors when D1 fails", async () => {
+    for (const readiness of ["empty", "error"] as const) {
+      const response = await onRequest(context(
+        new QuotaDatabase({ readiness }),
+        "GET",
+        "/api/health",
+      ));
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "service_unavailable",
+          message: "Service unavailable.",
+        },
+      });
+    }
+  });
+
   it("publishes the sharply bounded quota and rate configuration", () => {
     expect(MAX_PROJECTS).toBe(10);
     expect(MAX_ACCOUNT_PROJECT_BYTES).toBe(524_288);
@@ -158,6 +247,8 @@ describe("project quotas and mutation limits", () => {
     expect(PROJECT_MUTATION_RATE_WINDOW_SECONDS).toBe(3600);
     expect(KEY_VALIDATION_RATE_LIMIT).toBe(20);
     expect(KEY_VALIDATION_RATE_WINDOW_SECONDS).toBe(900);
+    expect(LOGIN_ACCOUNT_RATE_LIMIT).toBe(12);
+    expect(LOGIN_ACCOUNT_RATE_WINDOW_SECONDS).toBe(900);
   });
 
   it("returns project_limit when the atomic create reaches ten projects", async () => {
@@ -346,6 +437,238 @@ describe("project quotas and mutation limits", () => {
       },
     });
     expect(db.statements).toHaveLength(0);
+  });
+
+  it("fails registration closed when the password pepper is missing or short", async () => {
+    for (const passwordPepper of [undefined, "too-short"]) {
+      const db = new QuotaDatabase();
+      const response = await onRequest(context(
+        db,
+        "POST",
+        "/api/auth/register",
+        { email: "new@example.com", password: "a secure password" },
+        undefined,
+        { PASSWORD_PEPPER: passwordPepper },
+      ));
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "configuration_error" },
+      });
+      expect(db.statements.some((statement) =>
+        statement.query.includes("INSERT INTO users"))).toBe(false);
+    }
+  });
+
+  it("enforces the 15-character boundary in a production-style register flow", async () => {
+    const productionHeaders = { "CF-Connecting-IP": "203.0.113.20" };
+    const rejectedDb = new QuotaDatabase();
+    const rejected = await onRequest(context(
+      rejectedDb,
+      "POST",
+      "/api/auth/register",
+      { email: "boundary@example.com", password: "x".repeat(14) },
+      productionHeaders,
+    ));
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toMatchObject({
+      error: { code: "invalid_password" },
+    });
+    expect(rejectedDb.statements.some((statement) =>
+      statement.query.includes("INSERT INTO users"))).toBe(false);
+
+    const acceptedDb = new QuotaDatabase();
+    const acceptedPassword = "x".repeat(15);
+    const accepted = await onRequest(context(
+      acceptedDb,
+      "POST",
+      "/api/auth/register",
+      { email: "boundary@example.com", password: acceptedPassword },
+      productionHeaders,
+    ));
+    expect(accepted.status).toBe(201);
+    await expect(accepted.json()).resolves.toMatchObject({
+      user: { email: "boundary@example.com" },
+    });
+    const userInsert = acceptedDb.statements.find((statement) =>
+      statement.query.includes("INSERT INTO users"));
+    expect(userInsert?.values[2]).not.toBe(acceptedPassword);
+    expect(userInsert?.values[4]).toBe(100_000);
+  });
+
+  it("fails login closed when the password pepper is missing or short", async () => {
+    for (const passwordPepper of [undefined, "too-short"]) {
+      const db = new QuotaDatabase();
+      const response = await onRequest(context(
+        db,
+        "POST",
+        "/api/auth/login",
+        { email: "new@example.com", password: "a secure password" },
+        undefined,
+        { PASSWORD_PEPPER: passwordPepper },
+      ));
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "configuration_error",
+          message: "Service configuration error.",
+        },
+      });
+      expect(db.statements.some((statement) =>
+        statement.query.includes("FROM users WHERE email"))).toBe(false);
+    }
+  });
+
+  it("fails protected session authentication closed without the pepper", async () => {
+    const db = new QuotaDatabase();
+    const response = await onRequest(context(
+      db,
+      "GET",
+      "/api/me",
+      undefined,
+      undefined,
+      { PASSWORD_PEPPER: undefined },
+    ));
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "configuration_error" },
+    });
+    expect(db.statements).toHaveLength(0);
+  });
+
+  it("performs keyed PBKDF2 work for a nonexistent-user login", async () => {
+    const deriveBits = vi.spyOn(globalThis.crypto.subtle, "deriveBits");
+    const sign = vi.spyOn(globalThis.crypto.subtle, "sign");
+    const db = new QuotaDatabase();
+    const response = await onRequest(context(
+      db,
+      "POST",
+      "/api/auth/login",
+      { email: "missing@example.com", password: "a secure password" },
+    ));
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "invalid_credentials" },
+    });
+    expect(sign).toHaveBeenCalledOnce();
+    expect(deriveBits).toHaveBeenCalledOnce();
+  });
+
+  it("shares a secret-hashed email bucket across distributed login IPs", async () => {
+    const deriveBits = vi.spyOn(globalThis.crypto.subtle, "deriveBits");
+    const rateCounts = new Map<string, number>();
+    const db = new QuotaDatabase({ rateCounts });
+    const rawEmails = [
+      " Distributed@Example.COM ",
+      "distributed@example.com",
+    ];
+
+    for (let attempt = 0; attempt <= LOGIN_ACCOUNT_RATE_LIMIT; attempt += 1) {
+      const response = await onRequest(context(
+        db,
+        "POST",
+        "/api/auth/login",
+        {
+          email: rawEmails[attempt % rawEmails.length],
+          password: "a secure password",
+        },
+        { "CF-Connecting-IP": `203.0.113.${40 + (attempt % 2)}` },
+      ));
+      expect(response.status).toBe(
+        attempt < LOGIN_ACCOUNT_RATE_LIMIT ? 401 : 429,
+      );
+    }
+
+    const accountReservations = db.statements.filter((statement) =>
+      statement.query.includes("INSERT INTO rate_limits")
+      && statement.values[0] === "login_account");
+    expect(accountReservations).toHaveLength(LOGIN_ACCOUNT_RATE_LIMIT + 1);
+    expect(new Set(accountReservations.map((statement) => statement.values[1])).size)
+      .toBe(1);
+    for (const statement of accountReservations) {
+      expect(statement.values).not.toContain("distributed@example.com");
+      expect(statement.values).not.toContain(" Distributed@Example.COM ");
+    }
+    expect(deriveBits).toHaveBeenCalledTimes(LOGIN_ACCOUNT_RATE_LIMIT);
+  });
+
+  it("does not retain successful reservations and atomically clears prior failures", async () => {
+    const password = "correct password value";
+    const pepper = "test-password-pepper-value-32-bytes";
+    const passwordRecord = await hashPassword(password, pepper);
+    const rateCounts = new Map<string, number>();
+    const db = new QuotaDatabase({
+      rateCounts,
+      userRow: {
+        id: "user-a",
+        email: "person@example.com",
+        password_hash: passwordRecord.hash,
+        password_salt: passwordRecord.salt,
+        password_iterations: passwordRecord.iterations,
+        created_at: timestamp - 60,
+        updated_at: timestamp - 60,
+      },
+    });
+    const login = (candidate: string) => onRequest(context(
+      db,
+      "POST",
+      "/api/auth/login",
+      { email: "Person@Example.COM", password: candidate },
+      { "CF-Connecting-IP": "203.0.113.70" },
+    ));
+
+    expect((await login("wrong password value")).status).toBe(401);
+    expect((await login("another wrong value")).status).toBe(401);
+    expect(
+      [...rateCounts.keys()].some((key) => key.startsWith("login_account:")),
+    ).toBe(true);
+
+    const success = await login(password);
+    expect(success.status).toBe(200);
+    expect(
+      [...rateCounts.keys()].some((key) => key.startsWith("login_account:")),
+    ).toBe(false);
+
+    const secondSuccess = await login(password);
+    expect(secondSuccess.status).toBe(200);
+    const accountReservations = db.statements.filter((statement) =>
+      statement.query.includes("INSERT INTO rate_limits")
+      && statement.values[0] === "login_account");
+    expect(accountReservations).toHaveLength(4);
+  });
+
+  it("atomically caps concurrent cross-IP reservations before password crypto", async () => {
+    const deriveBits = vi.spyOn(globalThis.crypto.subtle, "deriveBits");
+    const rateCounts = new Map<string, number>();
+    const db = new QuotaDatabase({ rateCounts });
+    const attempts = Array.from(
+      { length: LOGIN_ACCOUNT_RATE_LIMIT + 1 },
+      (_, index) => onRequest(context(
+        db,
+        "POST",
+        "/api/auth/login",
+        {
+          email: index % 2 === 0
+            ? "Concurrent@Example.COM"
+            : " concurrent@example.com ",
+          password: "a secure password",
+        },
+        { "CF-Connecting-IP": `198.51.100.${index + 1}` },
+      )),
+    );
+    const responses = await Promise.all(attempts);
+    const statuses = responses.map((response) => response.status);
+    expect(statuses.filter((status) => status === 401)).toHaveLength(
+      LOGIN_ACCOUNT_RATE_LIMIT,
+    );
+    expect(statuses.filter((status) => status === 429)).toHaveLength(1);
+    expect(deriveBits).toHaveBeenCalledTimes(LOGIN_ACCOUNT_RATE_LIMIT);
+
+    const accountReservations = db.statements.filter((statement) =>
+      statement.query.includes("INSERT INTO rate_limits")
+      && statement.values[0] === "login_account");
+    expect(accountReservations).toHaveLength(LOGIN_ACCOUNT_RATE_LIMIT + 1);
+    expect(new Set(accountReservations.map((statement) => statement.values[1])).size)
+      .toBe(1);
   });
 
   it("opportunistically removes expired session rows even for a stale token", async () => {
