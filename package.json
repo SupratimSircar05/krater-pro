@@ -1,0 +1,75 @@
+{
+  "name": "krater-pro",
+  "version": "0.1.0",
+  "description": "Krater Pro: an independent Krater-powered coding agent for the terminal and web.",
+  "author": {
+    "name": "Supratim Sircar",
+    "url": "https://www.linkedin.com/in/supratimsircar/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SupratimSircar05/krater-pro.git"
+  },
+  "homepage": "https://github.com/SupratimSircar05/krater-pro#readme",
+  "bugs": {
+    "url": "https://github.com/SupratimSircar05/krater-pro/issues"
+  },
+  "type": "module",
+  "bin": {
+    "krater": "./dist/cli.js",
+    "krater-pro": "./dist/cli.js"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "files": [
+    "dist",
+    "web/dist",
+    "web/src/assets",
+    "src",
+    "skills",
+    "docs",
+    "benchmarks",
+    ".env.example",
+    "README.md",
+    "LICENSE",
+    "UPSTREAM_REFERENCE.md"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace web && tsc -p tsconfig.server.json",
+    "build:server": "tsc -p tsconfig.server.json",
+    "prepack": "npm run build",
+    "dev": "tsx src/cli.ts",
+    "dev:web": "tsx src/cli.ts web --dev",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "benchmark": "node --import tsx benchmarks/run.ts",
+    "benchmark:validate": "node --import tsx benchmarks/run.ts --validate",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && npm run typecheck --workspace web"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "keywords": [
+    "krater",
+    "coding-agent",
+    "ai",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "dotenv": "^17.0.0",
+    "express": "^5.1.0",
+    "openai": "^5.0.0",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0"
+  }
+}

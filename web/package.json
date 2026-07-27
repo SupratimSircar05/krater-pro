@@ -1,0 +1,28 @@
+{
+  "name": "@krater/pro-web",
+  "version": "0.1.0",
+  "description": "The Krater Pro local web workspace.",
+  "author": {
+    "name": "Supratim Sircar",
+    "url": "https://www.linkedin.com/in/supratimsircar/"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^7.3.6"
+  }
+}

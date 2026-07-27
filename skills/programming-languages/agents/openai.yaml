@@ -1,0 +1,4 @@
+interface:
+  display_name: "Programming Languages"
+  short_description: "Build and debug across language ecosystems"
+  default_prompt: "Use $programming-languages to diagnose and solve this code task with the correct language toolchain."
