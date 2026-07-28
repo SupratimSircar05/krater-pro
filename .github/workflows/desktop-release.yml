@@ -116,7 +116,7 @@ jobs:
         with:
           subject-path: release/cli/krater-pro-cli-${{ needs.validate.outputs.version }}.tgz
           sbom-path: release/cli/krater-pro-cli-${{ needs.validate.outputs.version }}.spdx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: krater-pro-cli
           path: release/cli/*
@@ -270,7 +270,7 @@ jobs:
         with:
           subject-path: ${{ matrix.subjects }}
           sbom-path: release/${{ matrix.sbom }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.paths }}
@@ -331,7 +331,7 @@ jobs:
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: release-assets/krater-pro-${{ needs.validate.outputs.version }}.release-manifest.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: krater-pro-release-bundle
           path: release-assets/*
