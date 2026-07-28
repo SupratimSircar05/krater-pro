@@ -1,0 +1,86 @@
+{
+  "title": "Krater Pro × Cisco Spaces — Space Manager root-cause evidence demo",
+  "format": "Edited, narrated, credential-free screen demo assembled from sanitized live captures",
+  "scenes": [
+    {
+      "id": "01-title",
+      "kind": "title",
+      "minimumSeconds": 7,
+      "eyebrow": "KRATER PRO · VERIFIED DIAGNOSIS",
+      "headline": "Space Manager\nroot-cause evidence",
+      "detail": "One incident. Read-only evidence. No blind production edits.",
+      "caption": "Sanitized team demo · live captures from 28 Jul 2026",
+      "narration": "This is a sanitized, edited screen demo of how Krater Pro narrows a Cisco Spaces Space Manager incident. The session is read only. It contains no credentials, cookies, or production changes."
+    },
+    {
+      "id": "02-live-symptom",
+      "kind": "symptom",
+      "minimumSeconds": 10,
+      "eyebrow": "OBSERVATION · COMPARISON ENVIRONMENT",
+      "headline": "The user-visible symptom",
+      "detail": "Location context is unavailable, so Space Manager cannot render a selected building and floor.",
+      "caption": "Comparison capture only — not the targeted monitor and not causal proof",
+      "narration": "First, an authorized comparison capture shows the symptom family: location context is unavailable and the interface asks for a location. This capture is from a separate environment, so Krater treats it as a symptom reference, never as proof of the targeted incident."
+    },
+    {
+      "id": "03-monitor-overview",
+      "kind": "monitor",
+      "minimumSeconds": 11,
+      "eyebrow": "DIRECT EVIDENCE · TARGET MONITOR",
+      "headline": "The incident is broad and repeatable",
+      "detail": "0 of 5 sections pass while the daily hierarchy sweep still covers the target location.",
+      "caption": "Current run · active incident · five failing product surfaces",
+      "narration": "The dedicated target monitor provides the stronger evidence. The latest run is current, the incident is active, and all five Space Manager sections fail. Yet the daily hierarchy sweep still discovers and covers the target location."
+    },
+    {
+      "id": "04-pattern",
+      "kind": "pattern",
+      "minimumSeconds": 13,
+      "eyebrow": "CORRELATION · ONE SHARED FAILURE PATTERN",
+      "headline": "The failure follows location state",
+      "detail": "Overview reports location selection mismatch. Devices, Rooms, Desks, and User Management report null location state.",
+      "caption": "Requests complete · one WebSocket upgrades and exchanges frames · one API/UI count matches exactly",
+      "narration": "Krater correlates the section results instead of treating them as five unrelated outages. Overview reports a location selection mismatch. The other sections report null location state. The monitored requests complete successfully, the Devices WebSocket upgrades and exchanges frames, and the User Management API and UI count match exactly."
+    },
+    {
+      "id": "05-reasoning",
+      "kind": "authenticDiagnosis",
+      "minimumSeconds": 14,
+      "eyebrow": "AUTHENTIC KRATER RESULT · HIGH-STAKES REVIEW",
+      "headline": "Krater's corrected diagnosis",
+      "detail": "The selected location is not committed to shared client state.",
+      "caption": "Authentic UI excerpt · strongest evidence-supported inference, not formal causal proof",
+      "narration": "Here is the authentic high-stakes Krater result, cropped to the corrected diagnosis only. It identifies the selection commit boundary: the switcher registers the target, Overview retains a stale location, and the other views receive null state. Krater labels this the strongest evidence-supported inference, not formal causal proof."
+    },
+    {
+      "id": "06-krater-workflow",
+      "kind": "authenticFix",
+      "minimumSeconds": 14,
+      "eyebrow": "AUTHENTIC KRATER RESULT · NARROW REMEDIATION",
+      "headline": "One bounded fix and an exact recheck",
+      "detail": "Commit selected location once; keep every view on the same source of truth.",
+      "caption": "Authentic UI excerpt · narrow fix · target-specific values excluded · explicit epistemic label",
+      "narration": "The same authentic result turns the diagnosis into a bounded remediation. Commit the selected location to one shared store, prevent silent reversion, and make all five views subscribe to that source. Then select the target floor, verify Overview, verify zero nulls in the other views, run all five sections, and confirm availability moves off the recorded baseline."
+    },
+    {
+      "id": "07-proof",
+      "kind": "proof",
+      "minimumSeconds": 14,
+      "eyebrow": "REPLAYABLE PROOF",
+      "headline": "What must pass before we call it fixed",
+      "detail": "Selected location persists across five sections and nested views; API and UI remain exact; rollback stays available.",
+      "caption": "Monitor: 140 tests + 27 subtests · Dashboard: 32 tests + 2 subtests on Python 3.11",
+      "narration": "The fix is not complete when one page looks green. The recheck must prove that the selected location persists through all five sections and nested views, that API and UI values agree exactly, and that retries do not hide null state. Existing monitor and dashboard suites already pass locally, providing a stable baseline for that replay."
+    },
+    {
+      "id": "08-result",
+      "kind": "result",
+      "minimumSeconds": 8,
+      "eyebrow": "OUTCOME",
+      "headline": "Focused diagnosis.\nNo blind edit.",
+      "detail": "Ready for targeted remediation, source confirmation, and the same evidence replay.",
+      "caption": "Krater Pro · evidence-native verified autonomy",
+      "narration": "The result is a focused diagnosis without speculative production changes: one shared boundary to instrument, one targeted remediation path, and one replayable proof contract. That is how Krater Pro reduces time to root cause while keeping confidence proportional to evidence."
+    }
+  ]
+}

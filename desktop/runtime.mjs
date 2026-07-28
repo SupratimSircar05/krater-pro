@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from "node:path";
 export const DESKTOP_HOST = "127.0.0.1";
 export const DESKTOP_PORT_ENV = "KRATER_DESKTOP_PORT";
 export const DESKTOP_WORKSPACE_ENV = "KRATER_DESKTOP_WORKSPACE";
+export const DESKTOP_SMOKE_FLAG = "--krater-smoke-test";
 
 function readOption(argv, name) {
   const exactIndex = argv.indexOf(name);
@@ -62,6 +63,7 @@ export function parseDesktopLaunchOptions({
   return {
     host: DESKTOP_HOST,
     port: parseDesktopPort(portText),
+    smokeTest: argv.includes(DESKTOP_SMOKE_FLAG),
     workspace,
     workspaceWasExplicit:
       readOption(argv, "--krater-workspace") !== undefined ||

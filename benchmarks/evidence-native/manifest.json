@@ -2,9 +2,9 @@
   "format": "krater.evidence-benchmark/v1",
   "suite": {
     "id": "evidence-native-foundation",
-    "name": "Krater Evidence-Native Foundation Tasks",
-    "version": "0.1.0",
-    "description": "Twenty deterministic infrastructure acceptance tasks derived from the broader Krater catalog. These small tasks validate fixture and sealed-checker plumbing; they are not substitutes for the expert benchmark."
+    "name": "Krater Evidence-Native Sealed Microbenchmarks",
+    "version": "1.0.0",
+    "description": "One hundred deterministic repair microbenchmarks, one for every KC-001 through KC-100 expert specification. They exercise sealed-checker infrastructure and focused invariants without claiming to reproduce each full expert task."
   },
   "tasks": [
     {
@@ -18,7 +18,7 @@
         "Malformed and out-of-range values fail explicitly instead of being partially parsed."
       ],
       "fixture": { "root": "fixtures/EB-001", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-002",
@@ -31,7 +31,7 @@
         "Repeated NaN and signed zero values follow Set-style identity semantics."
       ],
       "fixture": { "root": "fixtures/EB-002", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-003",
@@ -44,7 +44,7 @@
         "Invalid intervals fail and neither the input list nor its child arrays are mutated."
       ],
       "fixture": { "root": "fixtures/EB-003", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-004",
@@ -57,7 +57,7 @@
         "Cycles and references to missing jobs fail explicitly."
       ],
       "fixture": { "root": "fixtures/EB-004", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-005",
@@ -70,7 +70,7 @@
         "Negative attempts and invalid limits are rejected while large attempts remain finite."
       ],
       "fixture": { "root": "fixtures/EB-005", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-006",
@@ -83,7 +83,7 @@
         "Sibling prefixes, traversal results, and the root path itself are rejected."
       ],
       "fixture": { "root": "fixtures/EB-006", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-007",
@@ -96,7 +96,7 @@
         "Unrelated words and non-secret diagnostic content remain intact."
       ],
       "fixture": { "root": "fixtures/EB-007", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-008",
@@ -109,7 +109,7 @@
         "Equivalent event objects have a deterministic lowercase SHA-256 representation."
       ],
       "fixture": { "root": "fixtures/EB-008", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-009",
@@ -122,7 +122,7 @@
         "Updating a key preserves size and nonpositive capacity is rejected."
       ],
       "fixture": { "root": "fixtures/EB-009", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-010",
@@ -135,7 +135,7 @@
         "Partial fixes and insufficient evidence receive their own conservative classifications."
       ],
       "fixture": { "root": "fixtures/EB-010", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-011",
@@ -148,7 +148,7 @@
         "Ambiguous or unsupported strings are rejected rather than treated as truthy."
       ],
       "fixture": { "root": "fixtures/EB-011", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-012",
@@ -161,7 +161,7 @@
         "Empty input is empty and nonpositive chunk sizes fail explicitly."
       ],
       "fixture": { "root": "fixtures/EB-012", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-013",
@@ -174,7 +174,7 @@
         "Neither caller-owned input mapping is changed as a side effect."
       ],
       "fixture": { "root": "fixtures/EB-013", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-014",
@@ -187,7 +187,7 @@
         "A trailing delimiter produces a final empty field."
       ],
       "fixture": { "root": "fixtures/EB-014", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-015",
@@ -200,7 +200,7 @@
         "Nonpositive TTL values fail before mutating the cache."
       ],
       "fixture": { "root": "fixtures/EB-015", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-016",
@@ -213,7 +213,7 @@
         "Runs of punctuation collapse to one hyphen without edge hyphens."
       ],
       "fixture": { "root": "fixtures/EB-016", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-017",
@@ -226,7 +226,7 @@
         "Overlapping and invalid ranges are rejected before any partial result is returned."
       ],
       "fixture": { "root": "fixtures/EB-017", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-018",
@@ -239,7 +239,7 @@
         "An empty set is public and unknown labels fail closed."
       ],
       "fixture": { "root": "fixtures/EB-018", "files": ["src/solution.py"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-019",
@@ -252,7 +252,7 @@
         "Any token modification or verification under a different secret fails closed."
       ],
       "fixture": { "root": "fixtures/EB-019", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     },
     {
       "id": "EB-020",
@@ -265,7 +265,567 @@
         "Ordinary tests never produce a formally-verified claim grade."
       ],
       "fixture": { "root": "fixtures/EB-020", "files": ["src/solution.mjs"] },
-      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-021", "sourceSpecId": "KC-001", "title": "Fenced Result Publication", "runtime": "node",
+      "prompt": "Repair publishResult so only the current fencing-token owner can publish once, stale owners cannot change state, and retries remain idempotent.",
+      "acceptanceCriteria": ["A stale token is rejected without mutating caller-owned state.", "The current token publishes once and a conflicting retry cannot replace its result."],
+      "fixture": { "root": "fixtures/EB-021", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-022", "sourceSpecId": "KC-003", "title": "Joint Quorum Decision", "runtime": "python",
+      "prompt": "Repair has_quorum so a joint configuration requires independent majorities of old and new voters while a stable configuration uses only the old set.",
+      "acceptanceCriteria": ["Joint consensus succeeds only with a majority of both voter configurations.", "Acknowledgements from one configuration cannot substitute for the other majority."],
+      "fixture": { "root": "fixtures/EB-022", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-023", "sourceSpecId": "KC-004", "title": "Idempotent Saga Inbox", "runtime": "node",
+      "prompt": "Repair processSaga so duplicate event identifiers have no second business effect, late success cannot undo compensation, and input state remains immutable.",
+      "acceptanceCriteria": ["A duplicated event creates exactly one processed marker and one outbox effect.", "Compensating state is monotonic and caller-owned state is never mutated."],
+      "fixture": { "root": "fixtures/EB-023", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-024", "sourceSpecId": "KC-005", "title": "Lease-Aware Regional Admission", "runtime": "python",
+      "prompt": "Repair allow_request so valid unexpired token leases admit work, expiry is exclusive, and authority outages apply the documented critical-versus-health policy.",
+      "acceptanceCriteria": ["A lease is unusable when monotonic time reaches its expiry.", "Missing authority fails closed for critical work and open only for health traffic."],
+      "fixture": { "root": "fixtures/EB-024", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-025", "sourceSpecId": "KC-006", "title": "Snapshot Install Gate", "runtime": "node",
+      "prompt": "Repair installSnapshot so only a newer snapshot with a matching SHA-256 payload checksum replaces active state and rejected candidates leave it unchanged.",
+      "acceptanceCriteria": ["Checksum mismatch and index regression are rejected without replacing active state.", "A valid newer snapshot is returned exactly as the new active snapshot."],
+      "fixture": { "root": "fixtures/EB-025", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-026", "sourceSpecId": "KC-007", "title": "Wrap-Safe Queue Sequence", "runtime": "python",
+      "prompt": "Repair sequence_relation so reduced-width sequence counters classify available, future, and stale slots correctly across modular wraparound and reject invalid widths.",
+      "acceptanceCriteria": ["Equivalent masked positions remain available after counter wrap.", "Forward and backward modular distances are distinguished without ordinary integer ordering."],
+      "fixture": { "root": "fixtures/EB-026", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-027", "sourceSpecId": "KC-008", "title": "Deterministic Dotted Register", "runtime": "node",
+      "prompt": "Repair mergeRegister so dotted register merge is commutative and idempotent, orders equal counters by actor, and preserves a causally newer tombstone.",
+      "acceptanceCriteria": ["Operand order cannot change the merge result and equal counters use deterministic actor order.", "A newer tombstone dominates an older live value without resurrection."],
+      "fixture": { "root": "fixtures/EB-027", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-028", "sourceSpecId": "KC-009", "title": "Deterministic Failure Aggregation", "runtime": "python",
+      "prompt": "Repair aggregate_failures so scheduler outcomes choose the lowest task index as primary failure and retain all later failures in deterministic task order.",
+      "acceptanceCriteria": ["Failure ordering depends on stable task identity rather than arrival order.", "Successful-only outcomes return no primary or suppressed failure."],
+      "fixture": { "root": "fixtures/EB-028", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-029", "sourceSpecId": "KC-010", "title": "Canonical Weighted Membership", "runtime": "node",
+      "prompt": "Repair canonicalizeNodes so positive-weight members are Unicode-normalized and identifier-sorted, while duplicate normalized identifiers are rejected.",
+      "acceptanceCriteria": ["Equivalent membership sets produce the same canonical order.", "Nonpositive weights and Unicode-normalized identifier collisions fail explicitly."],
+      "fixture": { "root": "fixtures/EB-029", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-030", "sourceSpecId": "KC-011", "title": "Delimiter Error Recovery", "runtime": "python",
+      "prompt": "Repair recover_delimiters so nested delimiters recover in stack order, quoted delimiter text is ignored, and malformed balanced counts still emit diagnostics.",
+      "acceptanceCriteria": ["Missing closers are inserted in nesting order with corresponding diagnostics.", "Quoted delimiters do not affect balance and mismatched nesting cannot appear valid."],
+      "fixture": { "root": "fixtures/EB-030", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-031", "sourceSpecId": "KC-012", "title": "Row-Aware Occurs Check", "runtime": "node",
+      "prompt": "Repair occurs so it traverses function types, record fields, and row tails, terminates on cyclic host objects, and finds nested type variables.",
+      "acceptanceCriteria": ["Variables in row tails and function parameters are detected recursively.", "Cyclic object graphs terminate safely when the target variable is absent."],
+      "fixture": { "root": "fixtures/EB-031", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-032", "sourceSpecId": "KC-013", "title": "Pruned Iterated Phi Placement", "runtime": "python",
+      "prompt": "Repair place_phi so it computes iterated dominance frontiers while placing phi nodes only in blocks where the variable is live on entry.",
+      "acceptanceCriteria": ["New phi blocks participate in the frontier worklist until closure.", "Blocks outside the live-in set do not receive unnecessary phi nodes."],
+      "fixture": { "root": "fixtures/EB-032", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-033", "sourceSpecId": "KC-015", "title": "Composed Mapping Projection", "runtime": "node",
+      "prompt": "Repair composeMappings so outer generated positions resolve through matching inner mappings to original source positions, names, and source files.",
+      "acceptanceCriteria": ["Matching intermediate positions compose into original source metadata.", "Unmapped positions are omitted and caller-owned mapping arrays remain unchanged."],
+      "fixture": { "root": "fixtures/EB-033", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-034", "sourceSpecId": "KC-016", "title": "Control-Flow Bytecode Verification", "runtime": "python",
+      "prompt": "Repair verify_bytecode so stack depth is nonnegative on every reachable path, join depths agree, and every control-flow target is in range.",
+      "acceptanceCriteria": ["Underflow and invalid jump targets are rejected before execution.", "Control-flow joins with inconsistent stack depth cannot verify."],
+      "fixture": { "root": "fixtures/EB-034", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-035", "sourceSpecId": "KC-017", "title": "Collision-Free Hygienic Name", "runtime": "node",
+      "prompt": "Repair hygienicName so expansion identifiers create deterministic generated names and occupied names are skipped without capturing caller bindings.",
+      "acceptanceCriteria": ["The base expansion name uses a stable delimiter and expansion identifier.", "Collisions advance a deterministic numeric suffix and empty expansion identifiers fail."],
+      "fixture": { "root": "fixtures/EB-035", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-036", "sourceSpecId": "KC-018", "title": "Interface-Aware Rebuild Closure", "runtime": "python",
+      "prompt": "Repair affected_modules so an interface change rebuilds its transitive reverse dependencies while an implementation-only change remains local.",
+      "acceptanceCriteria": ["Exported changes propagate through every reverse-dependency level.", "Private changes include the changed module but not unaffected consumers."],
+      "fixture": { "root": "fixtures/EB-036", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-037", "sourceSpecId": "KC-019", "title": "Pattern Coverage Analysis", "runtime": "node",
+      "prompt": "Repair analyzePatterns so it reports uncovered variants and redundant arm indexes, including duplicates and arms made unreachable by a wildcard.",
+      "acceptanceCriteria": ["Missing variants are reported in declaration order.", "Duplicate cases and cases after a wildcard are identified by arm index as redundant."],
+      "fixture": { "root": "fixtures/EB-037", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-038", "sourceSpecId": "KC-020", "title": "Comment-Preserving Assignment Formatter", "runtime": "python",
+      "prompt": "Repair format_assignments so code assignments receive canonical spacing without changing equals signs inside comments or strings, and formatting is idempotent.",
+      "acceptanceCriteria": ["Only assignment operators in code are normalized.", "A second formatting pass is byte-for-byte identical to the first."],
+      "fixture": { "root": "fixtures/EB-038", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-039", "sourceSpecId": "KC-021", "title": "Balanced Idempotent Ledger Posting", "runtime": "node",
+      "prompt": "Repair postTransaction so same-currency entries must balance to zero, transaction identifiers are idempotent, and ledger state remains immutable.",
+      "acceptanceCriteria": ["Balanced entries post once and a duplicate transaction identifier has no second effect.", "Imbalanced or mixed-currency transactions fail without modifying the ledger."],
+      "fixture": { "root": "fixtures/EB-039", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-040", "sourceSpecId": "KC-022", "title": "Safe Constraint Migration Order", "runtime": "python",
+      "prompt": "Repair migration_plan so constraint rollout adds an unvalidated guard, backfills only when needed, validates before enforcement, and refuses known invalid rows.",
+      "acceptanceCriteria": ["Backfill precedes validation and not-null enforcement, with no unnecessary backfill for a clean table.", "Known invalid data blocks generation of an unsafe enforcement plan."],
+      "fixture": { "root": "fixtures/EB-040", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-041", "sourceSpecId": "KC-023", "title": "Snapshot MVCC Visibility", "runtime": "node",
+      "prompt": "Repair isVisible so creation must be committed by the snapshot and committed deletion hides a version only when deletion is within that snapshot.",
+      "acceptanceCriteria": ["Future or uncommitted creators are invisible.", "Uncommitted deletions do not hide data, while committed in-snapshot deletions do."],
+      "fixture": { "root": "fixtures/EB-041", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-042", "sourceSpecId": "KC-024", "title": "Idempotent Stock Reservation", "runtime": "python",
+      "prompt": "Repair reserve so availability never becomes negative, repeated request identifiers return the original reservation, and caller state remains unchanged.",
+      "acceptanceCriteria": ["A successful reservation records its SKU and quantity exactly once.", "Insufficient inventory fails without overselling or mutating the input mapping."],
+      "fixture": { "root": "fixtures/EB-042", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-043", "sourceSpecId": "KC-025", "title": "Gap-Safe CDC Application", "runtime": "node",
+      "prompt": "Repair applyEvent so each partition advances one offset at a time, duplicate offsets are idempotent, and gaps cannot update the projection.",
+      "acceptanceCriteria": ["The next offset applies its delta and advances only that partition.", "Duplicates leave state unchanged and a missing offset is rejected."],
+      "fixture": { "root": "fixtures/EB-043", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-044", "sourceSpecId": "KC-026", "title": "Immutable B-Tree Page Split", "runtime": "python",
+      "prompt": "Repair split_page so aligned key and value arrays split around a promoted median, the median is absent from children, and inputs remain immutable.",
+      "acceptanceCriteria": ["Left and right pages exclude the promoted separator and preserve key-value alignment.", "Malformed arrays fail and caller-owned arrays are not changed."],
+      "fixture": { "root": "fixtures/EB-044", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-045", "sourceSpecId": "KC-027", "title": "Tenant-Scoped Row Authorization", "runtime": "node",
+      "prompt": "Repair authorizeRow so every role remains bound to an explicit tenant and no administrator bypass can read a row from another tenant.",
+      "acceptanceCriteria": ["A row is authorized only when context and row tenant identifiers match.", "Missing tenant context and cross-tenant administrators are denied."],
+      "fixture": { "root": "fixtures/EB-045", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-046", "sourceSpecId": "KC-028", "title": "Bitemporal As-Of Lookup", "runtime": "python",
+      "prompt": "Repair value_at so records are filtered by both half-open valid-time and recorded-time intervals to reproduce values known at a historical instant.",
+      "acceptanceCriteria": ["A later correction is invisible to queries before its recorded time.", "Both valid and recorded interval upper bounds are exclusive."],
+      "fixture": { "root": "fixtures/EB-046", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-047", "sourceSpecId": "KC-029", "title": "Safe Entity Reference Merge", "runtime": "node",
+      "prompt": "Repair planEntityMerge so only unique references to the source entity are retargeted immutably and merging an entity into itself is rejected.",
+      "acceptanceCriteria": ["Duplicate references collapse deterministically and unrelated references are omitted.", "Self-merge fails and the reference list remains caller-owned."],
+      "fixture": { "root": "fixtures/EB-047", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-048", "sourceSpecId": "KC-030", "title": "Half-Open Shard Routing", "runtime": "python",
+      "prompt": "Repair route_key so canonical nonoverlapping half-open ranges route boundary keys once and malformed overlapping range maps are rejected.",
+      "acceptanceCriteria": ["A split boundary belongs only to the range beginning at that boundary.", "Keys at the final upper bound are unowned and overlapping ranges fail."],
+      "fixture": { "root": "fixtures/EB-048", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-049", "sourceSpecId": "KC-031", "title": "State-Bound OIDC Callback", "runtime": "node",
+      "prompt": "Repair validateCallback so state matches the login session, authorization codes are one-time, and a callback cannot contain both success and error results.",
+      "acceptanceCriteria": ["Only an unused code paired with the exact session state succeeds.", "State mismatch, replay, and ambiguous code-plus-error responses are denied."],
+      "fixture": { "root": "fixtures/EB-049", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-050", "sourceSpecId": "KC-032", "title": "Algorithm-Bound JWK Selection", "runtime": "python",
+      "prompt": "Repair select_jwk so key identifier, declared key algorithm, key type, and an explicit algorithm allowlist agree without accepting duplicate identifiers.",
+      "acceptanceCriteria": ["The selected key is uniquely identified and compatible with the allowed header algorithm.", "None, mismatched algorithms, and duplicate key identifiers fail closed."],
+      "fixture": { "root": "fixtures/EB-050", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-051", "sourceSpecId": "KC-033", "title": "Origin-Bound WebAuthn Client Data", "runtime": "node",
+      "prompt": "Repair verifyClientData so assertion type, challenge, exact allowed origin, and cross-origin status are all validated for a WebAuthn get ceremony.",
+      "acceptanceCriteria": ["A correct get assertion from an allowed origin succeeds.", "Wrong ceremony type, unapproved origin, or cross-origin client data fails."],
+      "fixture": { "root": "fixtures/EB-051", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-052", "sourceSpecId": "KC-034", "title": "Expiring Path Capability", "runtime": "python",
+      "prompt": "Repair can_access so operation, path-component confinement, and exclusive expiry are all enforced by a capability without lexical-prefix escape.",
+      "acceptanceCriteria": ["Only the granted operation on a genuine descendant path is allowed.", "Sibling-prefix paths and requests at or after expiry are denied."],
+      "fixture": { "root": "fixtures/EB-052", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-053", "sourceSpecId": "KC-035", "title": "Fresh Signed Webhook", "runtime": "node",
+      "prompt": "Repair verifyWebhook so the timestamp and body are signed together, freshness is bounded, and a previously observed signature cannot replay.",
+      "acceptanceCriteria": ["A fresh unseen HMAC over timestamp and exact body verifies.", "Stale, replayed, or body-modified requests fail authentication."],
+      "fixture": { "root": "fixtures/EB-053", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-054", "sourceSpecId": "KC-037", "title": "Safe Archive Member", "runtime": "python",
+      "prompt": "Repair safe_archive_member so normalized relative files are accepted while traversal, absolute paths, ambiguous separators, and escaping link targets are rejected.",
+      "acceptanceCriteria": ["A regular confined member path is accepted.", "Traversal, absolute, double-separator, and escaping symbolic-link entries fail."],
+      "fixture": { "root": "fixtures/EB-054", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-055", "sourceSpecId": "KC-038", "title": "Deny-First Policy Decision", "runtime": "node",
+      "prompt": "Repair decidePolicy so matching denies override allows, both operation and resource participate in matching, and requests with no allow rule default to deny.",
+      "acceptanceCriteria": ["A specific deny cannot be bypassed by an earlier broad allow.", "Unmatched requests fail closed while a matching allowed resource succeeds."],
+      "fixture": { "root": "fixtures/EB-055", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-056", "sourceSpecId": "KC-039", "title": "One-Time Recovery Consumption", "runtime": "python",
+      "prompt": "Repair consume_recovery so valid unexpired recovery tokens are consumed immutably once and successful recovery increments the session generation.",
+      "acceptanceCriteria": ["First valid use marks the token consumed and invalidates prior sessions.", "Expired or previously consumed tokens fail without changing caller state."],
+      "fixture": { "root": "fixtures/EB-056", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-057", "sourceSpecId": "KC-040", "title": "All-Address DNS Egress Gate", "runtime": "node",
+      "prompt": "Repair validateResolvedAddresses so every resolved IPv4 address must be public and mixed public-private answers cannot pass by ordering the public address first.",
+      "acceptanceCriteria": ["A set containing only public resolver answers is accepted.", "Loopback, private, and link-local addresses anywhere in the answer set cause denial."],
+      "fixture": { "root": "fixtures/EB-057", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-058", "sourceSpecId": "KC-042", "title": "Exact Subscription Reconciliation", "runtime": "python",
+      "prompt": "Repair reconcile_subscriptions so it deterministically reports unique subscriptions to add and obsolete subscriptions to remove without churn for reordered inputs.",
+      "acceptanceCriteria": ["Desired duplicates collapse and add/remove sets are complete.", "Equivalent current and desired sets produce no lifecycle operations regardless of order."],
+      "fixture": { "root": "fixtures/EB-058", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-059", "sourceSpecId": "KC-044", "title": "Bounded Queue Coalescing", "runtime": "node",
+      "prompt": "Repair coalesceQueue so a pending item with the same key is replaced in place, new overflow evicts the oldest key, and invalid bounds fail.",
+      "acceptanceCriteria": ["Coalescing preserves queue position while updating the keyed payload.", "The queue never exceeds its positive maximum and evicts oldest work deterministically."],
+      "fixture": { "root": "fixtures/EB-059", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-060", "sourceSpecId": "KC-045", "title": "Bounded LIFO Arena Teardown", "runtime": "python",
+      "prompt": "Repair Arena so allocations cannot exceed positive capacity and reset invokes registered destructors exactly once in reverse allocation order.",
+      "acceptanceCriteria": ["An over-capacity allocation is rejected before registration.", "Reset uses LIFO destruction and a second reset has no repeated side effect."],
+      "fixture": { "root": "fixtures/EB-060", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-061", "sourceSpecId": "KC-046", "title": "Unicode Code-Point Edit", "runtime": "node",
+      "prompt": "Repair applyCodePointEdit so offsets count Unicode code points rather than UTF-16 code units, original coordinates apply atomically, and invalid ranges fail.",
+      "acceptanceCriteria": ["Astral characters occupy one edit position and are never split into invalid surrogates.", "Combining-code-point ranges work and reversed coordinates are rejected."],
+      "fixture": { "root": "fixtures/EB-061", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-062", "sourceSpecId": "KC-049", "title": "Generic Zero-Padded Convolution", "runtime": "python",
+      "prompt": "Repair convolve so rectangular images and odd square kernels use zero-padded borders, support a one-by-one kernel, validate shape, and preserve input pixels.",
+      "acceptanceCriteria": ["Every output pixel, including borders, uses the declared zero-padding rule.", "Ragged images fail and neither the image nor kernel is mutated."],
+      "fixture": { "root": "fixtures/EB-062", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-063", "sourceSpecId": "KC-051", "title": "Clamped Virtual Grid Window", "runtime": "node",
+      "prompt": "Repair visibleWindow so visible rows receive symmetric overscan, the end index is exclusive, bounds clamp to the row count, and invalid row heights fail.",
+      "acceptanceCriteria": ["Overscan expands both the start and exclusive end of the visible window.", "Negative scroll and oversized viewports clamp safely within available rows."],
+      "fixture": { "root": "fixtures/EB-063", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-064", "sourceSpecId": "KC-052", "title": "Top-Modal Focus Trap", "runtime": "python",
+      "prompt": "Repair next_focus so focus always enters and cycles within the top modal, wraps in both directions, and cannot escape to an inert lower layer.",
+      "acceptanceCriteria": ["Forward and reverse traversal wrap only within the topmost modal focusables.", "Focus currently outside the top modal is redirected to its first element."],
+      "fixture": { "root": "fixtures/EB-064", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-065", "sourceSpecId": "KC-053", "title": "Acyclic Immutable Tree Move", "runtime": "node",
+      "prompt": "Repair moveNode so tree moves return a fresh structure, reject missing nodes and descendant cycles, and update the moved node's parent and position.",
+      "acceptanceCriteria": ["Moving beneath a descendant fails without modifying the source tree.", "A valid move changes only returned state and missing identifiers fail."],
+      "fixture": { "root": "fixtures/EB-065", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-066", "sourceSpecId": "KC-054", "title": "Three-Way Field Merge", "runtime": "python",
+      "prompt": "Repair merge_fields so independent local and remote field changes combine, identical changes converge, and divergent edits are reported as deterministic conflicts.",
+      "acceptanceCriteria": ["Changes to separate fields merge without losing either side.", "A field changed differently on both sides is excluded from the value and listed as conflicted."],
+      "fixture": { "root": "fixtures/EB-066", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-067", "sourceSpecId": "KC-056", "title": "Screen-Space Nearest Point", "runtime": "node",
+      "prompt": "Repair nearestPoint so hit testing measures Euclidean distance after applying both display scales and rejects an empty point set.",
+      "acceptanceCriteria": ["Anisotropic display scales determine the nearest rendered point rather than raw data distance.", "A target at a rendered point selects that point and empty input fails."],
+      "fixture": { "root": "fixtures/EB-067", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-068", "sourceSpecId": "KC-058", "title": "Compatible Offline Mutation Coalescing", "runtime": "python",
+      "prompt": "Repair enqueue_mutation so consecutive updates for one entity merge their patches and idempotency keys while create/delete lifecycle boundaries stay ordered.",
+      "acceptanceCriteria": ["Compatible update mutations collapse without losing fields or operation identities.", "Incompatible lifecycle operations remain separate in original order."],
+      "fixture": { "root": "fixtures/EB-068", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-069", "sourceSpecId": "KC-059", "title": "Contrast-Correct Text Choice", "runtime": "node",
+      "prompt": "Repair chooseTextColor so WCAG relative luminance and contrast select black or white text, with validated sRGB channel bounds.",
+      "acceptanceCriteria": ["The returned text color has the greater WCAG contrast ratio, including saturated red backgrounds.", "Out-of-range color channels are rejected."],
+      "fixture": { "root": "fixtures/EB-069", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-070", "sourceSpecId": "KC-060", "title": "Gap-Free SSE Projection", "runtime": "python",
+      "prompt": "Repair apply_stream_event so only the next event identifier appends a chunk, duplicates are idempotent, gaps fail, and input state is not mutated.",
+      "acceptanceCriteria": ["A contiguous event advances the cursor and appends exactly once.", "Duplicate events leave state unchanged and missing events are rejected."],
+      "fixture": { "root": "fixtures/EB-070", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-071", "sourceSpecId": "KC-062", "title": "Dual Module Export Validation", "runtime": "node",
+      "prompt": "Repair validateExports so package exports provide built types, import, require, and default targets without exposing TypeScript source paths.",
+      "acceptanceCriteria": ["A complete ESM and CommonJS export map using dist artifacts succeeds.", "Missing runtime conditions or source-directory targets fail validation."],
+      "fixture": { "root": "fixtures/EB-071", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-072", "sourceSpecId": "KC-063", "title": "Layer Boundary Enforcement", "runtime": "python",
+      "prompt": "Repair boundary_violations so lower architectural layers cannot import higher layers, legal inward dependencies remain allowed, and unknown packages fail.",
+      "acceptanceCriteria": ["Every outward dependency is reported in input order.", "Inward dependencies produce no violation and missing layer metadata is rejected."],
+      "fixture": { "root": "fixtures/EB-072", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-073", "sourceSpecId": "KC-064", "title": "Transitive Affected Test Selection", "runtime": "node",
+      "prompt": "Repair selectTests so changes propagate through transitive source dependencies, global compiler configuration selects all tests, and unrelated documentation selects none.",
+      "acceptanceCriteria": ["Tests covering direct and transitively affected files are selected soundly.", "A global configuration change selects every test without duplicates."],
+      "fixture": { "root": "fixtures/EB-073", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-074", "sourceSpecId": "KC-065", "title": "Expected Provenance Verification", "runtime": "python",
+      "prompt": "Repair verify_provenance so subject name and digest, allowed builder, source commit, repository, and build parameters all match explicit expectations.",
+      "acceptanceCriteria": ["A statement passes only when every expected provenance field matches.", "Changing builder, source revision, or release parameters invalidates verification."],
+      "fixture": { "root": "fixtures/EB-074", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-075", "sourceSpecId": "KC-066", "title": "Syntax-Aware API Call Rewrite", "runtime": "node",
+      "prompt": "Repair rewriteFetchJson so deprecated two-argument calls become an options object without rewriting strings, comments, nested argument commas, or already migrated calls.",
+      "acceptanceCriteria": ["Executable two-argument calls are transformed with nested expressions preserved.", "Comments, string literals, and already migrated calls remain byte-for-byte unchanged."],
+      "fixture": { "root": "fixtures/EB-075", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-076", "sourceSpecId": "KC-067", "title": "Constraint-Safe Lock Entry Merge", "runtime": "python",
+      "prompt": "Repair merge_lock_entry so the selected version satisfies every declared constraint, identical versions require identical integrity, and unsatisfiable merges fail.",
+      "acceptanceCriteria": ["A lower candidate is retained when a higher version violates constraints.", "Integrity disagreement and lack of a satisfying candidate are rejected."],
+      "fixture": { "root": "fixtures/EB-076", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-077", "sourceSpecId": "KC-068", "title": "Backward-Compatible ABI Negotiation", "runtime": "node",
+      "prompt": "Repair negotiateAbi so major versions match, plugin minor versions do not exceed the host, and every required plugin capability is available.",
+      "acceptanceCriteria": ["An older compatible plugin minor version with supported capabilities is accepted.", "Newer minor requirements, major mismatch, or missing capabilities are denied."],
+      "fixture": { "root": "fixtures/EB-077", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-078", "sourceSpecId": "KC-070", "title": "Rename-Aware Watch Coalescing", "runtime": "python",
+      "prompt": "Repair coalesce_events so cookie-paired delete and create events become one rename, duplicate modifies collapse, and delete supersedes prior modification.",
+      "acceptanceCriteria": ["A paired rename retains both old and new paths as one event.", "Redundant modifies collapse and a later delete becomes the only event for that path."],
+      "fixture": { "root": "fixtures/EB-078", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-079", "sourceSpecId": "KC-071", "title": "Stream-State HTTP2 Frame Application", "runtime": "node",
+      "prompt": "Repair applyFrame so DATA consumes connection window, END_STREAM advances remote stream state, and data on closed streams or beyond flow control fails.",
+      "acceptanceCriteria": ["Valid DATA updates flow-control and stream state together.", "Remote-closed streams and frames exceeding the connection window are rejected."],
+      "fixture": { "root": "fixtures/EB-079", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-080", "sourceSpecId": "KC-072", "title": "Fragmented WebSocket Message Assembly", "runtime": "python",
+      "prompt": "Repair consume_frames so fragmented text messages assemble across continuation frames, control frames may interleave, and invalid fragmentation is rejected.",
+      "acceptanceCriteria": ["A valid fragmented text sequence yields one complete message while ignoring interleaved ping payload.", "Orphan continuations and fragmented control frames fail protocol validation."],
+      "fixture": { "root": "fixtures/EB-080", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-081", "sourceSpecId": "KC-073", "title": "Exact-TTL DNS Cache Lookup", "runtime": "node",
+      "prompt": "Repair cacheLookup so DNS names and types are canonicalized case-insensitively, expiry is exclusive, and negative cached answers remain distinguishable.",
+      "acceptanceCriteria": ["Equivalent question casing reaches the same live cache entry.", "An entry is stale at its exact deadline while a live negative answer returns null."],
+      "fixture": { "root": "fixtures/EB-081", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-082", "sourceSpecId": "KC-074", "title": "Packet-and-Time Loss Detection", "runtime": "python",
+      "prompt": "Repair detect_losses so a sent packet is declared lost by packet threshold or time threshold while newer packets below both thresholds remain outstanding.",
+      "acceptanceCriteria": ["Packet-distance and elapsed-time loss rules are combined without marking every lower packet lost.", "Results are deterministic and sent packet records remain unchanged."],
+      "fixture": { "root": "fixtures/EB-082", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-083", "sourceSpecId": "KC-075", "title": "Directional Proxy Half-Close", "runtime": "node",
+      "prompt": "Repair halfClose so EOF closes only the corresponding read and opposite write direction, reverse traffic stays open, and full closure waits for both sides.",
+      "acceptanceCriteria": ["One-sided EOF preserves the reverse data path and does not fully close the proxy.", "EOF from both sides reaches closed state and data after closure fails."],
+      "fixture": { "root": "fixtures/EB-083", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-084", "sourceSpecId": "KC-076", "title": "Binary-Safe Multipart Parsing", "runtime": "python",
+      "prompt": "Repair parse_multipart so exact CRLF-framed byte boundaries produce normalized headers and binary bodies without treating boundary-like payload text as a separator.",
+      "acceptanceCriteria": ["Multiple binary-safe parts decode with normalized header names and exact body bytes.", "Empty boundaries fail and non-delimited boundary text inside a body is preserved."],
+      "fixture": { "root": "fixtures/EB-084", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-085", "sourceSpecId": "KC-079", "title": "Common Protocol Negotiation", "runtime": "node",
+      "prompt": "Repair negotiateProtocol so it chooses the highest common version, intersects extensions, verifies required extensions, and rejects incompatible peers.",
+      "acceptanceCriteria": ["Negotiation returns only a mutually supported version and extension set.", "No common version or an unavailable required extension fails explicitly."],
+      "fixture": { "root": "fixtures/EB-085", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-086", "sourceSpecId": "KC-080", "title": "Offset-and-Digest Upload Chunk", "runtime": "python",
+      "prompt": "Repair accept_chunk so chunk offset equals committed length, SHA-256 matches exact bytes, input state remains immutable, and only valid bytes advance progress.",
+      "acceptanceCriteria": ["A valid next chunk appends once and advances offset by its byte length.", "Wrong offset or digest fails without changing the original upload state."],
+      "fixture": { "root": "fixtures/EB-086", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-087", "sourceSpecId": "KC-081", "title": "Recorded-Order Race Replay", "runtime": "node",
+      "prompt": "Repair replaySchedule so operations run in recorded sequence rather than re-sorted wall time, missing operations fail, and schedule input remains unchanged.",
+      "acceptanceCriteria": ["Replay preserves the exact supplied causal sequence even when timestamps disagree.", "Unknown operation identifiers fail and the recorded schedule is immutable."],
+      "fixture": { "root": "fixtures/EB-087", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-088", "sourceSpecId": "KC-082", "title": "Timed Circuit Breaker Transition", "runtime": "python",
+      "prompt": "Repair transition_breaker so failure threshold opens with a timestamp, the timer gates one half-open probe, and probe success resets all breaker state.",
+      "acceptanceCriteria": ["The breaker remains closed below threshold and open until the exact retry deadline.", "One half-open probe is represented explicitly and success returns a clean closed state."],
+      "fixture": { "root": "fixtures/EB-088", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-089", "sourceSpecId": "KC-083", "title": "Ordered Graceful Shutdown", "runtime": "node",
+      "prompt": "Repair nextShutdownAction so shutdown stops admissions, drains inflight work, flushes durable output, and only then closes sockets.",
+      "acceptanceCriteria": ["Each state returns the next safe lifecycle action in dependency order.", "Sockets cannot close before admissions stop, work drains, and output flushes."],
+      "fixture": { "root": "fixtures/EB-089", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-090", "sourceSpecId": "KC-085", "title": "Checksummed Queue Recovery", "runtime": "python",
+      "prompt": "Repair recover_queue so sequential checksummed log records replay to a queue and recovery stops safely at a corrupt or noncontiguous tail.",
+      "acceptanceCriteria": ["A valid enqueue and dequeue prefix recovers the expected durable queue.", "Checksum failure or sequence gap truncates replay at the last valid prefix."],
+      "fixture": { "root": "fixtures/EB-090", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-091", "sourceSpecId": "KC-086", "title": "Ambiguous Local-Time Selection", "runtime": "node",
+      "prompt": "Repair chooseOccurrence so candidates strictly after the cursor honor an explicit earlier-or-later policy for repeated local times and empty input returns null.",
+      "acceptanceCriteria": ["Earlier and later repeated-time policies choose different valid UTC candidates.", "A candidate equal to the cursor is not repeated and no candidates yields null."],
+      "fixture": { "root": "fixtures/EB-091", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-092", "sourceSpecId": "KC-088", "title": "Bounded Poison Message Handling", "runtime": "python",
+      "prompt": "Repair handle_failure so failures retry only below the limit, terminal failures quarantine with a stable error hash, and already quarantined messages are no-ops.",
+      "acceptanceCriteria": ["A retry increments its attempt while preserving message identity.", "At the maximum, one quarantine receipt replaces retries and repeat handling is idempotent."],
+      "fixture": { "root": "fixtures/EB-092", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-093", "sourceSpecId": "KC-089", "title": "Priority-Preserving Brownout", "runtime": "node",
+      "prompt": "Repair selectEnabledFeatures so critical features are retained, optional features fill remaining cost by descending priority, and impossible critical budgets fail.",
+      "acceptanceCriteria": ["Brownout never sheds a critical feature and selects the highest-priority affordable optional work.", "Selection is deterministic and a critical set beyond the budget is rejected."],
+      "fixture": { "root": "fixtures/EB-093", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-094", "sourceSpecId": "KC-090", "title": "Occurrence-Scoped Fault Injection", "runtime": "python",
+      "prompt": "Repair execute_fault_plan so a fault targets only the declared occurrence of a repeated step, preserves every trace step, and replays deterministically.",
+      "acceptanceCriteria": ["Only the selected occurrence receives the declared fault effect.", "Repeated execution yields the identical complete ordered trace."],
+      "fixture": { "root": "fixtures/EB-094", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-095", "sourceSpecId": "KC-091", "title": "Dirty-Tree Patch Conflict Planning", "runtime": "node",
+      "prompt": "Repair planPatch so digest changes conflict only with edits targeting that file, unrelated dirty files remain allowed, and inputs are preserved.",
+      "acceptanceCriteria": ["An unchanged target edit remains applicable despite unrelated user changes.", "A concurrently changed target moves to conflicts and cannot be silently applied."],
+      "fixture": { "root": "fixtures/EB-095", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-096", "sourceSpecId": "KC-092", "title": "Quote-Aware Shell Policy", "runtime": "python",
+      "prompt": "Repair command_is_safe so shell operators and command substitution outside quotes are denied while literal metacharacters inside a quoted argument remain data.",
+      "acceptanceCriteria": ["Sequencing, pipes, redirects, and command substitution cannot pass policy.", "A semicolon contained inside a quoted printf argument is accepted as literal data."],
+      "fixture": { "root": "fixtures/EB-096", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-097", "sourceSpecId": "KC-093", "title": "Secret-Free Context Index", "runtime": "node",
+      "prompt": "Repair indexRepositoryText so high-confidence API and bearer credentials are redacted before chunking and no raw source field can retain them.",
+      "acceptanceCriteria": ["Serialized index output contains neither supported credential value.", "Non-secret code remains searchable and raw source text is not returned."],
+      "fixture": { "root": "fixtures/EB-097", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-098", "sourceSpecId": "KC-096", "title": "Untrusted Tool Output Envelope", "runtime": "python",
+      "prompt": "Repair wrap_tool_output so repository or tool text remains untrusted data with no authority, while its exact diagnostic text stays available for inspection.",
+      "acceptanceCriteria": ["The envelope labels content as untrusted data and preserves exact text.", "Tool output cannot become a trusted instruction or receive any authority."],
+      "fixture": { "root": "fixtures/EB-098", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-099", "sourceSpecId": "KC-097", "title": "Semantic Parallel Plan Conflict", "runtime": "node",
+      "prompt": "Repair mergePlans so contradictory named assumptions block all edits even across different files, while compatible plans merge deterministically and immutably.",
+      "acceptanceCriteria": ["A shared assumption with different values becomes a focused semantic conflict.", "Compatible plan edits retain plan order and caller-owned plans remain unchanged."],
+      "fixture": { "root": "fixtures/EB-099", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-100", "sourceSpecId": "KC-098", "title": "Exact Expiring Capability", "runtime": "python",
+      "prompt": "Repair authorize_capability so operation, confined path, nonce, unused status, and exclusive expiry all match an exact capability grant.",
+      "acceptanceCriteria": ["A fresh matching request for a genuine descendant path is authorized.", "Sibling-prefix escape, wrong operation, expiry, or consumed grants are denied."],
+      "fixture": { "root": "fixtures/EB-100", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "fd1e16d48e31329ec314ab0d77bf97332709229890cf4a7a2e1f7a9c09586877", "timeoutMs": 3000 }
     }
   ]
 }

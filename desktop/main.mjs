@@ -20,7 +20,6 @@ import {
 } from "./window-security.mjs";
 
 const APP_NAME = "Krater Pro";
-const APP_VERSION = "0.1.0";
 const CREATOR_CREDIT = "Built by Supratim with ❤️";
 const CREATOR_PROFILE = "https://www.linkedin.com/in/supratimsircar/";
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -170,7 +169,7 @@ function buildApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-function createMainWindow() {
+function createMainWindow({ showWhenReady = true } = {}) {
   if (!localServer) {
     throw new Error("The local Krater Pro server is not ready.");
   }
@@ -188,9 +187,11 @@ function createMainWindow() {
     openExternal: (url) => shell.openExternal(url),
   });
 
-  window.once("ready-to-show", () => {
-    window.show();
-  });
+  if (showWhenReady) {
+    window.once("ready-to-show", () => {
+      window.show();
+    });
+  }
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = undefined;
   });
@@ -201,8 +202,9 @@ function createMainWindow() {
       "The IDE window stopped unexpectedly. Reopen Krater Pro to continue.",
     );
   });
-  void window.loadURL(localServer.url);
+  const loadPromise = window.loadURL(localServer.url);
   mainWindow = window;
+  return { loadPromise, window };
 }
 
 async function closeLocalServer() {
@@ -215,6 +217,42 @@ async function closeLocalServer() {
     }
   })();
   return shutdownPromise;
+}
+
+async function runPackagedSmokeTest() {
+  const { loadPromise, window } = createMainWindow({
+    showWhenReady: false,
+  });
+  const timeout = new Promise((_, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Desktop renderer smoke test timed out.")),
+      30_000,
+    );
+    timer.unref();
+  });
+  await Promise.race([loadPromise, timeout]);
+  const result = await window.webContents.executeJavaScript(
+    `({
+      title: document.title,
+      rootChildren: document.querySelector("#root")?.childElementCount ?? 0
+    })`,
+    true,
+  );
+  if (
+    result.rootChildren < 1 ||
+    !String(result.title).toLowerCase().includes("krater pro")
+  ) {
+    throw new Error(
+      "Desktop renderer loaded without the expected Krater Pro application root.",
+    );
+  }
+  process.stdout.write(
+    `KRATER_DESKTOP_SMOKE_OK ${process.platform} ${process.arch}\n`,
+  );
+  window.destroy();
+  await closeLocalServer();
+  shutdownComplete = true;
+  app.exit(0);
 }
 
 async function launch() {
@@ -238,12 +276,16 @@ async function launch() {
 
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
-    applicationVersion: APP_VERSION,
-    version: APP_VERSION,
+    applicationVersion: app.getVersion(),
+    version: app.getVersion(),
     copyright: CREATOR_CREDIT,
     credits: `${CREATOR_CREDIT}\n${CREATOR_PROFILE}`,
     iconPath,
   });
+  if (options.smokeTest) {
+    await runPackagedSmokeTest();
+    return;
+  }
   buildApplicationMenu();
   createMainWindow();
 }

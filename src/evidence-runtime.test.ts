@@ -9,9 +9,11 @@ import {
   finalizeEvidencePublication,
   listEvidenceTasks,
   openEvidenceStore,
+  recordEvidenceRollback,
   readEvidenceTask,
   renderPassportMarkdown,
 } from "./evidence-runtime.js";
+import { VerifiedAutopilotService } from "./autopilot/index.js";
 import {
   verifyChangePassport,
   verifyEvidenceCapsule,
@@ -241,6 +243,59 @@ describe("EvidenceTask", () => {
     expect(projection.state).toBe("abstained");
     expect(projection.evidence.map((item) => item.grade)).toContain("tested");
     expect(projection.passport?.verdict).toBe("abstained");
+    expect(projection.autopilot.currentPlan).toMatchObject({
+      status: "closed",
+      steps: [
+        expect.objectContaining({ kind: "discover", status: "completed" }),
+        expect.objectContaining({ kind: "implement", status: "skipped" }),
+        expect.objectContaining({ kind: "verify", status: "completed" }),
+        expect.objectContaining({ kind: "review", status: "completed" }),
+        expect.objectContaining({ kind: "publish", status: "skipped" }),
+      ],
+    });
+    const noChangeProofs =
+      projection.autopilot.currentPlan?.proofObligations.filter(
+        (obligation) => obligation.status === "not_applicable",
+      ) ?? [];
+    expect(noChangeProofs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          statement: "do_not_overwrite_concurrent_edits",
+          evidenceIds: [],
+          nonApplicabilityReason: expect.stringMatching(/no workspace mutation/i),
+        }),
+        expect.objectContaining({
+          statement: "Required check: workspace_digest",
+          evidenceIds: [],
+          nonApplicabilityReason: expect.stringMatching(
+            /no publishable patch/i,
+          ),
+        }),
+      ]),
+    );
+    expect(projection.capsule?.gaps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Do not change a parser that already passes"),
+        expect.stringContaining("do_not_expose_secrets"),
+        expect.stringContaining("do_not_claim_unverified_success"),
+      ]),
+    );
+    for (const proof of noChangeProofs) {
+      expect(projection.capsule?.gaps.join("\n")).not.toContain(proof.id);
+    }
+
+    const detail = await readEvidenceTask(
+      cwd,
+      "project-1",
+      task.taskId,
+    );
+    expect(detail.autopilot.currentPlan?.status).toBe("closed");
+    expect(
+      detail.autopilot.currentPlan?.proofObligations.filter(
+        (obligation) => obligation.status === "not_applicable",
+      ),
+    ).toHaveLength(noChangeProofs.length);
+    expect(detail.gaps).toEqual(projection.capsule?.gaps);
   });
 
   it("keeps a changed task in review and reports every missing proof obligation", async () => {
@@ -318,6 +373,24 @@ describe("EvidenceTask", () => {
     expect(projection.capsule?.gaps).toContain(
       "Transactional publication is pending explicit user acceptance.",
     );
+    expect(projection.autopilot.currentPlan).toMatchObject({
+      status: "active",
+      proofObligations: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "acceptance_criterion",
+          status: "pending",
+          evidenceIds: [],
+        }),
+        expect.objectContaining({
+          statement: "Required check: workspace_digest",
+          status: "satisfied",
+        }),
+        expect.objectContaining({
+          statement: "Required check: tests",
+          status: "satisfied",
+        }),
+      ]),
+    });
     expect(renderPassportMarkdown(projection)).toContain(
       "# Krater Pro Change Passport",
     );
@@ -441,6 +514,18 @@ describe("EvidenceTask", () => {
     });
 
     expect(projection.state).toBe("accepted_with_gaps");
+    expect(projection.autopilot.currentPlan).toMatchObject({
+      status: "completed",
+      proofObligations: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "acceptance_criterion",
+          status: "waived",
+          waiver: expect.objectContaining({
+            approvedBy: "user",
+          }),
+        }),
+      ]),
+    });
     expect(projection.capsule?.gaps).not.toContain(
       "Transactional publication is pending explicit user acceptance.",
     );
@@ -451,6 +536,43 @@ describe("EvidenceTask", () => {
       }),
     );
     expect(projection.passport?.summary).toContain("atomically published");
+
+    const plan = projection.autopilot.currentPlan!;
+    const store = await openEvidenceStore(cwd);
+    const autopilot = new VerifiedAutopilotService(store);
+    const issuedAt = new Date().toISOString();
+    const lease = await autopilot.issueProofLease({
+      id: "lease-before-rollback",
+      taskId: task.taskId,
+      planId: plan.id,
+      planRevision: plan.revision,
+      planDigest: plan.digest,
+      proofObligationIds: plan.proofObligations.map(
+        (obligation) => obligation.id,
+      ),
+      evidenceIds: projection.evidence.map((evidence) => evidence.id),
+      subjectDigest: finalWorkspaceDigest,
+      environmentDigest: `sha256:${"e".repeat(64)}`,
+      policyDigest: `sha256:${"f".repeat(64)}`,
+      toolchainDigest: `sha256:${"a".repeat(64)}`,
+      issuedBy: "host_verifier",
+      issuedAt,
+      expiresAt: new Date(Date.parse(issuedAt) + 60_000).toISOString(),
+    });
+    const rolledBack = await recordEvidenceRollback(cwd, task.taskId, {
+      transactionId: "transaction-1",
+      wasPublished: true,
+      baseWorkspaceDigest,
+      finalWorkspaceDigest,
+    });
+    expect(rolledBack.autopilot.proofLeaseInvalidations).toContainEqual(
+      expect.objectContaining({
+        leaseId: lease.id,
+        leaseDigest: lease.digest,
+        reason: "subject_changed",
+        invalidatedBy: "user",
+      }),
+    );
   });
 
   it("resumes interrupted publication finalization and remains idempotent", async () => {
@@ -506,6 +628,27 @@ describe("EvidenceTask", () => {
       name: "run_command",
       output: "Exit code: 0",
       ok: true,
+    });
+    await task.recordVerifierResult({
+      passed: true,
+      summary:
+        "The context-isolated verifier confirmed the repaired parser behavior.",
+      kind: "test",
+      grade: "tested",
+      origin: "blind_verifier",
+      command: "sealed-checker parser behavior",
+      tool: "test-verifier",
+    });
+    await task.recordVerifierResult({
+      linkToCriterion: false,
+      passed: true,
+      summary:
+        "The context-isolated verifier found no protected-data or unsafe-success regression.",
+      kind: "security",
+      grade: "tested",
+      origin: "blind_verifier",
+      command: "sealed-security-check",
+      tool: "security-verifier",
     });
     const baseWorkspaceDigest = `sha256:${"e".repeat(64)}`;
     const finalWorkspaceDigest = `sha256:${"f".repeat(64)}`;

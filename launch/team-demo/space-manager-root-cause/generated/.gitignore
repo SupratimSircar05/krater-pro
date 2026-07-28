@@ -1,0 +1,6 @@
+*
+!.gitignore
+!render-receipt.json
+!qa/
+qa/*
+!qa/contact-sheet.png

@@ -433,6 +433,7 @@ Evidence-native commands currently available are:
 | `krater proof show\|verify\|export` | Reads and validates capsules/passports |
 | `krater policy simulate\|explain` | Evaluates one structured context flow |
 | `krater debug causal --input <json>` | Replays a Causal Twin plan from ordered, caller-recorded Node.js/Python outcomes; it does not execute a process |
+| `krater debug causal-live --input <json>` | Executes direct caller-supplied Node.js/Python entrypoints only inside verified native containment; checks the workspace digest before/after and fails closed when containment is unavailable |
 | `krater lab replay --input <json>` | Scores one sealed recorded reliability evaluation; it does not execute benchmark fixtures |
 | `krater lab calibrate --input <json>` | Evaluates the promotion gate without persisting a router, skill, prompt, or policy change |
 | `krater cache stats\|prune` | Inspects or prunes the persistent cache |
@@ -465,11 +466,25 @@ publish, rollback, and cancellation routes are mutually exclusive within the
 local server, so two lifecycle mutations cannot run concurrently. Cancellation
 also refuses publication-in-progress and already terminal `complete`,
 `abstained`, `blocked`, or `accepted_with_gaps` tasks; retrying an already
-fully recorded `cancelled` task is idempotent. Causal live
-execution also remains fail-closed: `debug causal` requires a JSON object with
-`plan` and the exact ordered `executions` recorded by an external,
-appropriately contained runner. The reliability commands require sealed
-result artifacts; they neither run a suite nor promote configuration.
+fully recorded `cancelled` task is idempotent. Causal replay remains explicit:
+`debug causal` requires a JSON object with `plan` and the exact ordered
+`executions` recorded by an external runner.
+
+The separately named `debug causal-live` vertical slice performs direct
+Node.js/Python execution. It accepts no shell string, resolves exact
+workspace-relative entrypoints and working directories, rejects symlink
+entrypoints and credential-bearing inputs, verifies the secret/build-output
+excluding workspace digest before and after the run, and bounds output and
+wall time. The process receives only declared non-sensitive environment
+values, read-only workspace access, and no network. Unattended execution
+requires a verified native adapter; the current production adapter is macOS
+Seatbelt plus host-owned process limits, while Windows and Linux fail closed.
+This is caller-supplied invocation replay with controlled alternate inputs—not
+runtime instrumentation, value injection, branch override, or function
+stubbing. A causal label remains limited to a deterministic, predicted outcome
+change from an exactly declared isolated invocation difference. The
+reliability commands require sealed result artifacts; they neither run a suite
+nor promote configuration.
 
 ## Local API and Evidence view
 
@@ -487,7 +502,9 @@ rest of the GUI. Its implemented evidence routes are:
 | `POST /api/v2/tasks/:taskId/publish` | Publishes a reviewed binding; JSON body `{ "acceptGaps": true }` is required when gaps remain |
 | `POST /api/v2/tasks/:taskId/rollback` | Discards a staged binding or restores a published one with conflict protection |
 | `POST /api/v2/policy/simulate` | Runs the label/capability policy simulator |
+| `POST /api/v2/merge/forecast` | Strictly validates caller-supplied semantic patch descriptors and forecasts conflicts without reading or mutating the workspace |
 | `POST /api/v2/debug/causal` | Accepts `{ "plan": ..., "executions": [...] }` and returns a recorded-outcome Causal Twin replay; spawns no process |
+| `POST /api/v2/debug/causal/live` | Accepts `{ "plan": ... }` for the selected local project and returns a live sandbox receipt plus Causal Twin report; returns `503` when verified native containment is unavailable |
 | `POST /api/v2/lab/replay` | Accepts `{ "evaluation": ... }` and scores a sealed recorded result set |
 | `POST /api/v2/lab/calibrate` | Accepts a reliability promotion input and returns a non-persisted gate decision |
 | `GET /api/v2/cache/stats` | Returns persistent-cache statistics |
@@ -583,15 +600,20 @@ checker format.
 The following source modules have unit-tested contracts, but their presence is
 not evidence of a completed product feature:
 
-- `src/sandbox/`: validates requests, probes a native-adapter contract, bounds
-  receipts, redacts sensitive arguments, and fails closed for unattended work
-  without verified containment. No macOS, Linux, or Windows native adapter is
-  shipped.
+- `src/sandbox/`: validates requests, bounds receipts, redacts sensitive
+  arguments, and ships a narrow macOS adapter. Its live probe verifies
+  Seatbelt file/network/fork denial and hard CPU/address-space limits.
+  Unattended runtime commands bind the staged root, protected-path denies,
+  deny-all networking, one process, output, and wall time. Exact network
+  allowlists and subprocess trees are unsupported. Linux and Windows expose
+  unavailable contracts and fail closed for unattended execution; explicitly
+  approved attended commands remain a separately labeled compatibility path.
 - `src/intelligence/jury.ts`: trigger, independence, cost, evidence-floor, and
   dissent decisions. It does not spawn agents or sealed verifier workspaces.
 - `src/intelligence/merge-forecaster.ts`: forecasts conflicts from caller
-  supplied semantic touches and a dependency DAG. It does not extract those
-  touches from real branches or continuously build/test combined patches.
+  supplied semantic touches and a dependency DAG. A strict local API adapter
+  exposes this calculation, but it does not extract touches from real branches,
+  inspect workspace state, or continuously build/test combined patches.
 - `src/intelligence/reliability-lab.ts`: evaluates a proposed router, skill,
   prompt, or policy promotion against sealed disjoint results. It does not
   schedule replays, manage a private holdout store, or update the router.
@@ -618,10 +640,13 @@ foundation:
   complete structured side-effect escrow.
 - Cross-platform native filesystem/network/process containment is not shipped.
 - Verified Work Cache is not populated or consumed by normal agent execution.
-- Jury, merge forecast, and Mastery Mode are not exposed through product
-  workflows. Causal Twin and reliability lab exposure is limited to
-  caller-recorded artifact adapters; no live contained execution, scheduling,
-  configuration promotion, or dedicated UI is present.
+- Jury and Mastery Mode are not exposed through product workflows. Merge
+  forecasting is limited to a non-persisted caller-supplied descriptor API; it
+  does not inspect or combine real branches. Causal Twin has recorded replay
+  plus a narrow direct-process macOS live slice; it has no runtime
+  instrumentation, arbitrary value injection, Linux/Windows live adapter, or
+  dedicated UI. Reliability Lab remains a caller-recorded artifact adapter
+  without scheduling or configuration promotion.
 - Passports are digest-verified but not SSH/GPG-signed.
 - Local evidence is redacted but not encrypted with an OS-protected key.
 - Full task resume reconstructs evidence state, not the prior private model

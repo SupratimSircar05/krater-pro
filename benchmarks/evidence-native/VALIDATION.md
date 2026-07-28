@@ -1,14 +1,15 @@
-# Foundation validation
+# Sealed microbenchmark validation
 
-Validation target: Evidence-Native Foundation suite `0.1.0`.
+Validation target: Evidence-Native Sealed Microbenchmark suite `1.0.0`.
 
 The checked-in suite must satisfy:
 
-- exactly 20 declared tasks are present;
+- exactly 100 declared tasks are present as `EB-001` through `EB-100`;
+- source mappings cover `KC-001` through `KC-100` exactly once;
 - every manifest and asset path passes strict confinement validation;
 - every fixture inventory is exhaustive and contains only regular files;
 - the checker SHA-256 matches the manifest seal;
-- all 20 deliberately incomplete seeds are rejected;
+- all 100 deliberately incomplete seeds are rejected;
 - a behaviorally correct EB-001 repair passes without diff comparison;
 - extra checker report fields and inconsistent verdicts are rejected; and
 - materialization refuses nonempty caller-owned directories.

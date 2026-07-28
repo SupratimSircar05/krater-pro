@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateReleaseEnvironment } from "../../scripts/release/validate-release-environment.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const cliPath = resolve(
@@ -25,6 +26,21 @@ const targetsMac =
     !forwarded.includes("--linux") &&
     process.platform === "darwin");
 const environment = { ...process.env };
+const stableRelease = environment.KRATER_RELEASE_MODE === "stable";
+if (stableRelease && targetsMac) {
+  validateReleaseEnvironment({
+    platform: "mac",
+    stable: true,
+    environment,
+  });
+}
+if (stableRelease && forwarded.includes("--win")) {
+  validateReleaseEnvironment({
+    platform: "win",
+    stable: true,
+    environment,
+  });
+}
 const localMacStage =
   targetsMac &&
   process.platform === "darwin" &&
@@ -46,6 +62,9 @@ const builderArguments = [
 // CSC_LINK/CSC_NAME exists, normal certificate discovery and signing wins.
 if (targetsMac && !environment.CSC_LINK && !environment.CSC_NAME) {
   builderArguments.push("--config.mac.identity=-");
+}
+if (stableRelease && targetsMac) {
+  builderArguments.push("--config.mac.notarize=true");
 }
 if (localMacStage) {
   // Documents can be backed by a macOS File Provider that re-adds Finder

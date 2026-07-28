@@ -41,9 +41,25 @@ test("launch options force loopback and prefer command options", async () => {
   assert.deepEqual(options, {
     host: DESKTOP_HOST,
     port: 49152,
+    smokeTest: false,
     workspace: join(temporaryDirectory, "selected-project"),
     workspaceWasExplicit: true,
   });
+});
+
+test("packaged smoke mode is explicit and cannot be enabled by a value suffix", () => {
+  const enabled = parseDesktopLaunchOptions({
+    argv: ["--krater-smoke-test"],
+    environment: {},
+    defaultWorkspace: "/default",
+  });
+  const disabled = parseDesktopLaunchOptions({
+    argv: ["--krater-smoke-test=true"],
+    environment: {},
+    defaultWorkspace: "/default",
+  });
+  assert.equal(enabled.smokeTest, true);
+  assert.equal(disabled.smokeTest, false);
 });
 
 test("launch options reject missing values", () => {

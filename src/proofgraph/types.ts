@@ -1,3 +1,14 @@
+import type {
+  AgentDelegation,
+  AutopilotProjection,
+  ExternalEffectPlan,
+  ExternalEffectReceipt,
+  ProductionObservation,
+  ProofLease,
+  ProofLeaseInvalidation,
+  TaskPlan,
+} from "../autopilot/types.js";
+
 export type JsonPrimitive = boolean | null | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -258,6 +269,17 @@ export interface ProofGraphEventPayloads {
   "claim.recorded": { claim: ClaimRecord };
   "capsule.generated": { capsule: EvidenceCapsule };
   "passport.generated": { passport: ChangePassport };
+  "autopilot.plan.revised": { plan: TaskPlan };
+  "autopilot.delegation.recorded": { delegation: AgentDelegation };
+  "autopilot.external_effect.planned": { effectPlan: ExternalEffectPlan };
+  "autopilot.external_effect.receipt.recorded": {
+    receipt: ExternalEffectReceipt;
+  };
+  "autopilot.proof_lease.issued": { lease: ProofLease };
+  "autopilot.proof_lease.invalidated": {
+    invalidation: ProofLeaseInvalidation;
+  };
+  "autopilot.production.observed": { observation: ProductionObservation };
 }
 
 export type ProofGraphEventKind = keyof ProofGraphEventPayloads;
@@ -302,6 +324,7 @@ export interface TaskProjection {
   evidence: EvidenceRecord[];
   claims: ClaimRecord[];
   stateHistory: TaskStateHistoryEntry[];
+  autopilot: AutopilotProjection;
   capsule?: EvidenceCapsule;
   passport?: ChangePassport;
   lastSequence: number;

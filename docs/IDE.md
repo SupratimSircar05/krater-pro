@@ -108,11 +108,13 @@ Every command:
 - is rejected when it matches destructive-data or protected-secret reads; and
 - is terminated as a process group after timeout, cancellation, or shutdown.
 
-On macOS, when `/usr/bin/sandbox-exec` is available, Krater Pro additionally
-runs the command in a sandbox profile. Writes are limited to the selected
-workspace and a private temporary home; `.env`, `.krater`, common credentials,
-and developer credential directories remain denied. Network access is allowed
-so normal package and test commands can work.
+The IDE terminal is an attended user action. On macOS, when
+`/usr/bin/sandbox-exec` is available, Krater Pro additionally runs it in the
+compatibility sandbox profile. Writes are limited to the selected workspace
+and a private temporary home; `.env`, `.krater`, common credentials, and
+developer credential directories remain denied. Spawned-command network
+access is denied. The API response includes execution metadata and labels this
+path `macos_seatbelt_best_effort`, not verified unattended containment.
 
 On other systems, or if `sandbox-exec` is unavailable, the command still has
 the bounds, environment filtering, workspace working directory, and command
@@ -122,7 +124,9 @@ version control and do not run untrusted commands.
 
 The user-entered terminal is separate from model tool approval: submitting its
 Run button is the user's explicit request to execute that command. Commands
-proposed by the model continue through the normal Allow/Deny workflow.
+proposed by the model continue through the normal Allow/Deny workflow. A model
+command covered only by unattended policy uses the stricter native adapter or
+fails closed; it never silently falls back to this attended path.
 
 ## Source control
 

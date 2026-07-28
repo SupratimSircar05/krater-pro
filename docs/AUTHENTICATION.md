@@ -13,35 +13,81 @@ Core CLI/server configuration selects its effective key in this order:
 
 1. CLI `--api-key`
 2. process `KRATER_API_KEY`
-3. selected workspace `.env`
+3. an OS-protected credential referenced by the selected workspace
+4. selected workspace `.env`
 
 Browser requests add one request-scoped layer: a non-empty key entered in GUI
 Settings overrides the server's effective key for that tab's model discovery
 and agent messages. If the tab has no key, the server falls back to the core
 CLI → environment → `.env` result above.
 
-The CLI option is convenient but can be visible in shell history and process
-inspection. Prefer a permission-restricted `.env` for local development. Never
-commit the file.
+The CLI option is retained for compatibility but can be visible in shell
+history and process inspection. Prefer `krater setup`, which never puts a key
+in arguments. Never commit `.env`.
 
-## Browser-assisted setup
+## First-run setup
+
+`krater setup` is the recommended first-run entry point. It checks the selected
+workspace, can open Krater's official developer page, accepts the key using
+terminal raw mode with no echo, and validates it with authenticated model
+discovery. Persistence is attempted only after validation.
+
+The recommended persistence backend is selected by the host:
+
+- macOS: a generic-password item in Keychain. `security` receives the value
+  through its password prompt on standard input; the value is not an argument.
+- Linux: Secret Service through `secret-tool`; the value is supplied on
+  standard input. Setup fails closed if the binary or session service is
+  unavailable.
+- Windows: a CurrentUser DPAPI-encrypted blob. PowerShell reads the value from
+  standard input; the plaintext is not part of the script or arguments.
+
+The workspace stores only a permission-restricted, non-secret handle under
+`.krater/credentials/`. A handle is scoped to that workspace path. If secure
+storage is unavailable or declined, setup explains that `.env` is plaintext
+and asks separately before writing an owner-only file. `--env-fallback` is the
+explicit non-default choice for that fallback.
+
+To rotate a credential, run `krater setup --replace`. The existing value stays
+active until the replacement passes model discovery and the selected backend
+accepts it.
 
 `krater auth login` opens <https://krater.ai/developers>. After signing in,
 create or retrieve an API key using Krater’s official controls, then place it in
 the workspace `.env` or paste it into GUI Settings.
 
 ```sh
+krater setup
+krater doctor
+krater doctor --live
 krater auth login
 krater auth status
 ```
 
 Use `krater auth login --no-open` on a remote or headless machine.
+For CI or another headless environment:
+
+```sh
+KRATER_API_KEY=... krater setup --non-interactive --no-open
+```
+
+This performs authenticated model discovery but never persists the value.
+Without a credential it returns `setup_required` and exits `4`.
+`krater setup --create-env --non-interactive --no-open` remains available to
+create only an empty owner-private template.
 
 `krater auth status` checks whether a key is configured and reports its source
 and selected model. It does not call Krater, validate the credential, confirm
 model access, or inspect remaining credits. Treat its positive result as
 **configured, unverified**; use `krater models` or an actual request when live
 verification is required.
+
+`krater doctor` performs broader offline installation checks and reports
+credential presence and source without exposing its value. It exits `4` with a
+machine-readable `setup_required` status when no key is configured. Only the
+explicit `krater doctor --live` form performs authenticated model discovery;
+the report then uses `live_credential_verification` scope and says
+`verified` or `failed`. `auth status` remains an offline presence check.
 
 ## Why this is not OAuth
 

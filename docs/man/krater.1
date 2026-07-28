@@ -1,0 +1,58 @@
+.TH KRATER 1 "July 2026" "Krater Pro" "User Commands"
+.SH NAME
+krater \- evidence-native coding agent powered by the Krater API
+.SH SYNOPSIS
+.B krater
+[\fIOPTIONS\fR] [\fIPROMPT\fR]
+.br
+.B krater setup
+[\fIOPTIONS\fR]
+.br
+.B krater doctor
+[\fB--json\fR] [\fB--live\fR]
+.SH DESCRIPTION
+Krater Pro provides an interactive coding agent, durable verified tasks, and a
+loopback-only local web IDE. Project state, evidence, policies, and caches stay
+local. Krater inference requires network access and a Krater-issued credential.
+.SH FIRST RUN
+Run \fBkrater setup\fR in the project you want to use. The interactive setup
+accepts the credential without terminal echo and prefers the operating-system
+credential store. Run \fBkrater doctor\fR to validate local readiness.
+.SH COMMON COMMANDS
+.TP
+.B krater setup
+Configure and validate a Krater credential without placing it in process
+arguments.
+.TP
+.B krater doctor
+Check runtime, credential source, Git, workspace, sandbox, and local evidence
+storage readiness. Add \fB--live\fR only when an authenticated API check is
+intended.
+.TP
+.B krater web
+Start the local IDE on a loopback address.
+.TP
+.B krater completion bash|zsh|fish
+Generate a shell completion script.
+.TP
+.B krater task --help
+Show durable task planning, execution, verification, and publication commands.
+.SH SECURITY
+Never put an API key on the command line. Prefer \fBkrater setup\fR or an
+ephemeral \fBKRATER_API_KEY\fR environment value. External mutations require
+structured authorization and receipts.
+.SH FILES
+.TP
+.I .krater/
+Ignored local task events, evidence, transactions, and verified caches.
+.TP
+.I .krater-intent/
+Optional version-controlled intent and policy artifacts.
+.TP
+.I .env
+Owner-private plaintext fallback only when explicitly selected.
+.SH SEE ALSO
+Full documentation:
+https://github.com/SupratimSircar05/krater-pro/tree/main/docs
+.SH AUTHOR
+Built by Supratim Sircar.

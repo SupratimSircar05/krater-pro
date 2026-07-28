@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28T09:49:33.056Z",
+  "format": "Edited, narrated, credential-free team demo assembled from sanitized read-only captures and verified public source-map excerpts",
+  "output": {
+    "path": "krater-pro-space-manager-tri-region-demo.mp4",
+    "sha256": "34802db590d7ae340c7227efb50e3a56cb40fa41e3d49c210b3c706f2ef59628",
+    "bytes": 24497618,
+    "durationSeconds": 243.2,
+    "width": 1920,
+    "height": 1080,
+    "videoCodec": "H.264",
+    "audio": "AAC narration",
+    "subtitles": "English mov_text plus on-screen captions"
+  },
+  "sanitizedInputs": [
+    {
+      "path": "generated/sanitized/01-us-validation.png",
+      "sha256": "8e34d5a31eb58a9d10f1b6aeb83032c57776baebdf89a77a1bccd4671fc968c6"
+    },
+    {
+      "path": "generated/sanitized/02-eu-validation.png",
+      "sha256": "a99a2291e492ab61b2b5f8a266457c2f094420fc47089e96743ba89c6fde2e0e"
+    },
+    {
+      "path": "generated/sanitized/03-sg-validation.png",
+      "sha256": "743244a678886d51222af0106c36c28a68d8b9de31aa46f5d024ab9aa0004c2c"
+    },
+    {
+      "path": "generated/sanitized/04-us-before-selection.png",
+      "sha256": "a802daa2a998a9eda63ffc78a28a9a4398c006d6c9b925f6273b0f78e4d65577"
+    },
+    {
+      "path": "generated/sanitized/05-us-after-selection.png",
+      "sha256": "02996487773f8f87ffa67ba3916a7cd235b40583d315a5f97362dd68ed1638f2"
+    },
+    {
+      "path": "generated/sanitized/06-krater-epistemic-label.png",
+      "sha256": "eb44814b27ac3e7fb61c549ab10246966673a3bc855f8d74d9420b213d32726d"
+    }
+  ],
+  "sourceArtifactDigests": {
+    "us-space-manager.js": "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+    "eu-space-manager.js": "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+    "sg-space-manager.js": "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+    "us-app-lh2.js": "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423",
+    "eu-app-lh2.js": "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423",
+    "sg-app-lh2.js": "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423",
+    "us-space-manager.js.map": "8461bc57c8be028cad1c4b1be79988a1d0af9417c09537b8e11738aff0b0a31d",
+    "us-app-lh2.js.map": "b1c8821f0655e6a128c5d25f0fa157d3c58f809620947fbf2eb58f3448ea35c2"
+  },
+  "privacy": {
+    "credentialsIncluded": false,
+    "serviceEmailsIncluded": false,
+    "accountOrTenantIdentifiersIncluded": false,
+    "cookiesIncluded": false,
+    "authorizationHeadersIncluded": false,
+    "privateUserTableDataIncluded": false,
+    "absoluteUserPathsIncluded": false,
+    "identityRedacted": true,
+    "productionMutationPerformed": false
+  }
+}

@@ -15,7 +15,7 @@ krater-pro
 | `--base-url <url>` | Krater-compatible OpenAI API root |
 | `-m, --model <id>` | `auto` for Smart Router, or an exact Krater model ID |
 | `-C, --cwd <path>` | Workspace root |
-| `-y, --yes` | Automatically approve mutations and commands |
+| `-y, --yes` | Automatically approve file mutations; run model commands only through verified, fail-closed unattended containment |
 | `--context-chars <n>` | Estimated request-context character budget |
 | `--tool-output-chars <n>` | Retained characters per tool result |
 | `--response-style <style>` | `concise` or `standard` |
@@ -78,17 +78,28 @@ a complete ProofPatch preview and leaves the base workspace unchanged in
 Review and publish separately:
 
 ```sh
+krater task plan <task-id>
+krater task approve <task-id> --plan-digest <sha256-digest>
+krater task verify <task-id>
 krater task show <task-id>
 krater task publish <task-id>
 krater task publish <task-id> --accept-gaps
 krater task cancel <task-id> [--reason <text>]
 krater task rollback <task-id>
+krater task watch <task-id>
 ```
 
 The gap-acceptance flag is required only when non-publication evidence gaps
 remain. `--yes` approves individual tool calls; it does not publish a reviewed
 transaction or accept evidence gaps. The process exits nonzero on
 configuration/provider/runtime errors.
+
+`--yes` does not turn commands into unrestricted background shell access. On
+macOS the current unattended `run_command` path permits shell builtins only
+after live native-containment probes; external programs and subprocess-based
+builds fail closed and require a later, explicit attended approval. Linux and
+Windows do not yet ship a verified native unattended adapter, so model commands
+fail closed there. File tools remain bounded to the staged workspace.
 
 Before provider selection or staging, Krater performs bounded repository
 ambiguity preflight. Unique referenced filenames are resolved and recorded
@@ -100,16 +111,72 @@ Krater instead persists the task in `clarification`, writes one
 and exits `3`. `--assume best` records the selected best-judgment assumption
 as unresolved so the agent must verify it during discovery.
 
+## Setup and local diagnostics
+
+```sh
+krater setup
+krater setup --replace
+KRATER_API_KEY=... krater setup --non-interactive --no-open
+krater setup --env-fallback
+krater doctor
+krater doctor --json
+krater doctor --live
+```
+
+`setup` inspects the selected workspace and can open the official Krater
+developer page. In a terminal it reads the key with terminal echo disabled,
+validates it using authenticated model discovery, and only then offers an OS
+credential backend. Credential values are sent to macOS Keychain, Linux Secret
+Service, or Windows DPAPI through standard input, never process arguments.
+
+If secure storage is unavailable or declined, setup explains the plaintext
+owner-only `.env` tradeoff and asks separately. `--env-fallback` explicitly
+selects that choice. `--non-interactive` validates `KRATER_API_KEY` without
+persisting it, prompting, or opening a browser. `--create-env` creates only an
+empty private template. Until a credential is configured, setup returns a
+`setup_required` result and exits `4`.
+
+`--replace` starts hidden input even when a credential is configured. The old
+value remains usable unless the replacement validates and persists.
+
+`doctor` makes no network request by default. It checks the supported Node
+version, workspace access, safely loaded configuration, credential presence and source,
+`.env` permissions, Git availability, fail-closed containment posture, local
+ProofGraph/ProofPatch initialization, and completion generation. JSON output is
+a single versioned object and never contains the credential value. A configured
+credential is reported as unverified; evidence storage is detected but its
+artifacts are not verified by this command.
+
+`doctor --live` is the explicit authenticated exception. It runs model
+discovery, reports the `live_credential_verification` scope, and fails closed
+when access cannot be established.
+
+## Shell completion
+
+```sh
+krater completion bash
+krater completion zsh
+krater completion fish
+```
+
+Each command prints a deterministic completion script to stdout and requires no
+credential or network access. Homebrew can install these automatically; manual
+paths are documented in [INSTALLATION.md](INSTALLATION.md).
+
 ## Evidence-native commands
 
 ```sh
 krater task run <prompt...>
 krater task list
 krater task show <task-id>
+krater task plan <task-id>
+krater task approve <task-id> --plan-digest <sha256-digest> [--reason <text>]
 krater task resume <task-id>
+krater task verify <task-id>
 krater task cancel <task-id> [--reason <text>]
 krater task publish <task-id> [--accept-gaps]
 krater task rollback <task-id>
+krater task watch <task-id>
 
 krater proof show <task-id>
 krater proof verify <task-id>
@@ -125,6 +192,7 @@ krater intent retire <intent-id> --reason <text> \
 krater policy simulate <exact flow coordinates>
 krater policy explain <exact flow coordinates>
 krater debug causal --input <recorded-causal-run.json>
+krater debug causal-live --input <live-causal-plan.json>
 krater lab replay --input <sealed-evaluation.json>
 krater lab calibrate --input <promotion-evaluation.json>
 krater cache stats
@@ -132,7 +200,22 @@ krater cache prune
 ```
 
 `task resume` reconstructs the contract and evidence state, not the private
-model transcript. `task cancel` first discards an attached staged ProofPatch,
+model transcript. `task plan` shows the current versioned executable plan,
+including its exact digest and proof obligations. `task approve` records a new
+user-approved revision only when `--plan-digest` still matches; a concurrent
+revision fails closed, and repeating approval of the current approved digest is
+idempotent.
+
+`task verify` is deliberately an offline integrity check over the recorded
+plan, evidence capsule, Change Passport, proof obligations, and Proof Leases.
+It does not execute repository tests or a sealed verifier. Its result says
+`incomplete` and exits `2` when required durable evidence is missing, rather
+than implying that checks ran. `task watch` likewise returns one local snapshot
+of recorded Proof Leases and production observations. It reports
+`unmonitored`, `needs_recheck`, `contradicted`, or `verified`, and explicitly
+does not start a background production poller.
+
+`task cancel` first discards an attached staged ProofPatch,
 then writes a `cancelled` capsule and passport. It refuses a published
 transaction and points to `task rollback`; cancellation never implicitly
 reverses published files. It also refuses publication-in-progress and already
@@ -146,7 +229,29 @@ publication, policy, and non-claim boundaries.
 `debug causal` is a recorded-outcome adapter, not an unrestricted process
 runner. Its JSON input must contain a Causal Twin `plan` plus the exact ordered
 `executions` produced elsewhere; it fails closed when outcomes are missing or
-extra. `lab replay` scores a sealed recorded evaluation, while `lab calibrate`
+extra.
+
+`debug causal-live` is the separately named local execution path. It accepts
+only structured Node.js or Python entrypoints and arguments—never a shell
+command string. Every entrypoint and working directory must resolve to an
+exact, non-symlink, workspace-relative path. Krater verifies the plan's
+workspace digest before and after the run, rejects credential-shaped arguments
+and sensitive environment names/values, bounds time and output, denies network
+and writes, and executes unattended only when the native adapter verifies every
+required containment control. The initial production adapter is macOS-only;
+Windows and Linux fail closed until their native supervisors ship. Put the
+input artifact outside the selected workspace source manifest (or below the
+ignored `.krater/` state directory) so writing the plan does not change the
+digest it declares.
+
+The live path does not instrument a runtime, inject a value, force a branch, or
+stub a function. The caller supplies each complete invocation and prediction.
+An intervention marked `isolated` is accepted only when `changedInputs`
+exactly names the differences from the baseline invocation; a causal label is
+then possible only if deterministic replay and the predicted outcome change
+both occur.
+
+`lab replay` scores a sealed recorded evaluation, while `lab calibrate`
 evaluates the five-point/no-regression promotion gate. Neither lab command
 executes fixtures or persists a candidate promotion.
 
@@ -170,6 +275,9 @@ model ID.
 ## Account setup
 
 ```sh
+krater setup
+krater doctor
+krater doctor --live
 krater auth login
 krater auth login --no-open
 krater auth status
@@ -192,7 +300,13 @@ development uses `npm run dev:web`; packaged installs serve the built GUI.
 
 - A clarification-required non-interactive task exits `3` after writing its
   structured question and durable task ID, before any provider call.
-- Missing credentials explain all supported configuration paths.
+- A missing credential emits `setup_required`, points to the supported
+  configuration paths, performs no model call, and exits `4` once ambiguity
+  preflight is ready. A divergent request can still exit `3` first so its
+  clarification remains durable without spending provider tokens.
+- `doctor` exits `0` when locally ready, `4` when setup is required, and `1`
+  for runtime, workspace, malformed-configuration, or explicit live-
+  verification issues.
 - HTTP 401, 403, and 429 responses receive specific actionable messages.
 - Abort signals cancel provider streaming.
 - A repeated tool loop stops at the configured step bound.

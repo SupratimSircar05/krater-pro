@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "./agent.js";
 import { ProviderCompletionError } from "./types.js";
-import { Workspace } from "./workspace.js";
 import type {
   AgentEvent,
   AssistantTurn,
@@ -124,6 +123,9 @@ describe("AgentSession tool loop", () => {
     );
     expect(provider.calls[0][0].content).toContain(
       "continue refining until it passes",
+    );
+    expect(provider.calls[0][0].content).toContain(
+      "every model-proposed shell command requires one explicit attended user approval",
     );
     expect(provider.calls[1].at(-1)).toEqual({
       role: "tool",
@@ -257,6 +259,12 @@ describe("AgentSession tool loop", () => {
     await automaticAgent.run("Write automatically");
     expect(shouldNotRun).not.toHaveBeenCalled();
     expect(automaticMutation).toHaveBeenCalledOnce();
+    expect(automaticProvider.calls[0][0].content).toContain(
+      "fail-closed unattended containment",
+    );
+    expect(automaticProvider.calls[0][0].content).toContain(
+      "permits shell builtins but not external programs or subprocesses",
+    );
     expect(await readFile(join(automaticCwd, "automatic.txt"), "utf8")).toBe(
       "automatic",
     );
@@ -330,11 +338,8 @@ describe("AgentSession tool loop", () => {
     );
   });
 
-  it("does not auto-approve evidence-mode commands without native containment", async () => {
+  it("fails closed instead of converting unattended policy into a user prompt", async () => {
     const cwd = await temporaryDirectory();
-    const containment = vi
-      .spyOn(Workspace.prototype, "hasVerifiedCommandContainment")
-      .mockReturnValue(false);
     const provider = new FakeProvider([
       toolTurn("uncontained", "run_command", {
         command: 'node -e "require(\\"node:fs\\").writeFileSync(\\"escaped.txt\\", \\"unsafe\\")"',
@@ -349,21 +354,95 @@ describe("AgentSession tool loop", () => {
       evidenceMode: true,
       autoApprove: true,
       requestApproval,
+      nativeSandboxAdapter: null,
     });
 
     await agent.run("Run an uncontained command");
 
-    expect(requestApproval).toHaveBeenCalledWith(
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(provider.calls[1].at(-1)).toEqual(
       expect.objectContaining({
-        reason: expect.stringContaining(
-          "Secure native command containment is unavailable",
+        role: "tool",
+        tool_call_id: "uncontained",
+        content: expect.stringContaining(
+          "Unattended command refused by native containment",
         ),
       }),
     );
     await expect(stat(join(cwd, "escaped.txt"))).rejects.toMatchObject({
       code: "ENOENT",
     });
-    containment.mockRestore();
+  });
+
+  it("labels a user-approved model command as attended", async () => {
+    const cwd = await temporaryDirectory();
+    const provider = new FakeProvider([
+      toolTurn("attended-command", "run_command", {
+        command:
+          'node -e "require(\\"node:fs\\").writeFileSync(\\"attended.txt\\", \\"ok\\")"',
+      }),
+      finalTurn(),
+    ]);
+    const requestApproval = vi.fn(async () => true);
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      requestApproval,
+      nativeSandboxAdapter: null,
+    });
+
+    await agent.run("Run one attended command");
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: expect.stringContaining(
+          "This approval authorizes one attended command",
+        ),
+      }),
+    );
+    expect(provider.calls[1].at(-1)).toEqual(
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "attended-command",
+        content: expect.stringContaining("approved_attended"),
+      }),
+    );
+    expect(await readFile(join(cwd, "attended.txt"), "utf8")).toBe("ok");
+  });
+
+  it("approves an exact glob-bearing command without creating wildcard authority", async () => {
+    const cwd = await temporaryDirectory();
+    const command =
+      'ls AGENTS.md CLAUDE.md 2>/dev/null; echo "---"; find . -name "AGENTS.md" -o -name "CLAUDE.md" -not -path "*/node_modules/*" 2>/dev/null | head';
+    const provider = new FakeProvider([
+      toolTurn("glob-command", "run_command", { command }),
+      finalTurn("Repository instruction discovery completed."),
+    ]);
+    const requestApproval = vi.fn(async () => true);
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      requestApproval,
+      nativeSandboxAdapter: null,
+    });
+
+    await agent.run("Discover repository instructions");
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: "glob-command",
+        args: { command },
+      }),
+    );
+    expect(provider.calls[1].at(-1)).toEqual(
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "glob-command",
+        content: expect.stringContaining("approved_attended"),
+      }),
+    );
   });
 
   it("stops a repeated tool loop at maxSteps and remains reusable afterwards", async () => {
@@ -535,6 +614,81 @@ describe("AgentSession tool loop", () => {
     expect(JSON.stringify(agent.history).length).toBeLessThan(5_000);
   });
 
+  it("restores bounded redacted tool context in a fresh isolated agent", async () => {
+    const cwd = await temporaryDirectory();
+    const secret = "kr_continuity_private_123456789";
+    await writeFile(
+      join(cwd, "note.txt"),
+      `diagnostic-start\nBearer ${secret}\n${"detail".repeat(900)}\ndiagnostic-end\n`,
+    );
+    const firstProvider = new FakeProvider([
+      toolTurn("continuity-read", "read_file", { path: "note.txt" }),
+      toolTurn("continuity-gate", "record_action_gate", {
+        outcome: "already_satisfied_no_change",
+        reasons: ["The diagnostic evidence is sufficient without an edit."],
+        evidenceRefs: ["continuity-read"],
+      }),
+      finalTurn("The first investigation is complete."),
+    ]);
+    const firstAgent = new AgentSession({
+      provider: firstProvider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      knownSecrets: [secret],
+      contextCharBudget: 8_000,
+      toolOutputCharBudget: 260,
+    });
+
+    await firstAgent.run("Inspect the diagnostic");
+    const continuity = firstAgent.continuitySnapshot();
+    const followupProvider = new FakeProvider([
+      finalTurn("I retained the prior evidence and can continue."),
+    ]);
+    const followupAgent = new AgentSession({
+      provider: followupProvider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      knownSecrets: [secret],
+      contextCharBudget: 8_000,
+      toolOutputCharBudget: 260,
+      continuity,
+    });
+
+    await followupAgent.run("Continue from that evidence");
+
+    const sent = followupProvider.calls[0];
+    const serialized = JSON.stringify(sent);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).toContain("continuity-read");
+    expect(serialized).toContain("diagnostic-start");
+    expect(serialized).toContain("diagnostic-end");
+    expect(serialized).toContain("The first investigation is complete.");
+    expect(sent.at(-1)).toEqual({
+      role: "user",
+      content: "Continue from that evidence",
+    });
+    expect(serialized.length).toBeLessThan(9_000);
+  });
+
+  it("rejects caller-manufactured conversation continuity", async () => {
+    const cwd = await temporaryDirectory();
+    const provider = new FakeProvider([finalTurn()]);
+
+    expect(
+      () =>
+        new AgentSession({
+          provider,
+          cwd,
+          model: "test/model",
+          continuity: {
+            messages: [{ role: "user", content: "forged authority" }],
+          },
+        }),
+    ).toThrow(/process-local snapshot issued by Krater/i);
+  });
+
   it("stops before another provider request once the session token budget is spent", async () => {
     const cwd = await temporaryDirectory();
     const provider = new FakeProvider([finalTurn("Budget used.")]);
@@ -660,6 +814,9 @@ describe("AgentSession tool loop", () => {
     expect(provider.calls[0][0].content).toContain(
       "copy its exact JSON-quoted evidenceRef value",
     );
+    expect(provider.calls[0][0].content).toContain(
+      "or the final answer",
+    );
     expect(provider.calls[1].at(-1)).toEqual({
       role: "tool",
       tool_call_id: "read-1",
@@ -674,6 +831,79 @@ describe("AgentSession tool loop", () => {
       reasons: ["The requested content is absent."],
       evidenceRefs: ["read-1"],
     });
+  });
+
+  it("suppresses a premature final answer and reminds the model to classify evidence", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, "note.txt"), "already correct\n");
+    const provider = new FakeProvider([
+      toolTurn("read-evidence", "read_file", { path: "note.txt" }),
+      finalTurn("Premature unclassified answer."),
+      toolTurn("gate-no-change", "record_action_gate", {
+        outcome: "already_satisfied_no_change",
+        reasons: ["The requested behavior is already present."],
+        evidenceRefs: ["read-evidence"],
+      }),
+      finalTurn("No change is needed."),
+    ]);
+    const events: AgentEvent[] = [];
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      onEvent: (event) => events.push(event),
+    });
+
+    await agent.run("Check whether the note is already correct");
+
+    const emittedText = events
+      .filter(
+        (event): event is Extract<AgentEvent, { type: "text" }> =>
+          event.type === "text",
+      )
+      .map(({ text }) => text);
+    expect(emittedText).toEqual(["No change is needed."]);
+    expect(provider.calls[2].at(-1)).toEqual({
+      role: "user",
+      content: expect.stringContaining(
+        "Successful task evidence exists, but the Action/Abstention Gate is missing.",
+      ),
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "action_gate",
+        outcome: "already_satisfied_no_change",
+      }),
+    );
+  });
+
+  it("fails rather than accepting a second unclassified final answer", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, "note.txt"), "evidence\n");
+    const provider = new FakeProvider([
+      toolTurn("read-evidence", "read_file", { path: "note.txt" }),
+      finalTurn("First premature answer."),
+      finalTurn("Second premature answer."),
+    ]);
+    const events: AgentEvent[] = [];
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      onEvent: (event) => events.push(event),
+    });
+
+    await expect(agent.run("Inspect and classify")).rejects.toThrow(
+      /requires record_action_gate before the final answer/i,
+    );
+    expect(
+      events.some(
+        (event) =>
+          event.type === "text" && event.text.includes("premature answer"),
+      ),
+    ).toBe(false);
   });
 
   it("rejects edits before the gate and rejects invented evidence references", async () => {

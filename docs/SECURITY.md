@@ -7,7 +7,9 @@ controls reduce risk; they do not make arbitrary project code safe.
 
 - The Krater model can propose tool calls but cannot bypass tool schemas.
 - Read-only tools execute immediately inside the selected workspace.
-- File mutations and commands require a per-action approval unless `--yes`.
+- File mutations and commands require a per-action approval unless `--yes`;
+  under `--yes`, commands use verified fail-closed unattended containment and
+  never inherit blanket uncontained approval.
 - The web client can request work only through the loopback server.
 - IDE saves and terminal commands are direct user actions, not model approvals;
   they require current-project binding and remain subject to workspace,
@@ -71,27 +73,43 @@ Commands run from the workspace with:
 - hard blocks for common forced recursive deletion, destructive Git cleanup,
   disk formatting, shutdown, and reboot forms.
 
-Model-proposed commands require approval. Pressing Run in the IDE terminal is
-itself an explicit user execution request, so the terminal does not display a
-second model-approval card. Its API additionally requires the current
+Model-proposed commands require approval unless the caller deliberately
+selected fail-closed unattended mode (`--yes`). Pressing Run in the IDE terminal
+is itself an explicit user execution request, so the terminal does not display
+a second model-approval card. Its API additionally requires the current
 `projectId`, caps the command at 8 KiB, accepts only 1–120 second timeouts, limits
 concurrency, ignores stdin, and sanitizes returned terminal control sequences.
 
-On macOS, if `/usr/bin/sandbox-exec` exists, commands run with a generated
-sandbox profile and a private temporary home. Writes are allowed only beneath
-the selected workspace and that temporary directory. Reads and writes to
-`.env`, `.krater`, common credential files, and developer credential
-directories are denied. Network access from the spawned command is denied; the
-host performs Krater inference outside that command sandbox. Package downloads
-therefore require a separate, explicitly authorized host workflow.
+For unattended model commands on macOS, Krater uses the native adapter only
+after executable probes demonstrate undeclared-file denial, outbound-network
+denial, fork denial, and installation of hard CPU/address-space limits. The
+request binds the staged workspace, read-only host-selected dependency roots,
+existing protected paths, deny-all networking, one process, output bytes, and
+wall time. Protected paths and hard-linked aliases are denied even though the
+staged root is writable. Credential-looking argv and environment names are
+refused. The one-process ceiling is deliberately stricter than the requested
+numerical ceiling. The current model-facing shell-string integration can run
+shell builtins only; external programs and ordinary build/test commands require
+a child process and are not supported in unattended mode. Structured
+host-owned callers may use the adapter to run one exact executable. Seatbelt
+cannot safely implement an exact hostname allowlist, so no network allowlist
+capability is advertised.
 
-On other systems, or without `sandbox-exec`, these process, environment,
-workspace, timeout, and command controls do not form an OS sandbox. Even on
-macOS the profile is defense in depth, not a proof that project code is safe. A
-permitted test/build can execute arbitrary code with reachable user privileges.
-Evidence-mode `--yes` never auto-approves `run_command` when verified native
-containment is unavailable: unattended execution fails closed, while an
-interactive user may still approve the exact command after the warning.
+Explicitly approved attended commands and the user-entered IDE terminal retain
+the compatibility command runner. On macOS it uses a generated Seatbelt
+profile and private temporary home, confines writes, denies protected paths,
+and denies spawned-command network access. The returned execution metadata
+labels this `macos_seatbelt_best_effort`; it is not presented as the strict
+native adapter. Without that profile, an attended result is labeled
+`approved_uncontained`.
+
+No verified Linux namespace/seccomp/cgroup or Windows restricted-token/Job
+Object adapter ships in this slice. Unattended model commands therefore fail
+closed on those platforms. Explicit attended approval remains possible, but
+the process, environment, output, and timeout controls do not form an OS
+sandbox and project code can execute with reachable user privileges. A
+successful local native probe is executable evidence for the advertised
+controls; it is not a formal proof that arbitrary project code is safe.
 
 ## Local server
 
@@ -162,6 +180,23 @@ tokens, or undocumented network requests. The browser setup handoff is
 **not OAuth** and cannot turn a logged-in free or paid web session into API
 access.
 See [AUTHENTICATION.md](AUTHENTICATION.md).
+
+## Shipping credentials and external effects
+
+The normal CLI, web server, and desktop app do not auto-enable GitHub or
+Cloudflare mutations. A trusted host must inject the structured shipping
+service explicitly. Public API bodies contain credential handles, never
+credential values. Provider adapters resolve those handles only inside the
+host call, use fixed provider domains and typed endpoints, discard provider
+response bodies on errors, and persist only digests plus opaque recovery
+handles.
+
+Each mutation requires a durable proof-backed plan, exact provider preflight,
+digest-bound user confirmation, persistent idempotency reservation, and final
+provider reconciliation. Compensation is also a separately confirmed
+structured operation and fails closed after provider drift. It is recovery,
+not a guarantee that all provider side effects are reversible. Supported
+operations and gaps are documented in [SHIPPING.md](SHIPPING.md).
 
 ## Recommended operation
 

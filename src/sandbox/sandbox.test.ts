@@ -162,6 +162,20 @@ describe("platform containment contracts", () => {
       ),
     ).toMatchObject({ secure: false });
   });
+
+  it("rejects control characters in executable and resource paths", async () => {
+    const supervisor = new SandboxSupervisor({ platform: "darwin" });
+    await expect(
+      supervisor.plan(
+        request({
+          command: {
+            ...request().command,
+            executable: "/usr/bin/node\n(allow default)",
+          },
+        }),
+      ),
+    ).rejects.toThrow(/exact absolute path/i);
+  });
 });
 
 describe("fail-closed supervisor", () => {

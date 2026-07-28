@@ -1,6 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { buildOutcomeContract, createIntentId } from "./intent/index.js";
+import { VerifiedAutopilotService } from "./autopilot/index.js";
+import {
+  createInitialAutopilotPlan,
+  proofObligationGaps,
+  reconcileAutopilotPlan,
+} from "./task-planning.js";
+import type { AutopilotProjection } from "./autopilot/index.js";
 import {
   ProofGraphStore,
   createChangePassport,
@@ -87,6 +94,7 @@ export interface EvidenceTaskDetail {
     interpretations: TaskInterpretation[];
     assumptions: string[];
     acceptanceCriteria: string[];
+    negativeGuarantees: string[];
     nonGoals: string[];
     maxCostUsd?: number;
     maxTimeMs?: number;
@@ -112,6 +120,11 @@ export interface EvidenceTaskDetail {
   actions: ActionRecord[];
   gaps: string[];
   eventCount: number;
+  autopilot: AutopilotProjection;
+  watch?: {
+    state: string;
+    summary: string;
+  };
   passportDigest?: string;
   capsuleDigest?: string;
 }
@@ -131,6 +144,25 @@ export interface RecordAmbiguityPreflightOptions {
     interpretations: readonly string[];
     score: number;
   };
+}
+
+export interface RecordVerifierResultOptions {
+  criterionId?: string;
+  linkToCriterion?: boolean;
+  passed: boolean;
+  summary: string;
+  kind:
+    | "test"
+    | "property"
+    | "mutation"
+    | "static_analysis"
+    | "security"
+    | "differential";
+  grade?: Exclude<EvidenceGrade, "not_established" | "formally_verified">;
+  origin: "repository" | "blind_verifier";
+  command?: string;
+  tool?: string;
+  artifactDigests?: readonly string[];
 }
 
 export interface EvidencePublicationReadiness {
@@ -334,6 +366,7 @@ export function taskDetail(
       acceptanceCriteria: projection.contract.acceptanceCriteria.map(
         (criterion) => criterion.statement,
       ),
+      negativeGuarantees: [...projection.contract.negativeGuarantees],
       nonGoals: projection.contract.nonGoals,
       ...(projection.contract.budget.maxCostUsd === undefined
         ? {}
@@ -362,6 +395,19 @@ export function taskDetail(
     actions: projection.actions,
     gaps: projection.capsule?.gaps ?? [],
     eventCount,
+    autopilot: projection.autopilot,
+    ...(projection.autopilot.productionObservations.length
+      ? {
+          watch: {
+            state:
+              projection.autopilot.productionObservations.at(-1)?.status ??
+              "unknown",
+            summary:
+              projection.autopilot.productionObservations.at(-1)?.summary ??
+              "No production observation summary is available.",
+          },
+        }
+      : {}),
     ...(projection.passport
       ? { passportDigest: projection.passport.digest }
       : {}),
@@ -494,6 +540,7 @@ export class EvidenceTask {
       payload: { intent: requirementIntent },
       occurredAt: createdAt,
     });
+    await createInitialAutopilotPlan(store, contract);
     await task.transition("discovery", "Bounded repository discovery started.");
     return task;
   }
@@ -571,6 +618,102 @@ export class EvidenceTask {
         "The highest-value clarification was answered and recorded.",
       );
     }
+  }
+
+  /**
+   * Records a host-invoked verifier result. This path is intentionally not an
+   * AgentEvent: model output cannot award itself a proof grade or impersonate
+   * a sealed verifier.
+   */
+  async recordVerifierResult(
+    options: RecordVerifierResultOptions,
+  ): Promise<void> {
+    await this.flush();
+    if (TERMINAL_STATES.has(this.state)) {
+      throw new Error(`Evidence task ${this.taskId} is already ${this.state}.`);
+    }
+    const summary = options.summary.trim();
+    if (!summary || summary.length > 1_000) {
+      throw new Error(
+        "Verifier evidence summary must contain 1 to 1,000 characters.",
+      );
+    }
+    let criterion = options.criterionId
+      ? this.contract.acceptanceCriteria.find(
+          (candidate) => candidate.id === options.criterionId,
+        )
+      : undefined;
+    if (
+      options.linkToCriterion !== false &&
+      !options.criterionId &&
+      this.contract.acceptanceCriteria.length === 1
+    ) {
+      criterion = this.contract.acceptanceCriteria[0];
+    }
+    if (options.criterionId && !criterion) {
+      throw new Error(
+        `Verifier evidence references an unknown acceptance criterion: ${options.criterionId}`,
+      );
+    }
+    const grade = options.grade ?? "tested";
+    const claimId = criterion
+      ? stableId(
+          "claim",
+          this.taskId,
+          "acceptance-criterion",
+          criterion.id,
+        )
+      : undefined;
+    const evidence: EvidenceRecord = {
+      id: stableId(
+        "evidence",
+        this.taskId,
+        "verifier",
+        criterion?.id ?? "standalone",
+        options.kind,
+        options.origin,
+        summary,
+      ),
+      taskId: this.taskId,
+      kind: options.kind,
+      grade,
+      origin: options.origin,
+      summary,
+      supportsClaimIds:
+        options.passed && claimId ? [claimId] : [],
+      contradictsClaimIds:
+        !options.passed && claimId ? [claimId] : [],
+      ...(options.command ? { command: options.command } : {}),
+      ...(options.tool ? { tool: options.tool } : {}),
+      artifactDigests: [...(options.artifactDigests ?? [])],
+      stale: false,
+      observedAt: this.now().toISOString(),
+    };
+    this.evidence.set(evidence.id, evidence);
+    await this.store.append({
+      taskId: this.taskId,
+      kind: "evidence.recorded",
+      payload: { evidence },
+      occurredAt: evidence.observedAt,
+    });
+    if (!criterion || !claimId) return;
+    const claim: ClaimRecord = {
+      id: claimId,
+      taskId: this.taskId,
+      statement: criterion.statement,
+      grade,
+      status: options.passed ? "supported" : "contradicted",
+      supportingEvidenceIds: options.passed ? [evidence.id] : [],
+      contradictingEvidenceIds: options.passed ? [] : [evidence.id],
+      createdAt: evidence.observedAt,
+    };
+    this.claims.set(claim.id, claim);
+    await this.store.append({
+      taskId: this.taskId,
+      kind: "claim.recorded",
+      payload: { claim },
+      occurredAt: evidence.observedAt,
+    });
   }
 
   private enqueue(operation: () => Promise<void>): void {
@@ -814,6 +957,42 @@ export class EvidenceTask {
     ].filter((value, index, values) => values.indexOf(value) === index);
   }
 
+  private async recordWorkspaceDigestEvidence(
+    baseWorkspaceDigest?: string,
+    finalWorkspaceDigest?: string,
+  ): Promise<void> {
+    if (!baseWorkspaceDigest || !finalWorkspaceDigest) return;
+    const evidence: EvidenceRecord = {
+      id: stableId(
+        "evidence",
+        this.taskId,
+        "staged-workspace-digests",
+        baseWorkspaceDigest,
+        finalWorkspaceDigest,
+      ),
+      taskId: this.taskId,
+      kind: "property",
+      grade: "tested",
+      origin: "tool",
+      summary:
+        "ProofPatch established exact base and final staged workspace snapshot digests.",
+      supportsClaimIds: [],
+      contradictsClaimIds: [],
+      tool: "ProofPatch",
+      artifactDigests: [baseWorkspaceDigest, finalWorkspaceDigest],
+      stale: false,
+      observedAt: this.now().toISOString(),
+    };
+    if (this.evidence.has(evidence.id)) return;
+    this.evidence.set(evidence.id, evidence);
+    await this.store.append({
+      taskId: this.taskId,
+      kind: "evidence.recorded",
+      payload: { evidence },
+      occurredAt: evidence.observedAt,
+    });
+  }
+
   private async writeCapsuleAndPassport(
     state: TaskState,
     gaps: string[],
@@ -892,10 +1071,25 @@ export class EvidenceTask {
   ): Promise<TaskProjection> {
     await this.flush();
     if (TERMINAL_STATES.has(this.state)) return this.store.task(this.taskId);
+    await this.recordWorkspaceDigestEvidence(
+      options.baseWorkspaceDigest,
+      options.finalWorkspaceDigest,
+    );
 
     if (!this.gate) {
+      const plan = await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state: "blocked",
+        ...(options.baseWorkspaceDigest
+          ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+          : {}),
+        ...(options.finalWorkspaceDigest
+          ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+          : {}),
+      });
       const gaps = [
         "Action/Abstention Gate was not established from repository evidence.",
+        ...proofObligationGaps(plan),
         ...(options.additionalGaps ?? []),
       ];
       await this.transition("blocked", gaps[0]);
@@ -913,13 +1107,27 @@ export class EvidenceTask {
         this.gate.outcome === "cannot_establish_safely"
           ? "blocked"
           : "abstained";
+      const plan = await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state,
+        ...(options.baseWorkspaceDigest
+          ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+          : {}),
+        ...(options.finalWorkspaceDigest
+          ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+          : {}),
+      });
       const gaps =
         state === "blocked"
           ? [
               ...this.gate.reasons,
+              ...proofObligationGaps(plan),
               ...(options.additionalGaps ?? []),
             ]
-          : [...(options.additionalGaps ?? [])];
+          : [
+              ...proofObligationGaps(plan),
+              ...(options.additionalGaps ?? []),
+            ];
       await this.transition(state, this.gate.reasons.join(" "));
       await this.writeCapsuleAndPassport(
         state,
@@ -931,8 +1139,19 @@ export class EvidenceTask {
     }
 
     if (this.successfulEdits === 0) {
+      const plan = await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state: "blocked",
+        ...(options.baseWorkspaceDigest
+          ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+          : {}),
+        ...(options.finalWorkspaceDigest
+          ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+          : {}),
+      });
       const gaps = [
         "The Action Gate required a code change, but no publishable edit succeeded.",
+        ...proofObligationGaps(plan),
         ...(options.additionalGaps ?? []),
       ];
       await this.transition("blocked", gaps[0]);
@@ -950,8 +1169,15 @@ export class EvidenceTask {
       options.finalWorkspaceDigest &&
       options.baseWorkspaceDigest === options.finalWorkspaceDigest
     ) {
+      const plan = await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state: "blocked",
+        baseWorkspaceDigest: options.baseWorkspaceDigest,
+        finalWorkspaceDigest: options.finalWorkspaceDigest,
+      });
       const gaps = [
         "The Action Gate required a code change, but the staged workspace has no material source difference.",
+        ...proofObligationGaps(plan),
         ...(options.additionalGaps ?? []),
       ];
       await this.transition("blocked", gaps[0]);
@@ -982,11 +1208,22 @@ export class EvidenceTask {
         "Patch, evidence, and known gaps are ready for human review.",
       );
     }
+    const plan = await reconcileAutopilotPlan(this.store, {
+      taskId: this.taskId,
+      state: "review",
+      ...(options.baseWorkspaceDigest
+        ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+        : {}),
+      ...(options.finalWorkspaceDigest
+        ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+        : {}),
+    });
     const gaps = this.currentGaps(
       options.baseWorkspaceDigest,
       options.finalWorkspaceDigest,
       [
         PUBLICATION_PENDING_GAP,
+        ...proofObligationGaps(plan),
         ...(options.additionalGaps ?? []),
       ],
     );
@@ -1008,9 +1245,22 @@ export class EvidenceTask {
     if (this.state !== "review") {
       throw new Error(`Only a reviewed task can be published; current state is ${this.state}.`);
     }
+    let plan = await reconcileAutopilotPlan(this.store, {
+      taskId: this.taskId,
+      state: "review",
+      ...(options.baseWorkspaceDigest
+        ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+        : {}),
+      ...(options.finalWorkspaceDigest
+        ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+        : {}),
+    });
     const gaps = this.currentGaps(
       options.baseWorkspaceDigest,
       options.finalWorkspaceDigest,
+      proofObligationGaps(plan, {
+        includePublicationPreconditions: false,
+      }),
     );
     if (gaps.length && !options.acceptGaps) {
       throw new Error(
@@ -1018,6 +1268,22 @@ export class EvidenceTask {
       );
     }
     if (gaps.length) {
+      const acceptedAt = this.now().toISOString();
+      await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state: "accepted_with_gaps",
+        ...(options.baseWorkspaceDigest
+          ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+          : {}),
+        ...(options.finalWorkspaceDigest
+          ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+          : {}),
+        waiveUnsatisfied: {
+          reason:
+            "The user explicitly accepted every documented evidence gap.",
+          approvedAt: acceptedAt,
+        },
+      });
       await this.transition(
         "accepted_with_gaps",
         "The user explicitly accepted the documented evidence gaps.",
@@ -1032,6 +1298,16 @@ export class EvidenceTask {
     }
     await this.transition("publication", "Atomic ProofPatch publication succeeded.");
     await this.transition("complete", "All required evidence and publication checks passed.");
+    await reconcileAutopilotPlan(this.store, {
+      taskId: this.taskId,
+      state: "complete",
+      ...(options.baseWorkspaceDigest
+        ? { baseWorkspaceDigest: options.baseWorkspaceDigest }
+        : {}),
+      ...(options.finalWorkspaceDigest
+        ? { finalWorkspaceDigest: options.finalWorkspaceDigest }
+        : {}),
+    });
     await this.writeCapsuleAndPassport(
       "complete",
       [],
@@ -1045,6 +1321,10 @@ export class EvidenceTask {
     await this.flush();
     if (!TERMINAL_STATES.has(this.state)) {
       await this.transition("blocked", message);
+      await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state: "blocked",
+      });
       await this.writeCapsuleAndPassport("blocked", [message]);
     }
     return this.store.task(this.taskId);
@@ -1054,6 +1334,10 @@ export class EvidenceTask {
     await this.flush();
     if (!TERMINAL_STATES.has(this.state)) {
       await this.transition("cancelled", reason);
+      await reconcileAutopilotPlan(this.store, {
+        taskId: this.taskId,
+        state: "cancelled",
+      });
       await this.writeCapsuleAndPassport("cancelled", [reason]);
     }
     return this.store.task(this.taskId);
@@ -1093,8 +1377,21 @@ export async function readEvidenceTask(
 }
 
 function publicationGaps(projection: TaskProjection): string[] {
+  const deferredIds = new Set(
+    projection.autopilot.currentPlan?.proofObligations
+      .filter(
+        (obligation) =>
+          obligation.kind === "publication_precondition" &&
+          obligation.status !== "satisfied" &&
+          obligation.status !== "waived",
+      )
+      .map((obligation) => obligation.id) ?? [],
+  );
   return (projection.capsule?.gaps ?? []).filter(
-    (gap) => gap !== PUBLICATION_PENDING_GAP,
+    (gap) =>
+      gap !== PUBLICATION_PENDING_GAP &&
+      gap !== "Required check not established: conflict_check" &&
+      ![...deferredIds].some((id) => gap.includes(`(${id})`)),
   );
 }
 
@@ -1301,6 +1598,22 @@ export async function finalizeEvidencePublication(
 
   projection = await store.task(taskId);
   const state = projection.state;
+  await reconcileAutopilotPlan(store, {
+    taskId,
+    state,
+    baseWorkspaceDigest,
+    finalWorkspaceDigest,
+    ...(gaps.length
+      ? {
+          waiveUnsatisfied: {
+            reason:
+              "The user explicitly accepted every documented evidence gap after atomic publication.",
+            approvedAt: observedAt,
+          },
+        }
+      : {}),
+  });
+  projection = await store.task(taskId);
   const priorCapsule = projection.capsule!;
   const evidence = projection.evidence;
   const approvals = [
@@ -1403,8 +1716,29 @@ export async function cancelEvidenceTask(
     });
     projection = await store.task(taskId);
   }
-
   const discarded = options.discardedProofPatch;
+  await reconcileAutopilotPlan(store, {
+    taskId,
+    state: "cancelled",
+    ...(discarded?.baseWorkspaceDigest ??
+    projection.capsule?.baseWorkspaceDigest
+      ? {
+          baseWorkspaceDigest:
+            discarded?.baseWorkspaceDigest ??
+            projection.capsule?.baseWorkspaceDigest,
+        }
+      : {}),
+    ...(discarded?.finalWorkspaceDigest ??
+    projection.capsule?.finalWorkspaceDigest
+      ? {
+          finalWorkspaceDigest:
+            discarded?.finalWorkspaceDigest ??
+            projection.capsule?.finalWorkspaceDigest,
+        }
+      : {}),
+  });
+  projection = await store.task(taskId);
+
   const observedAt = new Date().toISOString();
   if (discarded) {
     const discardEvidence: EvidenceRecord = {
@@ -1570,6 +1904,10 @@ export async function recordEvidenceRollback(
   }
 
   const observedAt = new Date().toISOString();
+  const baseWorkspaceDigest =
+    options.baseWorkspaceDigest ?? projection.capsule.baseWorkspaceDigest;
+  const finalWorkspaceDigest =
+    options.finalWorkspaceDigest ?? projection.capsule.finalWorkspaceDigest;
   if (options.wasPublished) {
     for (const evidence of projection.evidence) {
       if (
@@ -1590,12 +1928,43 @@ export async function recordEvidenceRollback(
         });
       }
     }
+    const invalidatedLeaseDigests = new Set(
+      projection.autopilot.proofLeaseInvalidations.map(
+        (invalidation) =>
+          `${invalidation.leaseId}\0${invalidation.leaseDigest}`,
+      ),
+    );
+    const autopilot = new VerifiedAutopilotService(store, {
+      now: () => new Date(observedAt),
+      createId: () =>
+        stableId(
+          "proof-lease-invalidation",
+          taskId,
+          options.transactionId,
+        ),
+    });
+    for (const lease of projection.autopilot.proofLeases) {
+      if (invalidatedLeaseDigests.has(`${lease.id}\0${lease.digest}`)) continue;
+      await autopilot.invalidateProofLease({
+        id: stableId(
+          "proof-lease-invalidation",
+          taskId,
+          options.transactionId,
+          lease.id,
+          lease.digest,
+        ),
+        taskId,
+        leaseId: lease.id,
+        leaseDigest: lease.digest,
+        reason: "subject_changed",
+        details:
+          "The ProofPatch bound to this lease was rolled back and is no longer the current workspace subject.",
+        invalidatedBy: "user",
+        invalidatedAt: observedAt,
+      });
+    }
   }
 
-  const baseWorkspaceDigest =
-    options.baseWorkspaceDigest ?? projection.capsule.baseWorkspaceDigest;
-  const finalWorkspaceDigest =
-    options.finalWorkspaceDigest ?? projection.capsule.finalWorkspaceDigest;
   const rollbackEvidence: EvidenceRecord = {
     id: stableId(
       "evidence",

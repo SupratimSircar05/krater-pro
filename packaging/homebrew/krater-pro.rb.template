@@ -1,0 +1,40 @@
+# typed: strict
+# frozen_string_literal: true
+
+# Installs the Krater Pro command-line interface and its locked dependencies.
+class KraterPro < Formula
+  desc "Evidence-native coding agent powered by the Krater API"
+  homepage "https://github.com/SupratimSircar05/krater-pro"
+  url "{{URL}}"
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+  license "MIT"
+
+  depends_on "node@22"
+
+  def install
+    libexec.install Dir["*"]
+    node_bin = formula_opt_bin("node@22")
+    cd libexec do
+      system node_bin/"npm", "ci",
+             "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"
+    end
+
+    (bin/"krater").write_env_script libexec/"dist/cli.js",
+                                    PATH: "#{node_bin}:$PATH"
+    (bin/"krater-pro").write_env_script libexec/"dist/cli.js",
+                                        PATH: "#{node_bin}:$PATH"
+    generate_completions_from_executable(bin/"krater", "completion")
+    man1.install libexec/"docs/man/krater.1"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/krater --version")
+    assert_match "_krater_completion", shell_output("#{bin}/krater completion bash")
+
+    ENV.delete("KRATER_API_KEY")
+    output = shell_output("#{bin}/krater doctor --json 2>&1", 4)
+    assert_match '"type": "doctor"', output
+    assert_match '"status": "setup_required"', output
+  end
+end

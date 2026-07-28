@@ -17,6 +17,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "./workspace.js";
+import {
+  platformContainmentPrimitives,
+  type NativeSandboxAdapter,
+} from "./sandbox/index.js";
 
 const temporaryPaths: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -25,6 +29,44 @@ async function temporaryDirectory(prefix = "krater-workspace-"): Promise<string>
   const path = await mkdtemp(join(tmpdir(), prefix));
   temporaryPaths.push(path);
   return path;
+}
+
+function verifiedTestAdapter(
+  run: NativeSandboxAdapter["run"],
+): NativeSandboxAdapter {
+  const primitives = platformContainmentPrimitives(process.platform);
+  return {
+    id: "verified-workspace-test",
+    probe: async () => ({
+      platform:
+        process.platform === "darwin" ||
+        process.platform === "linux" ||
+        process.platform === "win32"
+          ? process.platform
+          : "unsupported",
+      verification: "verified",
+      availability: "available",
+      expectedPrimitives: primitives,
+      verifiedPrimitives: primitives,
+      controls: {
+        filesystemBoundary: true,
+        processIsolation: true,
+        networkDeny: true,
+        networkAllowlist: false,
+        cpuLimit: true,
+        memoryLimit: true,
+        wallTimeLimit: true,
+        processCountLimit: true,
+        outputLimit: true,
+      },
+      adapterId: "verified-workspace-test",
+      supportsApprovedUncontainedExecution: false,
+      reason: "Verified fixture adapter.",
+      verifiedAt: "2026-07-28T00:00:00.000Z",
+    }),
+    run,
+    cancel: async () => undefined,
+  };
 }
 
 afterEach(async () => {
@@ -555,6 +597,73 @@ describe("Workspace file operations", () => {
 });
 
 describe("Workspace command execution", () => {
+  it("fails closed when unattended native containment is unavailable", async () => {
+    const root = await temporaryDirectory();
+    const workspace = new Workspace(root, { nativeSandboxAdapter: null });
+
+    await expect(
+      workspace.runCommand(
+        'node -e "require(\\"node:fs\\").writeFileSync(\\"escaped.txt\\", \\"no\\")"',
+        5_000,
+        undefined,
+        { authorization: "verified_unattended" },
+      ),
+    ).rejects.toThrow(/Unattended command refused by native containment/);
+    await expect(stat(join(root, "escaped.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("binds unattended execution to staged resources, denies secrets/network, and labels the receipt", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, ".env"), "HOST_ONLY=value\n");
+    const run = vi.fn<NativeSandboxAdapter["run"]>(async () => ({
+      exitCode: 0,
+      terminationReason: "exit",
+      output: [{ stream: "stdout", data: "verified\n" }],
+      outputBytesObserved: 9,
+      resourceUsage: { peakProcessCount: 1 },
+    }));
+    const workspace = new Workspace(root, {
+      nativeSandboxAdapter: verifiedTestAdapter(run),
+    });
+
+    const result = await workspace.runCommand(
+      "print -r -- verified",
+      5_000,
+      undefined,
+      { authorization: "verified_unattended" },
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "verified\n",
+      execution: {
+        authorization: "verified_unattended",
+        containment: "verified_native",
+        adapterId: "verified-workspace-test",
+        effectiveProcessLimit: 1,
+      },
+    });
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        containment: "secure",
+        network: expect.objectContaining({ policy: "deny" }),
+        limits: expect.objectContaining({ processCount: 1 }),
+        resources: expect.arrayContaining([
+          expect.objectContaining({
+            access: "read_write",
+            paths: [workspace.root],
+          }),
+          expect.objectContaining({
+            access: "deny",
+            paths: expect.arrayContaining([join(workspace.root, ".env")]),
+          }),
+        ]),
+      }),
+    );
+  });
+
   it.each([
     "rm -rf /",
     "sudo rm -rf ~",
@@ -589,6 +698,7 @@ describe("Workspace command execution", () => {
       timedOut: false,
     });
     expect(result.stdout).toBe(workspace.root);
+    expect(result.execution.authorization).toBe("host_direct");
   });
 
   it("blocks direct shell reads of protected secret files", async () => {

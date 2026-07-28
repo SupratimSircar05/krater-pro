@@ -88,6 +88,7 @@ export type PolicyDecisionCode =
   | "destination_not_permitted"
   | "operation_not_permitted"
   | "untrusted_data_to_command"
+  | "secret_to_command"
   | "secret_to_model"
   | "secret_to_network"
   | "license_restricted_egress";

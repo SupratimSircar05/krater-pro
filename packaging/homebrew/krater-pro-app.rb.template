@@ -1,0 +1,24 @@
+# typed: strict
+# frozen_string_literal: true
+
+cask "krater-pro-app" do
+  arch arm: "arm64", intel: "x64"
+
+  version "{{VERSION}}"
+  sha256 arm:   "{{ARM64_SHA256}}",
+         intel: "{{X64_SHA256}}"
+
+  url "https://github.com/SupratimSircar05/krater-pro/releases/download/v#{version}/Krater-Pro-#{version}-#{arch}.dmg"
+  name "Krater Pro"
+  desc "Evidence-native agentic coding IDE powered by the Krater API"
+  homepage "https://github.com/SupratimSircar05/krater-pro"
+
+  app "Krater Pro.app"
+
+  zap trash: [
+    "~/Library/Application Support/Krater Pro",
+    "~/Library/Caches/com.supratimsircar.kraterpro",
+    "~/Library/Preferences/com.supratimsircar.kraterpro.plist",
+    "~/Library/Saved Application State/com.supratimsircar.kraterpro.savedState",
+  ]
+end

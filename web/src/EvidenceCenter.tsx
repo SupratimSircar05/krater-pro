@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
+import {
+  ASSURANCE_PROFILES,
+  IntentMirror,
+  PlanOutline,
+  TaskJourney,
+  TrustDial,
+  taskListIndexForKey,
+  taskStateCopy,
+  type AssuranceLevel,
+  type TaskState,
+  type TaskPlanView,
+} from "./TaskWorkspace";
 import { apiFetch } from "./api";
 
-type AssuranceLevel = "fast" | "standard" | "high";
-type TaskState =
-  | "intake"
-  | "discovery"
-  | "clarification"
-  | "reproduction"
-  | "staging"
-  | "verification"
-  | "review"
-  | "publication"
-  | "complete"
-  | "abstained"
-  | "blocked"
-  | "accepted_with_gaps"
-  | "cancelled";
 type EvidenceGrade =
   | "not_established"
   | "observed"
@@ -63,9 +68,16 @@ type ClaimRecord = {
 type TaskDetail = {
   task: TaskSummary;
   contract?: {
+    interpretations?: Array<{
+      id?: string;
+      description?: string;
+      label?: string;
+      selected?: boolean;
+    }>;
     assumptions?: string[];
     acceptanceCriteria?: string[];
     nonGoals?: string[];
+    negativeGuarantees?: string[];
     maxCostUsd?: number;
     maxTimeMs?: number;
   };
@@ -73,8 +85,24 @@ type TaskDetail = {
   evidence?: EvidenceRecord[];
   claims?: ClaimRecord[];
   gaps?: string[];
+  watch?: {
+    state?: string;
+    summary?: string;
+  };
+  autopilot?: {
+    currentPlan?: TaskPlanView;
+    planRevisions?: TaskPlanView[];
+    proofLeases?: Array<{ id: string; expiresAt: string }>;
+    proofLeaseInvalidations?: Array<{ id: string; leaseId: string }>;
+    productionObservations?: Array<{
+      id: string;
+      status: string;
+      summary: string;
+    }>;
+  };
   eventCount?: number;
   passportDigest?: string;
+  capsuleDigest?: string;
   proofPatch?: {
     transactionId: string;
     status: "staged" | "published" | "rolled_back";
@@ -123,10 +151,10 @@ function EmptyState() {
       <div className="evidence-empty__mark" aria-hidden="true">
         ◇
       </div>
-      <h3>No evidence-native tasks yet</h3>
+      <h3>No task history yet</h3>
       <p>
-        New tasks will appear here with their intent, verification evidence, known
-        gaps, and change passport.
+        Start a task in Chat or the IDE. Krater will keep its intent, progress,
+        proof, and publication decision together here.
       </p>
     </div>
   );
@@ -134,7 +162,10 @@ function EmptyState() {
 
 function GradeBadge({ grade }: { grade: EvidenceGrade }) {
   return (
-    <span className={`evidence-grade evidence-grade--${grade}`}>
+    <span
+      className={`evidence-grade evidence-grade--${grade}`}
+      aria-label={`Evidence grade: ${humanize(grade)}`}
+    >
       {humanize(grade)}
     </span>
   );
@@ -144,15 +175,19 @@ function TaskDetailView({
   detail,
   onRefresh,
   onMutated,
+  headingRef,
 }: {
   detail: TaskDetail;
   onRefresh: () => void;
   onMutated: () => Promise<void>;
+  headingRef: RefObject<HTMLHeadingElement>;
 }) {
   const { task } = detail;
+  const stateCopy = taskStateCopy(task.state);
+  const assuranceProfile = ASSURANCE_PROFILES[task.assurance];
   const [mutationError, setMutationError] = useState("");
   const [mutating, setMutating] = useState<
-    "publish" | "rollback" | "cancel" | ""
+    "export" | "publish" | "rollback" | "cancel" | ""
   >("");
   const [acceptGaps, setAcceptGaps] = useState(false);
   const publicationGaps = (detail.gaps ?? []).filter(
@@ -164,19 +199,29 @@ function TaskDetailView({
     setAcceptGaps(false);
   }, [task.id]);
   const downloadPassport = useCallback(async () => {
-    const response = await apiFetch(
-      `/api/v2/tasks/${encodeURIComponent(task.id)}/passport?format=markdown`,
-    );
-    if (!response.ok) {
-      throw new Error(await responseMessage(response, "Could not export passport."));
+    setMutationError("");
+    setMutating("export");
+    try {
+      const response = await apiFetch(
+        `/api/v2/tasks/${encodeURIComponent(task.id)}/passport?format=markdown`,
+      );
+      if (!response.ok) {
+        throw new Error(
+          await responseMessage(response, "Could not export passport."),
+        );
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `krater-passport-${task.id}.md`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setMutationError((caught as Error).message);
+    } finally {
+      setMutating("");
     }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `krater-passport-${task.id}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
   }, [task.id]);
 
   const publishPatch = useCallback(async () => {
@@ -241,7 +286,7 @@ function TaskDetailView({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            reason: "Task cancelled from the Krater Pro Evidence view.",
+            reason: "Task cancelled from the Krater Pro task workspace.",
           }),
         },
       );
@@ -274,9 +319,9 @@ function TaskDetailView({
         <div>
           <div className="evidence-detail__eyebrow">
             <span className={`task-state task-state--${task.state}`}>
-              {humanize(task.state)}
+              {stateCopy.label}
             </span>
-            <span>{humanize(task.assurance)} assurance</span>
+            <span>{assuranceProfile.label}</span>
             {task.evidenceGrade && <GradeBadge grade={task.evidenceGrade} />}
             {detail.proofPatch && (
               <span className="task-state">
@@ -284,7 +329,12 @@ function TaskDetailView({
               </span>
             )}
           </div>
-          <h2 id="evidence-task-title">{task.request || "Untitled task"}</h2>
+          <h2 id="evidence-task-title" ref={headingRef} tabIndex={-1}>
+            {task.request || "Untitled task"}
+          </h2>
+          <p className="evidence-detail__state-description">
+            {stateCopy.description}
+          </p>
           <p>
             Updated {formatDate(task.updatedAt)}
             {detail.eventCount !== undefined
@@ -292,7 +342,11 @@ function TaskDetailView({
               : ""}
           </p>
         </div>
-        <div className="evidence-detail__actions">
+        <div
+          className="evidence-detail__actions"
+          role="group"
+          aria-label="Task actions"
+        >
           <button type="button" className="button button--secondary" onClick={onRefresh}>
             Refresh
           </button>
@@ -301,8 +355,9 @@ function TaskDetailView({
               type="button"
               className="button button--primary"
               onClick={() => void downloadPassport()}
+              disabled={Boolean(mutating)}
             >
-              Export passport
+              {mutating === "export" ? "Exporting…" : "Export passport"}
             </button>
           )}
           {task.state === "review" &&
@@ -314,6 +369,11 @@ function TaskDetailView({
               disabled={
                 Boolean(mutating) ||
                 (publicationGaps.length > 0 && !acceptGaps)
+              }
+              aria-describedby={
+                publicationGaps.length > 0
+                  ? "publication-gap-instruction"
+                  : undefined
               }
             >
               {mutating === "publish" ? "Publishing…" : "Publish patch"}
@@ -353,8 +413,28 @@ function TaskDetailView({
         </div>
       )}
 
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {mutating === "export"
+          ? "Exporting the task passport."
+          : mutating === "publish"
+            ? "Publishing the staged patch."
+            : mutating === "rollback"
+              ? "Rolling back the patch."
+              : mutating === "cancel"
+                ? "Cancelling the task."
+                : ""}
+      </div>
+
       {task.state === "review" && publicationGaps.length > 0 && (
-        <label className="evidence-gap-acceptance">
+        <label
+          className="evidence-gap-acceptance"
+          id="publication-gap-instruction"
+        >
           <input
             type="checkbox"
             checked={acceptGaps}
@@ -367,165 +447,238 @@ function TaskDetailView({
         </label>
       )}
 
-      {detail.contract && (
-        <section className="evidence-card" aria-labelledby="outcome-contract-heading">
-          <div className="evidence-card__heading">
-            <h3 id="outcome-contract-heading">Outcome contract</h3>
-            <span>{humanize(task.assurance)}</span>
-          </div>
-          <div className="evidence-contract-grid">
-            <div>
-              <h4>Acceptance criteria</h4>
-              {detail.contract.acceptanceCriteria?.length ? (
-                <ul>
-                  {detail.contract.acceptanceCriteria.map((criterion) => (
-                    <li key={criterion}>{criterion}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="evidence-muted">No explicit criteria recorded.</p>
-              )}
-            </div>
-            <div>
-              <h4>Assumptions</h4>
-              {detail.contract.assumptions?.length ? (
-                <ul>
-                  {detail.contract.assumptions.map((assumption) => (
-                    <li key={assumption}>{assumption}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="evidence-muted">No unresolved assumptions.</p>
-              )}
-            </div>
-            <div>
-              <h4>Boundaries</h4>
-              <p>
-                {detail.contract.maxCostUsd === undefined
-                  ? "No monetary ceiling"
-                  : `$${detail.contract.maxCostUsd.toFixed(2)} maximum`}
-                {" · "}
-                {detail.contract.maxTimeMs === undefined
-                  ? "No explicit deadline"
-                  : `${Math.round(detail.contract.maxTimeMs / 1_000)}s maximum`}
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
-      <div className="evidence-columns">
-        <section className="evidence-card" aria-labelledby="intent-coverage-heading">
-          <div className="evidence-card__heading">
-            <h3 id="intent-coverage-heading">Intent coverage</h3>
-            <span>{detail.intents?.length ?? 0}</span>
-          </div>
-          {detail.intents?.length ? (
-            <ol className="evidence-list">
-              {detail.intents.map((intent) => (
-                <li key={intent.id}>
-                  <div>
-                    <strong>{intent.text}</strong>
-                    <span>
-                      {humanize(intent.kind)}
-                      {intent.status ? ` · ${humanize(intent.status)}` : ""}
-                    </span>
-                  </div>
-                  <code>{intent.id}</code>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="evidence-muted">No intent nodes recorded.</p>
-          )}
-        </section>
-
-        <section className="evidence-card" aria-labelledby="claims-heading">
-          <div className="evidence-card__heading">
-            <h3 id="claims-heading">Claims</h3>
-            <span>{detail.claims?.length ?? 0}</span>
-          </div>
-          {detail.claims?.length ? (
-            <ol className="evidence-list">
-              {detail.claims.map((claim) => (
-                <li key={claim.id}>
-                  <div>
-                    <strong>{claim.statement}</strong>
-                    <span>
-                      {claim.status ? humanize(claim.status) : "Evidence linked"}
-                    </span>
-                  </div>
-                  <GradeBadge grade={claim.grade} />
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="evidence-muted">No claims recorded.</p>
-          )}
-        </section>
+      <div className="task-workspace-overview">
+        <TrustDial value={task.assurance} />
+        <div
+          className="task-workspace-overview__status"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span>Right now</span>
+          <strong>{stateCopy.label}</strong>
+          <p>{stateCopy.description}</p>
+        </div>
       </div>
 
-      <section className="evidence-card" aria-labelledby="verification-evidence-heading">
-        <div className="evidence-card__heading">
-          <h3 id="verification-evidence-heading">Verification evidence</h3>
-          <span>{detail.evidence?.length ?? 0}</span>
-        </div>
-        {detail.evidence?.length ? (
-          <ol className="evidence-list evidence-list--evidence">
-            {detail.evidence.map((record) => (
-              <li
-                key={record.id}
-                className={record.stale ? "evidence-list__item--stale" : undefined}
-              >
-                <div className="evidence-list__status" aria-hidden="true">
-                  {record.stale ? "!" : record.ok === false ? "×" : "✓"}
+      <TaskJourney
+        state={task.state}
+        watchState={detail.watch?.state}
+        gaps={detail.gaps}
+      />
+
+      <IntentMirror
+        request={task.request}
+        interpretations={detail.contract?.interpretations}
+        nonGoals={detail.contract?.nonGoals}
+        negativeGuarantees={detail.contract?.negativeGuarantees}
+        acceptanceCriteria={detail.contract?.acceptanceCriteria}
+        claims={detail.claims
+          ?.filter((claim) => claim.status !== "contradicted")
+          .map((claim) => claim.statement)}
+        patchStatus={detail.proofPatch?.status}
+      />
+
+      {detail.autopilot?.currentPlan && (
+        <PlanOutline plan={detail.autopilot.currentPlan} />
+      )}
+
+      {detail.gaps?.length ? (
+        <section className="task-gap-callout" aria-labelledby="task-gap-callout-title">
+          <span aria-hidden="true">!</span>
+          <div>
+            <h3 id="task-gap-callout-title">
+              {detail.gaps.length} known evidence gap
+              {detail.gaps.length === 1 ? "" : "s"}
+            </h3>
+            <p>{detail.gaps[0]}</p>
+          </div>
+        </section>
+      ) : null}
+
+      <details className="advanced-evidence">
+        <summary>
+          <span>
+            <strong>Advanced evidence and provenance</strong>
+            <small>
+              {detail.evidence?.length ?? 0} evidence records ·{" "}
+              {detail.intents?.length ?? 0} intent links ·{" "}
+              {detail.gaps?.length ?? 0} known gaps
+            </small>
+          </span>
+          <i aria-hidden="true">⌄</i>
+        </summary>
+        <div className="advanced-evidence__body">
+          {detail.contract && (
+            <section className="evidence-card" aria-labelledby="outcome-contract-heading">
+              <div className="evidence-card__heading">
+                <h3 id="outcome-contract-heading">Outcome contract</h3>
+                <span>{assuranceProfile.label}</span>
+              </div>
+              <div className="evidence-contract-grid">
+                <div>
+                  <h4>Acceptance criteria</h4>
+                  {detail.contract.acceptanceCriteria?.length ? (
+                    <ul>
+                      {detail.contract.acceptanceCriteria.map((criterion) => (
+                        <li key={criterion}>{criterion}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="evidence-muted">No explicit criteria recorded.</p>
+                  )}
                 </div>
                 <div>
-                  <strong>{record.summary}</strong>
-                  <span>
-                    {humanize(record.kind)}
-                    {record.createdAt ? ` · ${formatDate(record.createdAt)}` : ""}
-                    {record.stale ? " · stale" : ""}
-                  </span>
+                  <h4>Assumptions</h4>
+                  {detail.contract.assumptions?.length ? (
+                    <ul>
+                      {detail.contract.assumptions.map((assumption) => (
+                        <li key={assumption}>{assumption}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="evidence-muted">No unresolved assumptions.</p>
+                  )}
                 </div>
-                <GradeBadge grade={record.grade} />
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="evidence-muted">
-            Required evidence has not yet been established.
-          </p>
-        )}
-      </section>
+                <div>
+                  <h4>Boundaries</h4>
+                  <p>
+                    {detail.contract.maxCostUsd === undefined
+                      ? "No monetary ceiling"
+                      : `$${detail.contract.maxCostUsd.toFixed(2)} maximum`}
+                    {" · "}
+                    {detail.contract.maxTimeMs === undefined
+                      ? "No explicit deadline"
+                      : `${Math.round(detail.contract.maxTimeMs / 1_000)}s maximum`}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
 
-      <section
-        className={`evidence-card evidence-card--gaps${
-          detail.gaps?.length ? " evidence-card--warning" : ""
-        }`}
-        aria-labelledby="known-gaps-heading"
-      >
-        <div className="evidence-card__heading">
-          <h3 id="known-gaps-heading">Known gaps</h3>
-          <span>{detail.gaps?.length ?? 0}</span>
+          <div className="evidence-columns">
+            <section className="evidence-card" aria-labelledby="intent-coverage-heading">
+              <div className="evidence-card__heading">
+                <h3 id="intent-coverage-heading">Intent coverage</h3>
+                <span>{detail.intents?.length ?? 0}</span>
+              </div>
+              {detail.intents?.length ? (
+                <ol className="evidence-list">
+                  {detail.intents.map((intent) => (
+                    <li key={intent.id}>
+                      <div>
+                        <strong>{intent.text}</strong>
+                        <span>
+                          {humanize(intent.kind)}
+                          {intent.status ? ` · ${humanize(intent.status)}` : ""}
+                        </span>
+                      </div>
+                      <code>{intent.id}</code>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="evidence-muted">No intent nodes recorded.</p>
+              )}
+            </section>
+
+            <section className="evidence-card" aria-labelledby="claims-heading">
+              <div className="evidence-card__heading">
+                <h3 id="claims-heading">Claims</h3>
+                <span>{detail.claims?.length ?? 0}</span>
+              </div>
+              {detail.claims?.length ? (
+                <ol className="evidence-list">
+                  {detail.claims.map((claim) => (
+                    <li key={claim.id}>
+                      <div>
+                        <strong>{claim.statement}</strong>
+                        <span>
+                          {claim.status ? humanize(claim.status) : "Evidence linked"}
+                        </span>
+                      </div>
+                      <GradeBadge grade={claim.grade} />
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="evidence-muted">No claims recorded.</p>
+              )}
+            </section>
+          </div>
+
+          <section className="evidence-card" aria-labelledby="verification-evidence-heading">
+            <div className="evidence-card__heading">
+              <h3 id="verification-evidence-heading">Verification evidence</h3>
+              <span>{detail.evidence?.length ?? 0}</span>
+            </div>
+            {detail.evidence?.length ? (
+              <ol className="evidence-list evidence-list--evidence">
+                {detail.evidence.map((record) => (
+                  <li
+                    key={record.id}
+                    className={record.stale ? "evidence-list__item--stale" : undefined}
+                  >
+                    <span className="sr-only">
+                      {record.stale
+                        ? "Stale evidence."
+                        : record.ok === false
+                          ? "Check failed."
+                          : "Check passed."}
+                    </span>
+                    <div className="evidence-list__status" aria-hidden="true">
+                      {record.stale ? "!" : record.ok === false ? "×" : "✓"}
+                    </div>
+                    <div>
+                      <strong>{record.summary}</strong>
+                      <span>
+                        {humanize(record.kind)}
+                        {record.createdAt ? ` · ${formatDate(record.createdAt)}` : ""}
+                        {record.stale ? " · stale" : ""}
+                      </span>
+                    </div>
+                    <GradeBadge grade={record.grade} />
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="evidence-muted">
+                Required evidence has not yet been established.
+              </p>
+            )}
+          </section>
+
+          <section
+            className={`evidence-card evidence-card--gaps${
+              detail.gaps?.length ? " evidence-card--warning" : ""
+            }`}
+            aria-labelledby="known-gaps-heading"
+          >
+            <div className="evidence-card__heading">
+              <h3 id="known-gaps-heading">Known gaps</h3>
+              <span>{detail.gaps?.length ?? 0}</span>
+            </div>
+            {detail.gaps?.length ? (
+              <ul>
+                {detail.gaps.map((gap) => (
+                  <li key={gap}>{gap}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="evidence-muted">No known evidence gaps.</p>
+            )}
+          </section>
+
+          {(detail.passportDigest || detail.capsuleDigest) && (
+            <footer className="evidence-passport-digest">
+              <span>
+                {detail.passportDigest ? "Passport digest" : "Capsule digest"}
+              </span>
+              <code>{detail.passportDigest ?? detail.capsuleDigest}</code>
+            </footer>
+          )}
         </div>
-        {detail.gaps?.length ? (
-          <ul>
-            {detail.gaps.map((gap) => (
-              <li key={gap}>{gap}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="evidence-muted">No known evidence gaps.</p>
-        )}
-      </section>
-
-      {detail.passportDigest && (
-        <footer className="evidence-passport-digest">
-          <span>Passport digest</span>
-          <code>{detail.passportDigest}</code>
-        </footer>
-      )}
+      </details>
     </article>
   );
 }
@@ -542,6 +695,10 @@ export default function EvidenceCenter({
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const detailRequestRef = useRef(0);
+  const focusDetailAfterLoadRef = useRef(false);
+  const taskButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -568,12 +725,15 @@ export default function EvidenceCenter({
     }
   }, [projectId]);
 
-  const loadDetail = useCallback(async (taskId: string) => {
+  const loadDetail = useCallback(async (taskId: string, preserve = false) => {
+    const requestId = ++detailRequestRef.current;
     if (!taskId) {
+      focusDetailAfterLoadRef.current = false;
       setDetail(null);
       return;
     }
     setError("");
+    if (!preserve) setDetail(null);
     try {
       const response = await apiFetch(
         `/api/v2/tasks/${encodeURIComponent(taskId)}`,
@@ -583,10 +743,14 @@ export default function EvidenceCenter({
           await responseMessage(response, "Could not load task evidence."),
         );
       }
-      setDetail((await response.json()) as TaskDetail);
+      const nextDetail = (await response.json()) as TaskDetail;
+      if (requestId === detailRequestRef.current) setDetail(nextDetail);
     } catch (caught) {
-      setError((caught as Error).message);
-      setDetail(null);
+      if (requestId === detailRequestRef.current) {
+        focusDetailAfterLoadRef.current = false;
+        setError((caught as Error).message);
+        setDetail(null);
+      }
     }
   }, []);
 
@@ -598,65 +762,125 @@ export default function EvidenceCenter({
     void loadDetail(selectedId);
   }, [loadDetail, selectedId]);
 
+  useEffect(() => {
+    if (!detail || !focusDetailAfterLoadRef.current) return;
+    focusDetailAfterLoadRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      detailHeadingRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detail]);
+
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedId),
     [selectedId, tasks],
   );
 
+  const selectTask = useCallback((taskId: string) => {
+    if (taskId === selectedId) {
+      detailHeadingRef.current?.focus();
+      return;
+    }
+    focusDetailAfterLoadRef.current = true;
+    setSelectedId(taskId);
+  }, [selectedId]);
+
+  const moveTaskFocus = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+      const nextIndex = taskListIndexForKey(index, event.key, tasks.length);
+      if (nextIndex === undefined) return;
+      event.preventDefault();
+      taskButtonRefs.current.get(tasks[nextIndex].id)?.focus();
+    },
+    [tasks],
+  );
+
   return (
-    <section className="evidence-center" aria-label="Krater ProofGraph">
-      <aside className="evidence-sidebar" aria-label="Evidence-native tasks">
+    <section
+      className="evidence-center"
+      aria-label="Krater task workspace"
+      aria-busy={loading}
+    >
+      <aside className="evidence-sidebar" aria-labelledby="task-history-heading">
         <header>
           <div>
-            <span className="evidence-sidebar__eyebrow">ProofGraph</span>
-            <h2>Evidence</h2>
+            <span className="evidence-sidebar__eyebrow">Local task record</span>
+            <h2 id="task-history-heading">Tasks</h2>
           </div>
           <button
             type="button"
             className="icon-button"
             onClick={() => void loadTasks()}
-            aria-label="Refresh evidence tasks"
+            aria-label="Refresh task history"
             title="Refresh"
           >
             ↻
           </button>
         </header>
         {loading ? (
-          <p className="evidence-sidebar__status">Loading local evidence…</p>
+          <p className="evidence-sidebar__status" role="status">
+            Loading task history…
+          </p>
         ) : tasks.length ? (
-          <nav>
-            {tasks.map((task) => (
-              <button
-                type="button"
-                key={task.id}
-                className={`evidence-task${task.id === selectedId ? " is-active" : ""}`}
-                onClick={() => setSelectedId(task.id)}
-                aria-current={task.id === selectedId ? "page" : undefined}
-              >
-                <span className={`evidence-task__state evidence-task__state--${task.state}`}>
-                  {task.state === "complete"
-                    ? "✓"
-                    : task.state === "abstained"
-                      ? "○"
-                      : task.state === "blocked"
-                        ? "!"
-                        : "◇"}
-                </span>
-                <span>
-                  <strong>{task.request || "Untitled task"}</strong>
-                  <small>
-                    {humanize(task.state)} · {formatDate(task.updatedAt)}
-                  </small>
-                </span>
-              </button>
-            ))}
+          <nav
+            aria-labelledby="task-history-heading"
+            aria-describedby="task-history-keyboard-help"
+          >
+            <p className="sr-only" id="task-history-keyboard-help">
+              Use the arrow keys to move through tasks, then press Enter or
+              Space to open one.
+            </p>
+            <ol className="evidence-task-list">
+              {tasks.map((task, index) => (
+                <li key={task.id}>
+                  <button
+                    ref={(node) => {
+                      if (node) taskButtonRefs.current.set(task.id, node);
+                      else taskButtonRefs.current.delete(task.id);
+                    }}
+                    type="button"
+                    className={`evidence-task${task.id === selectedId ? " is-active" : ""}`}
+                    onClick={() => selectTask(task.id)}
+                    onKeyDown={(event) => moveTaskFocus(event, index)}
+                    aria-current={task.id === selectedId ? "page" : undefined}
+                    aria-controls="task-detail-region"
+                    tabIndex={task.id === selectedId ? 0 : -1}
+                  >
+                    <span
+                      className={`evidence-task__state evidence-task__state--${task.state}`}
+                      aria-hidden="true"
+                    >
+                      {task.state === "complete"
+                        ? "✓"
+                        : task.state === "abstained"
+                          ? "○"
+                          : task.state === "blocked"
+                            ? "!"
+                            : "◇"}
+                    </span>
+                    <span>
+                      <strong>{task.request || "Untitled task"}</strong>
+                      <small>
+                        {taskStateCopy(task.state).label} ·{" "}
+                        {formatDate(task.updatedAt)}
+                      </small>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ol>
           </nav>
         ) : (
-          <p className="evidence-sidebar__status">No recorded tasks.</p>
+          <p className="evidence-sidebar__status">No task history yet.</p>
         )}
       </aside>
 
-      <div className="evidence-main">
+      <section
+        className="evidence-main"
+        id="task-detail-region"
+        aria-label="Task details"
+        aria-busy={Boolean(selectedTask && !detail)}
+      >
         {error && (
           <div className="notice notice--error" role="alert">
             {error}
@@ -667,19 +891,31 @@ export default function EvidenceCenter({
         ) : detail ? (
           <TaskDetailView
             detail={detail}
-            onRefresh={() => void loadDetail(selectedTask.id)}
+            headingRef={detailHeadingRef}
+            onRefresh={() => void loadDetail(selectedTask.id, true)}
             onMutated={async () => {
+              focusDetailAfterLoadRef.current = true;
               onWorkspaceMutation?.();
               await loadTasks();
-              await loadDetail(selectedTask.id);
+              await loadDetail(selectedTask.id, true);
             }}
           />
+        ) : error ? (
+          <div className="evidence-empty">
+            <h3>Task details unavailable</h3>
+            <p>Resolve the reported error, then refresh the task history.</p>
+          </div>
         ) : (
-          <div className="evidence-empty" aria-live="polite">
+          <div
+            className="evidence-empty"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             Loading task evidence…
           </div>
         )}
-      </div>
+      </section>
     </section>
   );
 }

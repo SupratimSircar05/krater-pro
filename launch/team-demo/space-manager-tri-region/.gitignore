@@ -1,0 +1,7 @@
+frames/*-private.png
+generated/audio/
+generated/segments/
+generated/slides/
+generated/base-video.mp4
+generated/segments.txt
+generated/qa/frame-*.png

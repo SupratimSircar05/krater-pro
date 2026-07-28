@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "dotenv";
+import { readStoredCredentialSync } from "./credential-store.js";
 
 export const DEFAULT_BASE_URL = "https://api.krater.ai/v1";
 export const AUTO_MODEL = "auto";
@@ -44,8 +45,17 @@ export interface KraterConfig {
   maxSteps: number;
   maxOutputTokens: number;
   sessionTokenBudget: number;
-  apiKeySource: "command" | "environment" | ".env" | "missing";
+  apiKeySource:
+    | "command"
+    | "environment"
+    | "credential_store"
+    | ".env"
+    | "missing";
   modelSource: "command" | "environment" | ".env" | "default";
+}
+
+export interface ConfigDependencies {
+  readStoredCredential?: (cwd: string) => string | undefined;
 }
 
 function clean(value: string | undefined): string | undefined {
@@ -109,6 +119,7 @@ function parseResponseStyle(value: string | undefined): ResponseStyle {
 export function loadConfig(
   overrides: ConfigOverrides = {},
   environment: NodeJS.ProcessEnv = process.env,
+  dependencies: ConfigDependencies = {},
 ): KraterConfig {
   const requestedCwd = resolve(overrides.cwd ?? process.cwd());
   let cwd: string;
@@ -124,15 +135,23 @@ export function loadConfig(
   const file = readEnvFile(cwd);
   const commandKey = clean(overrides.apiKey);
   const environmentKey = clean(environment.KRATER_API_KEY);
+  const storedKey =
+    !commandKey && !environmentKey
+      ? clean(
+          (dependencies.readStoredCredential ?? readStoredCredentialSync)(cwd),
+        )
+      : undefined;
   const fileKey = clean(file.KRATER_API_KEY);
-  const apiKey = commandKey ?? environmentKey ?? fileKey;
+  const apiKey = commandKey ?? environmentKey ?? storedKey ?? fileKey;
   const apiKeySource = commandKey
     ? "command"
     : environmentKey
       ? "environment"
-      : fileKey
-        ? ".env"
-        : "missing";
+      : storedKey
+        ? "credential_store"
+        : fileKey
+          ? ".env"
+          : "missing";
 
   const baseURL = (
     clean(overrides.baseURL) ??
@@ -261,7 +280,7 @@ export function loadConfig(
 export function requireApiKey(config: KraterConfig): string {
   if (!config.apiKey) {
     throw new Error(
-      "Krater API key not found. Pass --api-key, set KRATER_API_KEY, or add it to .env.",
+      "Krater API key not found. Pass --api-key, set KRATER_API_KEY, or add it to .env. Run `krater setup` for hidden input and OS credential storage.",
     );
   }
   return config.apiKey;

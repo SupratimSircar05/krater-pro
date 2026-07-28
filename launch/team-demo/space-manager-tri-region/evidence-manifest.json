@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "demo": {
+    "title": "Krater Pro × Cisco Spaces — Tri-region Space Manager evidence",
+    "format": "Edited, narrated, credential-free team demo assembled from sanitized read-only captures and verified public source-map excerpts",
+    "continuousRawRecording": false,
+    "capturedOn": "2026-07-28",
+    "scope": "Read-only tri-region Space Manager diagnosis; no production mutation"
+  },
+  "sources": {
+    "captures": [
+      {
+        "id": "CAP-US-VALIDATION",
+        "path": "generated/sanitized/01-us-validation.png",
+        "url": "https://dnaspaces.io/space-manager/overview",
+        "capturedAt": "2026-07-28T09:02:05.744Z",
+        "sha256": "8e34d5a31eb58a9d10f1b6aeb83032c57776baebdf89a77a1bccd4671fc968c6",
+        "identityRedacted": true
+      },
+      {
+        "id": "CAP-EU-VALIDATION",
+        "path": "generated/sanitized/02-eu-validation.png",
+        "url": "https://dnaspaces.eu/space-manager/overview",
+        "capturedAt": "2026-07-28T09:03:57.901Z",
+        "sha256": "a99a2291e492ab61b2b5f8a266457c2f094420fc47089e96743ba89c6fde2e0e",
+        "identityRedacted": true
+      },
+      {
+        "id": "CAP-SG-VALIDATION",
+        "path": "generated/sanitized/03-sg-validation.png",
+        "url": "https://ciscospaces.sg/space-manager/overview",
+        "capturedAt": "2026-07-28T09:05:30.163Z",
+        "sha256": "743244a678886d51222af0106c36c28a68d8b9de31aa46f5d024ab9aa0004c2c",
+        "identityRedacted": true
+      },
+      {
+        "id": "CAP-US-BEFORE",
+        "path": "generated/sanitized/04-us-before-selection.png",
+        "url": "https://dnaspaces.io/space-manager/overview",
+        "capturedAt": "2026-07-28T09:14:09.161Z",
+        "sha256": "a802daa2a998a9eda63ffc78a28a9a4398c006d6c9b925f6273b0f78e4d65577",
+        "identityRedacted": true
+      },
+      {
+        "id": "CAP-US-AFTER",
+        "path": "generated/sanitized/05-us-after-selection.png",
+        "url": "https://dnaspaces.io/space-manager/overview",
+        "capturedAt": "2026-07-28T09:15:03.231Z",
+        "sha256": "02996487773f8f87ffa67ba3916a7cd235b40583d315a5f97362dd68ed1638f2",
+        "identityRedacted": true
+      },
+      {
+        "id": "CAP-KRATER-EPISTEMIC",
+        "path": "generated/sanitized/06-krater-epistemic-label.png",
+        "url": "local://krater-pro/task-result",
+        "capturedAt": "2026-07-28T09:19:59.401Z",
+        "sha256": "eb44814b27ac3e7fb61c549ab10246966673a3bc855f8d74d9420b213d32726d",
+        "identityRedacted": true
+      }
+    ],
+    "monitor": {
+      "url": "http://52.45.105.208:8088/api/space-manager/overview",
+      "retrievedAt": "2026-07-28T09:06:38Z",
+      "runId": "20260728T085201Z_US_a5ecc05c83",
+      "runMode": "FULL",
+      "sanitizedFieldsUsed": [
+        "section_summary",
+        "section request totals",
+        "failure classes",
+        "Devices WebSocket status and frame count",
+        "User Management exact API/UI comparison",
+        "30-run availability"
+      ],
+      "excludedFields": [
+        "customer",
+        "tenant_id",
+        "email delivery configuration",
+        "raw console findings",
+        "raw authorization state"
+      ],
+      "sourcePayloadIncluded": false
+    },
+    "productionArtifacts": {
+      "pageOrigins": [
+        "https://dnaspaces.io/",
+        "https://dnaspaces.eu/",
+        "https://ciscospaces.sg/"
+      ],
+      "bundles": [
+        {
+          "name": "us-space-manager.js",
+          "sha256": "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+          "capturedAt": "2026-07-28T08:58:19.852Z",
+          "sourceMappingReference": "cisco-spaces-dash-app-space-manager.js.map"
+        },
+        {
+          "name": "eu-space-manager.js",
+          "sha256": "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+          "capturedAt": "2026-07-28T09:05:55.560Z",
+          "sourceMappingReference": "cisco-spaces-dash-app-space-manager.js.map"
+        },
+        {
+          "name": "sg-space-manager.js",
+          "sha256": "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+          "capturedAt": "2026-07-28T09:05:54.995Z",
+          "sourceMappingReference": "cisco-spaces-dash-app-space-manager.js.map"
+        },
+        {
+          "name": "us-app-lh2.js",
+          "sha256": "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423",
+          "capturedAt": "2026-07-28T09:01:01.066Z",
+          "sourceMappingReference": "data:application/json;charset=utf-8;base64,\".concat(o),i=\"/*#"
+        },
+        {
+          "name": "eu-app-lh2.js",
+          "sha256": "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423",
+          "capturedAt": "2026-07-28T09:05:55.211Z",
+          "sourceMappingReference": "data:application/json;charset=utf-8;base64,\".concat(o),i=\"/*#"
+        },
+        {
+          "name": "sg-app-lh2.js",
+          "sha256": "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423",
+          "capturedAt": "2026-07-28T09:05:54.993Z",
+          "sourceMappingReference": "data:application/json;charset=utf-8;base64,\".concat(o),i=\"/*#"
+        },
+        {
+          "name": "us-space-manager.js.map",
+          "sha256": "8461bc57c8be028cad1c4b1be79988a1d0af9417c09537b8e11738aff0b0a31d",
+          "capturedAt": "2026-07-28T08:59:20.573Z",
+          "sourceMappingReference": null
+        },
+        {
+          "name": "us-app-lh2.js.map",
+          "sha256": "b1c8821f0655e6a128c5d25f0fa157d3c58f809620947fbf2eb58f3448ea35c2",
+          "capturedAt": "2026-07-28T09:01:11.167Z",
+          "sourceMappingReference": null
+        }
+      ],
+      "sourceMapEvidence": {
+        "statement": "Captured production bundles publish relative sourceMappingURL directives; the referenced public map files were retrieved during the read-only capture.",
+        "sourcePathsUsed": [
+          "webpack://spaces-dash-app-lh2/./src/components/lh-base/lh-base.jsx",
+          "webpack://spaces-dash-app-space-manager/./src/redux/middleware/space-manager-socket.ts",
+          "webpack://spaces-dash-app-space-manager/./src/redux/reducers/app/appSlice.ts"
+        ],
+        "excerptPolicy": "Only the minimum lines needed to establish the described behavior are shown."
+      }
+    }
+  },
+  "claims": [
+    {
+      "id": "CLAIM-001",
+      "grade": "observed",
+      "statement": "The US, EU, and SG validation overviews displayed Please select a location; their initial captures also reported that permitted locations lacked a published Rich Map.",
+      "supports": [
+        "CAP-US-VALIDATION",
+        "CAP-EU-VALIDATION",
+        "CAP-SG-VALIDATION"
+      ],
+      "caveat": "This establishes a regional validation configuration outcome, not the separate US incident-environment defect."
+    },
+    {
+      "id": "CLAIM-002",
+      "grade": "observed",
+      "statement": "In the US incident environment, Space Manager remained on BGL 15 and First Floor after two read-only attempts to select visible BGL 17.",
+      "supports": [
+        "CAP-US-BEFORE",
+        "CAP-US-AFTER"
+      ]
+    },
+    {
+      "id": "CLAIM-003",
+      "grade": "observed",
+      "statement": "The latest full monitoring run failed all five sections and the 30-run availability was 0%, while all section request totals succeeded, Devices received WebSocket HTTP 101 plus 18 frames, and User Management API/UI matched 327=327.",
+      "supports": [
+        "20260728T085201Z_US_a5ecc05c83"
+      ],
+      "caveat": "This argues against a broad transport or authentication outage; it does not prove every backend dependency healthy."
+    },
+    {
+      "id": "CLAIM-004",
+      "grade": "tested",
+      "statement": "The captured Space Manager and shared location-hierarchy bundles were byte-identical across US, EU, and SG.",
+      "supports": [
+        "b726586a0dbc73fa4b5ea916e6c8ef4c53e584afa78673eabd69a5b1229f4c44",
+        "131f7fa61540b9bd57b0f8a9dd2440e21f6d1e62fbeb5a5eef9dde2c65529423"
+      ],
+      "caveat": "Byte-identical code does not imply identical data, access policy, feature flags, or configuration."
+    },
+    {
+      "id": "CLAIM-005",
+      "grade": "observed",
+      "statement": "Captured source maps prove that the location hierarchy dispatches fullTreeData[0], guards null deselection, and applies explicit access gating; Space Manager skips nullish locationWrap updates and initializes selected location/floor state to null.",
+      "supports": [
+        "lh-base.jsx:416,834-848,1082-1102",
+        "space-manager-socket.ts:37-50",
+        "appSlice.ts:2-6"
+      ]
+    },
+    {
+      "id": "CLAIM-006",
+      "grade": "inferred",
+      "confidence": "strong",
+      "statement": "A shared client location-selection/state-propagation boundary is the best-supported explanation; explicit access gating and empty-hierarchy handling are code-level suspects.",
+      "supports": [
+        "CLAIM-002",
+        "CLAIM-003",
+        "CLAIM-004",
+        "CLAIM-005"
+      ],
+      "alternativesNotExcluded": [
+        "An access-policy or hierarchy-data interaction that leaves selection uncommitted",
+        "A timing defect between hierarchy update and downstream state hydration",
+        "A configuration-dependent empty hierarchy path"
+      ]
+    },
+    {
+      "id": "CLAIM-007",
+      "grade": "not_established",
+      "statement": "The exact causal source transition is not established.",
+      "requiredNextEvidence": [
+        "Instrument the hierarchy selection and shared-state commit boundary",
+        "Apply one controlled intervention to the same deterministic snapshot",
+        "Confirm the predicted intervention changes the visible selection and all downstream state",
+        "Replay all five sections, nested views, exact API/UI parity, and sustained availability"
+      ]
+    }
+  ],
+  "artifact": {
+    "path": "krater-pro-space-manager-tri-region-demo.mp4",
+    "sha256": "34802db590d7ae340c7227efb50e3a56cb40fa41e3d49c210b3c706f2ef59628",
+    "bytes": 24497618,
+    "durationSeconds": 243.2,
+    "width": 1920,
+    "height": 1080,
+    "framesPerSecond": 30,
+    "video": "H.264 High, yuv420p",
+    "audio": "AAC LC, 48 kHz mono",
+    "subtitles": "Embedded English mov_text track plus on-screen scene captions",
+    "metadataDisclosure": "Edited sanitized demo; not a continuous raw recording."
+  },
+  "privacy": {
+    "credentialsIncluded": false,
+    "serviceEmailsIncluded": false,
+    "accountOrTenantIdentifiersIncluded": false,
+    "cookiesIncluded": false,
+    "authorizationHeadersIncluded": false,
+    "privateUserTableDataIncluded": false,
+    "absoluteUserPathsIncluded": false,
+    "identityRedacted": true,
+    "productionMutationPerformed": false
+  }
+}

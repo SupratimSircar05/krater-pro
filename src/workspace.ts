@@ -32,6 +32,13 @@ import {
 } from "node:path";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import {
+  MacOsSandboxAdapter,
+  SandboxSupervisor,
+  createHostNativeSandboxAdapter,
+  type NativeSandboxAdapter,
+  type ResourceCapabilityRequest,
+} from "./sandbox/index.js";
 
 const DEFAULT_IGNORES = new Set([
   ".git",
@@ -77,6 +84,12 @@ export interface WorkspaceOptions {
    * but never mutate. These paths are not exposed through file tools.
    */
   readOnlyDependencyRoots?: readonly string[];
+  /**
+   * Native adapter used only for unattended model commands. `undefined`
+   * selects the verified host adapter; `null` forces fail-closed unavailability
+   * for deterministic tests and hosts that disable unattended execution.
+   */
+  nativeSandboxAdapter?: NativeSandboxAdapter | null;
 }
 
 export interface WorkspaceDocument {
@@ -116,6 +129,27 @@ export interface CommandResult {
   stderr: string;
   timedOut: boolean;
   truncated?: boolean;
+  execution: {
+    authorization:
+      | "host_direct"
+      | "approved_attended"
+      | "verified_unattended";
+    containment:
+      | "verified_native"
+      | "macos_seatbelt_best_effort"
+      | "approved_uncontained"
+      | "host_process";
+    adapterId?: string;
+    effectiveProcessLimit?: number;
+    summary: string;
+  };
+}
+
+export interface CommandExecutionOptions {
+  authorization?:
+    | "host_direct"
+    | "approved_attended"
+    | "verified_unattended";
 }
 
 function within(root: string, candidate: string): boolean {
@@ -356,6 +390,7 @@ function caseInsensitiveRegularExpressionLiteral(value: string): string {
 export class Workspace {
   readonly root: string;
   private readonly readOnlyDependencyRoots: string[];
+  private readonly nativeSandboxAdapter?: NativeSandboxAdapter;
 
   constructor(root: string, options: WorkspaceOptions = {}) {
     this.root = realpathSync(resolve(root));
@@ -366,13 +401,10 @@ export class Workspace {
         ),
       ),
     ].filter((path) => path !== this.root && !within(this.root, path));
-  }
-
-  hasVerifiedCommandContainment(): boolean {
-    return (
-      process.platform === "darwin" &&
-      existsSync("/usr/bin/sandbox-exec")
-    );
+    this.nativeSandboxAdapter =
+      options.nativeSandboxAdapter === undefined
+        ? createHostNativeSandboxAdapter()
+        : options.nativeSandboxAdapter ?? undefined;
   }
 
   private lexicalPath(input = "."): string {
@@ -1310,6 +1342,7 @@ export class Workspace {
     command: string,
     timeoutMs = 120_000,
     signal?: AbortSignal,
+    options: CommandExecutionOptions = {},
   ): Promise<CommandResult> {
     if (containsDestructiveCommand(command)) {
       throw new Error("This command is blocked because it can irreversibly destroy data.");
@@ -1319,15 +1352,25 @@ export class Workspace {
     }
     const boundedTimeout = Math.min(Math.max(timeoutMs, 1_000), 600_000);
     if (signal?.aborted) throw new Error("Request cancelled.");
+    const authorization = options.authorization ?? "host_direct";
+    if (authorization === "verified_unattended") {
+      return this.runVerifiedUnattendedCommand(
+        command,
+        boundedTimeout,
+        signal,
+      );
+    }
     let sandboxDirectory: string | undefined;
     let executable = command;
     let executableArguments: string[] | undefined;
     let environment = safeCommandEnvironment();
     let useShell = true;
+    let usedMacOsProfile = false;
     if (
       process.platform === "darwin" &&
       existsSync("/usr/bin/sandbox-exec")
     ) {
+      usedMacOsProfile = true;
       sandboxDirectory = await mkdtemp(
         join(tmpdir(), "krater-pro-terminal-"),
       );
@@ -1479,9 +1522,202 @@ export class Workspace {
           stdout: truncate(redactGitRemoteCredentials(stdout)),
           stderr: truncate(redactGitRemoteCredentials(stderr)),
           timedOut,
+          execution: {
+            authorization,
+            containment: usedMacOsProfile
+              ? "macos_seatbelt_best_effort"
+              : authorization === "approved_attended"
+                ? "approved_uncontained"
+                : "host_process",
+            summary: usedMacOsProfile
+              ? "Attended/host command used the compatibility macOS Seatbelt profile; this is not the strict unattended native adapter."
+              : authorization === "approved_attended"
+                ? "The user explicitly approved this attended command without verified native OS containment."
+                : "This host-selected command used process, environment, output, and wall-time bounds without verified native OS containment.",
+          },
         });
       });
     });
+  }
+
+  private async protectedCommandResources(): Promise<
+    ResourceCapabilityRequest[]
+  > {
+    const directories = [this.root];
+    const denied = new Set<string>();
+    const fileIdentities = new Map<
+      string,
+      { paths: string[]; protected: boolean }
+    >();
+    let visited = 0;
+
+    while (directories.length) {
+      const directory = directories.pop()!;
+      const handle = await opendir(directory);
+      for await (const entry of handle) {
+        visited += 1;
+        if (visited > MAX_WORKSPACE_WALK_ENTRIES) {
+          throw new Error(
+            `Unattended containment refused: protected-path discovery exceeded ${MAX_WORKSPACE_WALK_ENTRIES.toLocaleString("en-US")} workspace entries.`,
+          );
+        }
+        const absolute = join(directory, entry.name);
+        const details = await lstat(absolute);
+        const protectedPath = isProtectedPath(this.root, absolute);
+        if (protectedPath) {
+          denied.add(absolute);
+          if (details.isDirectory()) continue;
+        }
+        if (details.isDirectory()) {
+          directories.push(absolute);
+          continue;
+        }
+        if (details.isFile()) {
+          const identity = `${details.dev}:${details.ino}`;
+          const record = fileIdentities.get(identity) ?? {
+            paths: [],
+            protected: false,
+          };
+          record.paths.push(absolute);
+          record.protected ||= protectedPath;
+          fileIdentities.set(identity, record);
+        }
+      }
+    }
+
+    for (const record of fileIdentities.values()) {
+      if (!record.protected) continue;
+      for (const path of record.paths) denied.add(path);
+    }
+    return denied.size
+      ? [
+          {
+            kind: "resource",
+            access: "deny",
+            paths: [...denied].sort(),
+            reason:
+              "Keep project secrets, Git internals, and Krater private state host-side.",
+          },
+        ]
+      : [];
+  }
+
+  private async runVerifiedUnattendedCommand(
+    command: string,
+    boundedTimeout: number,
+    signal?: AbortSignal,
+  ): Promise<CommandResult> {
+    if (
+      /\b(?:Bearer|Basic)\s+\S+/i.test(command) ||
+      /--?(?:api[-_]?key|authorization|credential|password|secret|token)(?:=|\s+)/i.test(
+        command,
+      )
+    ) {
+      throw new Error(
+        "Unattended command refused: credential material cannot enter a process argument.",
+      );
+    }
+
+    const adapter = this.nativeSandboxAdapter;
+    const supervisor = new SandboxSupervisor({
+      ...(adapter ? { adapter } : {}),
+      platform: process.platform,
+    });
+    const executionId = randomUUID();
+    const environmentKeys = Object.keys(safeCommandEnvironment()).filter(
+      (name) =>
+        !["HOME", "TMPDIR", "TMP", "TEMP"].includes(name) &&
+        !/(?:authorization|credential|password|secret|token|api[_-]?key)/i.test(
+          name,
+        ),
+    );
+    const resources: ResourceCapabilityRequest[] = [
+      {
+        kind: "resource",
+        access: "read_write",
+        paths: [this.root],
+        reason: "Execute only against the isolated staged workspace.",
+      },
+      ...this.readOnlyDependencyRoots.map(
+        (path): ResourceCapabilityRequest => ({
+          kind: "resource",
+          access: "read",
+          paths: [path],
+          reason: "Read a host-selected dependency/toolchain root.",
+        }),
+      ),
+      ...(await this.protectedCommandResources()),
+    ];
+    const shellExecutable =
+      process.platform === "darwin"
+        ? "/bin/zsh"
+        : process.platform === "win32"
+          ? process.execPath
+          : "/bin/sh";
+    const execution = supervisor.execute({
+      id: executionId,
+      mode: "unattended",
+      command: {
+        kind: "command",
+        executable: shellExecutable,
+        arguments:
+          process.platform === "darwin"
+            ? ["-f", "-c", command]
+            : ["-c", command],
+        workingDirectory: this.root,
+        environmentKeys,
+        reason: "Run a model-generated command under verified containment.",
+      },
+      resources,
+      network: {
+        kind: "network",
+        policy: "deny",
+        reason: "Unattended model commands have no network capability.",
+      },
+      limits: {
+        cpuTimeMs: boundedTimeout,
+        memoryBytes: 2 * 1024 * 1024 * 1024,
+        wallTimeMs: boundedTimeout,
+        processCount: 1,
+        outputBytes: MAX_COMMAND_OUTPUT,
+      },
+    });
+    const onAbort = () => {
+      void adapter?.cancel(executionId, "supervisor_cancelled");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const receipt = await execution;
+      if (signal?.aborted) throw new Error("Request cancelled.");
+      if (
+        receipt.status === "refused" ||
+        receipt.status === "approval_required" ||
+        receipt.status === "adapter_error"
+      ) {
+        throw new Error(
+          `Unattended command refused by native containment: ${receipt.reason ?? receipt.status}`,
+        );
+      }
+      return {
+        exitCode: receipt.exitCode,
+        stdout: redactGitRemoteCredentials(receipt.output.stdout),
+        stderr: redactGitRemoteCredentials(receipt.output.stderr),
+        timedOut: receipt.status === "timed_out",
+        truncated: receipt.output.truncated,
+        execution: {
+          authorization: "verified_unattended",
+          containment: "verified_native",
+          ...(receipt.capabilityReport.adapterId
+            ? { adapterId: receipt.capabilityReport.adapterId }
+            : {}),
+          effectiveProcessLimit: 1,
+          summary:
+            "Unattended command ran with verified native containment: staged paths only, deny-all networking, one process, hard CPU/address-space limits, and bounded output/wall time.",
+        },
+      };
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   private commandSandboxProfile(temporaryDirectory: string): string {
@@ -1906,6 +2142,12 @@ export class Workspace {
             .toString("utf8"),
           timedOut: false,
           truncated,
+          execution: {
+            authorization: "host_direct",
+            containment: "host_process",
+            summary:
+              "Host-selected fixed command used direct process, environment, output, and wall-time bounds.",
+          },
         });
       });
     });

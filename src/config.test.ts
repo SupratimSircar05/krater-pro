@@ -176,6 +176,24 @@ describe("loadConfig", () => {
     expect(config.host).toBe("environment-host");
   });
 
+  it("resolves a host credential handle before the plaintext .env fallback", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(
+      join(cwd, ".env"),
+      "KRATER_API_KEY=file-value\nKRATER_MODEL=auto\n",
+    );
+    const storedValue = ["stored", "credential", "value"].join("-");
+
+    const config = loadConfig(
+      { cwd },
+      {},
+      { readStoredCredential: () => storedValue },
+    );
+
+    expect(config.apiKey).toBe(storedValue);
+    expect(config.apiKeySource).toBe("credential_store");
+  });
+
   it.each(["0", "65536", "-1", "4317junk"])(
     "rejects invalid KRATER_PORT value %s",
     async (port) => {

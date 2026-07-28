@@ -89,6 +89,40 @@ afterEach(async () => {
 });
 
 describe("Krater Pro HTTP API", () => {
+  it("serves a Vite-transformed development shell without weakening script CSP", async () => {
+    const cwd = await temporaryDirectory();
+    const app = await createApp(loadConfig({ cwd }, {}), {
+      dev: true,
+      devHmrPort: 30_000 + (process.pid % 20_000),
+    });
+    const server = await new Promise<Server>((resolveServer, reject) => {
+      const instance = app.listen(0, "127.0.0.1", () =>
+        resolveServer(instance),
+      );
+      instance.once("error", reject);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Development test server did not bind a TCP port.");
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/`);
+      const html = await response.text();
+      const policy = response.headers.get("content-security-policy") ?? "";
+      expect(response.status).toBe(200);
+      expect(html).toContain("injectIntoGlobalHook");
+      expect(html).toContain('src="/@vite/client"');
+      expect(policy).toMatch(/script-src 'self' 'sha256-[A-Za-z0-9+/=]+'/);
+      expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    } finally {
+      await Promise.resolve(app.locals.shutdown?.());
+      await new Promise<void>((resolveClose, reject) => {
+        server.close((error) => (error ? reject(error) : resolveClose()));
+        server.closeAllConnections?.();
+      });
+    }
+  });
+
   it("reports non-secret status and applies API security headers", async () => {
     const cwd = await temporaryDirectory();
     const config = loadConfig(
@@ -452,6 +486,13 @@ describe("Krater Pro HTTP API", () => {
       stdout: `${await realpath(cwd)}undefined`,
       stderr: "",
       timedOut: false,
+      execution: {
+        authorization: "approved_attended",
+        containment:
+          process.platform === "darwin"
+            ? "macos_seatbelt_best_effort"
+            : "approved_uncontained",
+      },
     });
 
     const destructive = await apiFetch(`${base}/api/ide/terminal`, {

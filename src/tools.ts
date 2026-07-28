@@ -7,13 +7,20 @@ export interface ToolExecution {
   ok: boolean;
 }
 
+export interface ToolExecutionOptions {
+  commandAuthorization?:
+    | "host_direct"
+    | "approved_attended"
+    | "verified_unattended";
+}
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
       name: "record_action_gate",
       description:
-        "Record the evidence-backed Action/Abstention Gate after bounded discovery and before any publishable file edit. Evidence references must be successful tool-call IDs from this task. A no-change decision is a valid outcome.",
+        "Record the evidence-backed Action/Abstention Gate after bounded discovery and before any publishable file edit or final answer. Evidence references must be successful tool-call IDs from this task. A no-change decision is a valid outcome.",
       parameters: {
         type: "object",
         properties: {
@@ -181,7 +188,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "run_command",
       description:
-        "Run a shell command from the workspace. Use for builds, tests, git, and project tooling. Requires explicit user approval.",
+        "Run a shell command from the workspace. Use for builds, tests, git, and project tooling. Requires explicit user approval unless the host selected fail-closed unattended mode, which runs only with verified native containment.",
       parameters: {
         type: "object",
         properties: {
@@ -308,6 +315,7 @@ export async function executeTool(
   args: JsonObject,
   skills?: SkillRegistry,
   signal?: AbortSignal,
+  options: ToolExecutionOptions = {},
 ): Promise<ToolExecution> {
   try {
     let output: string;
@@ -371,8 +379,13 @@ export async function executeTool(
           stringArg(args, "command"),
           integerArg(args, "timeoutMs", 120_000, 1_000, 600_000),
           signal,
+          {
+            authorization:
+              options.commandAuthorization ?? "host_direct",
+          },
         );
         const pieces = [
+          `Execution: ${result.execution.authorization} · ${result.execution.containment}\n${result.execution.summary}`,
           `Exit code: ${result.exitCode ?? "terminated"}${result.timedOut ? " (timed out)" : ""}`,
           result.stdout && `stdout:\n${result.stdout}`,
           result.stderr && `stderr:\n${result.stderr}`,

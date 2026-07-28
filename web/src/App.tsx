@@ -9,6 +9,12 @@ import {
 } from "react";
 import AgenticIde from "./AgenticIde";
 import EvidenceCenter from "./EvidenceCenter";
+import {
+  TrustDial,
+  workspaceViewForKey,
+  type AssuranceLevel,
+  type WorkspaceView,
+} from "./TaskWorkspace";
 import { apiFetch } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import kraterProMark from "./assets/krater-pro-mark.svg";
@@ -84,6 +90,7 @@ type ChatMessage = {
 
 const AUTO_MODEL = "auto";
 const MODEL_STORAGE_KEY = "krater-pro:model";
+const ASSURANCE_STORAGE_KEY = "krater-pro:assurance";
 const ADD_LOCAL_PROJECT = "__add-local-project__";
 const ADD_GITHUB_PROJECT = "__add-github-project__";
 const ADD_SCRATCH_PROJECT = "__add-scratch-project__";
@@ -111,6 +118,15 @@ function initialModel() {
     return window.localStorage.getItem(MODEL_STORAGE_KEY) ?? "";
   } catch {
     return "";
+  }
+}
+
+function initialAssurance(): AssuranceLevel {
+  try {
+    const saved = window.localStorage.getItem(ASSURANCE_STORAGE_KEY);
+    return saved === "fast" || saved === "high" ? saved : "standard";
+  } catch {
+    return "standard";
   }
 }
 
@@ -441,13 +457,12 @@ export default function App() {
   const [projectSource, setProjectSource] = useState("");
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState(initialModel);
+  const [assurance, setAssurance] = useState<AssuranceLevel>(initialAssurance);
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<
-    "ide" | "chat" | "evidence"
-  >("ide");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("ide");
   const [ideDirty, setIdeDirty] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [offline, setOffline] = useState(false);
@@ -575,6 +590,14 @@ export default function App() {
       // Model persistence is a convenience; the workspace still works without it.
     }
   }, [selectedModel]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ASSURANCE_STORAGE_KEY, assurance);
+    } catch {
+      // Assurance persistence is optional; each request still carries the selection.
+    }
+  }, [assurance]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth", block: "end" });
@@ -827,6 +850,7 @@ export default function App() {
             projectId: currentProjectId,
             message,
             model: selectedModel || undefined,
+            assurance,
             ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           }),
           signal: controller.signal,
@@ -879,6 +903,7 @@ export default function App() {
     },
     [
       apiKey,
+      assurance,
       consumeEventStream,
       currentProjectId,
       ensureSession,
@@ -1133,6 +1158,19 @@ export default function App() {
     }
   };
 
+  const switchWorkspaceViewWithKeyboard = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: WorkspaceView,
+  ) => {
+    const next = workspaceViewForKey(current, event.key);
+    if (!next) return;
+    event.preventDefault();
+    setWorkspaceView(next);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`workspace-tab-${next}`)?.focus();
+    });
+  };
+
   const chatWorkspace = (
     <div className="chat-workspace">
       <div className={`conversation${messages.length ? "" : " conversation--empty"}`}>
@@ -1197,6 +1235,13 @@ export default function App() {
           </button>
         )}
 
+        <TrustDial
+          value={assurance}
+          onChange={setAssurance}
+          disabled={streaming}
+          compact
+        />
+
         <form className="composer" onSubmit={onSubmit}>
           <textarea
             ref={composerRef}
@@ -1231,6 +1276,9 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#workspace-content">
+        Skip to workspace
+      </a>
       <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`}>
         <div className="sidebar__brand">
           <KraterMark />
@@ -1318,7 +1366,12 @@ export default function App() {
         />
       )}
 
-      <main className="main-panel">
+      <main
+        className="main-panel"
+        id="workspace-content"
+        aria-labelledby="workspace-title"
+        tabIndex={-1}
+      >
         <header className="topbar">
           <button
             className="icon-button menu-button"
@@ -1332,35 +1385,63 @@ export default function App() {
             <KraterMark small />
           </span>
           <div className="topbar__title">
-            <span>{chatTitle}</span>
-            <small>{status?.cwd ?? "Local workspace"}</small>
+            <h1 id="workspace-title">
+              {workspaceView === "evidence" ? "Task workspace" : chatTitle}
+            </h1>
+            <p>{status?.cwd ?? "Local workspace"}</p>
           </div>
 
           <div className="topbar__actions">
-            <div className="workspace-view-switch" aria-label="Workspace view">
+            <div
+              className="workspace-view-switch"
+              role="tablist"
+              aria-label="Workspace view"
+              aria-orientation="horizontal"
+            >
               <button
+                id="workspace-tab-ide"
                 className={workspaceView === "ide" ? "is-active" : ""}
                 type="button"
-                aria-pressed={workspaceView === "ide"}
+                role="tab"
+                aria-selected={workspaceView === "ide"}
+                aria-controls="workspace-panel-ide"
+                tabIndex={workspaceView === "ide" ? 0 : -1}
                 onClick={() => setWorkspaceView("ide")}
+                onKeyDown={(event) =>
+                  switchWorkspaceViewWithKeyboard(event, "ide")
+                }
               >
                 IDE
               </button>
               <button
+                id="workspace-tab-chat"
                 className={workspaceView === "chat" ? "is-active" : ""}
                 type="button"
-                aria-pressed={workspaceView === "chat"}
+                role="tab"
+                aria-selected={workspaceView === "chat"}
+                aria-controls="workspace-panel-chat"
+                tabIndex={workspaceView === "chat" ? 0 : -1}
                 onClick={() => setWorkspaceView("chat")}
+                onKeyDown={(event) =>
+                  switchWorkspaceViewWithKeyboard(event, "chat")
+                }
               >
                 Chat
               </button>
               <button
+                id="workspace-tab-evidence"
                 className={workspaceView === "evidence" ? "is-active" : ""}
                 type="button"
-                aria-pressed={workspaceView === "evidence"}
+                role="tab"
+                aria-selected={workspaceView === "evidence"}
+                aria-controls="workspace-panel-evidence"
+                tabIndex={workspaceView === "evidence" ? 0 : -1}
                 onClick={() => setWorkspaceView("evidence")}
+                onKeyDown={(event) =>
+                  switchWorkspaceViewWithKeyboard(event, "evidence")
+                }
               >
-                Evidence
+                Tasks
               </button>
             </div>
 
@@ -1444,7 +1525,11 @@ export default function App() {
             </div>
           )}
           <div
+            id="workspace-panel-ide"
             className="workspace-view-stage__view"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-ide"
+            tabIndex={0}
             hidden={workspaceView !== "ide"}
           >
             <AgenticIde
@@ -1472,13 +1557,21 @@ export default function App() {
             />
           </div>
           <div
+            id="workspace-panel-chat"
             className="workspace-view-stage__view"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-chat"
+            tabIndex={0}
             hidden={workspaceView !== "chat"}
           >
             {workspaceView === "chat" ? chatWorkspace : null}
           </div>
           <div
+            id="workspace-panel-evidence"
             className="workspace-view-stage__view"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-evidence"
+            tabIndex={0}
             hidden={workspaceView !== "evidence"}
           >
             {workspaceView === "evidence" ? (

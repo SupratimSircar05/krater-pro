@@ -453,7 +453,7 @@ describe("CLI safety gates", () => {
       "Trusted checker: .krater-benchmark",
     );
     expect(stdout.mock.calls.flat().join("")).toMatch(/SHA-256: [a-f0-9]{64}/);
-    expect(json).toContain("[REDACTED_KRATER_API_KEY]");
+    expect(json).toContain("[REDACTED]");
     expect(markdown).toMatch(/sha256: [a-f0-9]{64}/);
   });
 

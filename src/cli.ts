@@ -18,11 +18,24 @@ import {
   replayRecordedCausalTwin,
   replayReliabilityEvaluation,
 } from "./advanced-adapters.js";
+import { runLiveCausalTwin } from "./causal/index.js";
 import {
   KRATER_DEVELOPER_URL,
   browserAuthCapabilities,
   openKraterDeveloperPage,
 } from "./browser-auth.js";
+import {
+  VerifiedAutopilotService,
+  verifyTaskPlan,
+  type AutopilotProjection,
+  type ProofLease,
+  type ProofLeaseValidity,
+  type TaskPlan,
+} from "./autopilot/index.js";
+import {
+  generateCompletion,
+  isCompletionShell,
+} from "./completions.js";
 import {
   type KraterConfig,
   loadConfig,
@@ -30,6 +43,11 @@ import {
   type ConfigOverrides,
   type ResponseStyle,
 } from "./config.js";
+import {
+  doctorExitCode,
+  renderDoctorReport,
+  runDoctor,
+} from "./doctor.js";
 import {
   EvidenceTask,
   cancelEvidenceTask,
@@ -74,6 +92,14 @@ import {
   type ContextTrust,
 } from "./trust/index.js";
 import { VerifiedWorkCache } from "./verified-cache/index.js";
+import {
+  SETUP_REQUIRED_EXIT_CODE,
+  credentialStoreStatus,
+  createSetupRequiredResult,
+  isSetupRequiredError,
+  renderSetupResult,
+  setupWorkspace,
+} from "./setup.js";
 
 const VERSION = "0.1.0";
 const CREATOR_CREDIT = "Built by Supratim with ❤️";
@@ -107,6 +133,53 @@ interface GlobalOptions {
 
 function logo(): string {
   return `${orange}◉${reset} ${orange}Krater Pro${reset} ${dim}v${VERSION}${reset}`;
+}
+
+async function readHiddenTerminalInput(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      "Hidden credential input requires an interactive terminal.",
+    );
+  }
+  process.stdout.write(prompt);
+  const stdin = process.stdin;
+  const wasRaw = stdin.isRaw;
+  const wasPaused = stdin.isPaused();
+  let value = "";
+  return new Promise<string>((resolveInput, rejectInput) => {
+    const cleanup = () => {
+      stdin.off("data", onData);
+      if (stdin.setRawMode) stdin.setRawMode(Boolean(wasRaw));
+      if (wasPaused) stdin.pause();
+    };
+    const finish = (result?: string, error?: Error) => {
+      cleanup();
+      process.stdout.write("\n");
+      if (error) rejectInput(error);
+      else resolveInput(result ?? "");
+    };
+    const onData = (chunk: Buffer | string) => {
+      const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      for (const character of text) {
+        if (character === "\u0003") {
+          finish(undefined, new Error("Setup cancelled."));
+          return;
+        }
+        if (character === "\r" || character === "\n") {
+          finish(value.trim());
+          return;
+        }
+        if (character === "\u007f" || character === "\b") {
+          value = value.slice(0, -1);
+          continue;
+        }
+        if (!/[\u0000-\u001f\u007f]/.test(character)) value += character;
+      }
+    };
+    stdin.on("data", onData);
+    stdin.setRawMode(true);
+    stdin.resume();
+  });
 }
 
 function globalOverrides(options: GlobalOptions): ConfigOverrides {
@@ -286,6 +359,8 @@ async function createAgent(
       maxSteps: config.maxSteps,
       sessionTokenBudget: config.sessionTokenBudget,
       evidenceMode: true,
+      knownSecrets: config.apiKey ? [config.apiKey] : [],
+      verifiedCacheRoot: join(config.cwd, ".krater", "cache"),
     }),
     source: config.apiKeySource,
     model: selection.model,
@@ -348,12 +423,15 @@ async function prepareAmbiguity(
   cwd: string,
   task: EvidenceTask,
   readline?: Interface,
+  initialResult?: AmbiguityPreflightResult,
 ): Promise<AmbiguityPreflightResult | undefined> {
-  let result = await runAmbiguityPreflight({
-    cwd,
-    request,
-    mode: options.assume ?? "ask",
-  });
+  let result =
+    initialResult ??
+    (await runAmbiguityPreflight({
+      cwd,
+      request,
+      mode: options.assume ?? "ask",
+    }));
   await task.recordAmbiguityPreflight({
     assumptions: result.assumptions,
     interpretations: result.interpretations,
@@ -451,6 +529,217 @@ function printTaskVerdict(
   }
 }
 
+interface CliJsonEnvelope<T> {
+  schemaVersion: 1;
+  type: string;
+  ok: boolean;
+  taskId?: string;
+  result: T;
+}
+
+function writeJsonEnvelope<T>(
+  type: string,
+  ok: boolean,
+  result: T,
+  taskId?: string,
+): void {
+  const envelope: CliJsonEnvelope<T> = {
+    schemaVersion: 1,
+    type,
+    ok,
+    ...(taskId ? { taskId } : {}),
+    result,
+  };
+  process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+}
+
+function printTaskPlan(plan: TaskPlan, json: boolean): void {
+  if (json) {
+    writeJsonEnvelope("task_plan", true, { plan }, plan.taskId);
+    return;
+  }
+  process.stdout.write(
+    `${cyan}◇ Executable plan${reset} revision ${plan.revision} · ${plan.status}\n` +
+      `${sanitizeTerminalText(plan.objective)}\n`,
+  );
+  for (const step of plan.steps) {
+    process.stdout.write(
+      `${dim}  ${step.status.padEnd(9)} ${sanitizeTerminalText(step.title)} · ${sanitizeTerminalText(step.description)}${reset}\n`,
+    );
+  }
+  const unresolved = plan.proofObligations.filter(
+    (obligation) =>
+      obligation.required &&
+      obligation.status !== "satisfied" &&
+      obligation.status !== "waived",
+  );
+  process.stdout.write(
+    `${dim}${plan.proofObligations.length} proof obligation(s) · ${unresolved.length} required unresolved · digest ${plan.digest}${reset}\n`,
+  );
+}
+
+async function evaluateRecordedProofLeases(
+  service: VerifiedAutopilotService,
+  leases: readonly ProofLease[],
+): Promise<
+  Array<{
+    leaseId: string;
+    leaseDigest: string;
+    validity: ProofLeaseValidity;
+    evaluationBasis: "recorded_lease_binding";
+  }>
+> {
+  return Promise.all(
+    leases.map(async (lease) => ({
+      leaseId: lease.id,
+      leaseDigest: lease.digest,
+      validity: await service.evaluateLease(lease.taskId, lease.id, {
+        taskId: lease.taskId,
+        planDigest: lease.planDigest,
+        subjectDigest: lease.subjectDigest,
+        environmentDigest: lease.environmentDigest,
+        policyDigest: lease.policyDigest,
+        toolchainDigest: lease.toolchainDigest,
+      }),
+      evaluationBasis: "recorded_lease_binding" as const,
+    })),
+  );
+}
+
+async function recordedTaskVerification(
+  projection: TaskProjection,
+  service: VerifiedAutopilotService,
+): Promise<{
+  mode: "offline_recorded_evidence";
+  executedChecks: false;
+  status: "verified" | "incomplete" | "invalid";
+  plan: {
+    available: boolean;
+    valid: boolean;
+    errors: string[];
+  };
+  evidence: {
+    capsuleAvailable: boolean;
+    capsuleValid: boolean;
+    capsuleErrors: string[];
+    passportAvailable: boolean;
+    passportValid: boolean;
+    passportErrors: string[];
+  };
+  obligations: {
+    required: number;
+    cleared: number;
+    unresolvedIds: string[];
+  };
+  proofLeases: Awaited<ReturnType<typeof evaluateRecordedProofLeases>>;
+  note: string;
+}> {
+  const plan = projection.autopilot.currentPlan;
+  const planVerification = plan
+    ? verifyTaskPlan(plan)
+    : {
+        valid: false,
+        errors: ["This task has no executable plan."],
+      };
+  const capsuleVerification = projection.capsule
+    ? verifyEvidenceCapsule(projection.capsule)
+    : undefined;
+  const passportVerification =
+    projection.passport && projection.capsule
+      ? verifyChangePassport(projection.passport, projection.capsule)
+      : undefined;
+  const requiredObligations =
+    plan?.proofObligations.filter((obligation) => obligation.required) ?? [];
+  const unresolved = requiredObligations.filter(
+    (obligation) =>
+      obligation.status !== "satisfied" && obligation.status !== "waived",
+  );
+  const proofLeases = await evaluateRecordedProofLeases(
+    service,
+    projection.autopilot.proofLeases,
+  );
+  const structurallyInvalid =
+    !planVerification.valid ||
+    Boolean(capsuleVerification && !capsuleVerification.valid) ||
+    Boolean(passportVerification && !passportVerification.valid);
+  const complete =
+    !structurallyInvalid &&
+    Boolean(capsuleVerification?.valid) &&
+    Boolean(passportVerification?.valid) &&
+    unresolved.length === 0;
+  return {
+    mode: "offline_recorded_evidence",
+    executedChecks: false,
+    status: structurallyInvalid
+      ? "invalid"
+      : complete
+        ? "verified"
+        : "incomplete",
+    plan: {
+      available: Boolean(plan),
+      valid: planVerification.valid,
+      errors: planVerification.errors,
+    },
+    evidence: {
+      capsuleAvailable: Boolean(projection.capsule),
+      capsuleValid: capsuleVerification?.valid ?? false,
+      capsuleErrors: capsuleVerification?.errors ?? [
+        "This task has no evidence capsule.",
+      ],
+      passportAvailable: Boolean(projection.passport),
+      passportValid: passportVerification?.valid ?? false,
+      passportErrors: passportVerification?.errors ?? [
+        "This task has no Change Passport.",
+      ],
+    },
+    obligations: {
+      required: requiredObligations.length,
+      cleared: requiredObligations.length - unresolved.length,
+      unresolvedIds: unresolved.map((obligation) => obligation.id),
+    },
+    proofLeases,
+    note:
+      "This command validates durable records and recorded proof state offline. It does not execute repository tests, a sealed verifier, or production checks.",
+  };
+}
+
+async function recordedWatchSnapshot(
+  autopilot: AutopilotProjection,
+  service: VerifiedAutopilotService,
+): Promise<{
+  state: "verified" | "needs_recheck" | "contradicted" | "unmonitored";
+  activeMonitoring: false;
+  latestObservation?: AutopilotProjection["productionObservations"][number];
+  productionObservations: AutopilotProjection["productionObservations"];
+  proofLeases: Awaited<ReturnType<typeof evaluateRecordedProofLeases>>;
+  note: string;
+}> {
+  const proofLeases = await evaluateRecordedProofLeases(
+    service,
+    autopilot.proofLeases,
+  );
+  const latestObservation = autopilot.productionObservations.at(-1);
+  const hasValidLease = proofLeases.some((lease) => lease.validity.valid);
+  const state =
+    !latestObservation
+      ? "unmonitored"
+      : latestObservation.status === "failed" ||
+          latestObservation.status === "degraded"
+        ? "contradicted"
+        : latestObservation.status === "healthy" && hasValidLease
+          ? "verified"
+          : "needs_recheck";
+  return {
+    state,
+    activeMonitoring: false,
+    ...(latestObservation ? { latestObservation } : {}),
+    productionObservations: autopilot.productionObservations,
+    proofLeases,
+    note:
+      "This is a snapshot of locally recorded observations. Krater is not polling production in the background.",
+  };
+}
+
 async function runPrompt(prompt: string, options: GlobalOptions): Promise<void> {
   const readline = process.stdin.isTTY
     ? createInterface({ input: process.stdin, output: process.stdout })
@@ -460,6 +749,12 @@ async function runPrompt(prompt: string, options: GlobalOptions): Promise<void> 
   let prepared = false;
   try {
     const config = loadConfig(globalOverrides(options));
+    const initialPreflight = await runAmbiguityPreflight({
+      cwd: config.cwd,
+      request: prompt,
+      mode: options.assume ?? "ask",
+    });
+    if (initialPreflight.status === "ready") requireApiKey(config);
     evidenceTask = await EvidenceTask.start({
       cwd: config.cwd,
       projectId: "cli",
@@ -477,8 +772,10 @@ async function runPrompt(prompt: string, options: GlobalOptions): Promise<void> 
       config.cwd,
       evidenceTask,
       readline,
+      initialPreflight,
     );
     if (!preflight) return;
+    requireApiKey(config);
     const executionPrompt = promptWithAmbiguityContext(preflight);
     stagedWorkspace = await StagedTaskWorkspace.create(config.cwd);
     const { agent } = await createAgent(
@@ -865,7 +1162,11 @@ function addGlobalOptions(command: Command): Command {
       'model ID returned by Krater /v1/models, or "auto" for Smart Router',
     )
     .option("-C, --cwd <path>", "workspace directory", process.cwd())
-    .option("-y, --yes", "approve file edits and shell commands automatically", false)
+    .option(
+      "-y, --yes",
+      "approve staged file edits; use fail-closed unattended command containment",
+      false,
+    )
     .option(
       "--context-chars <number>",
       "maximum estimated conversation characters sent per request",
@@ -948,6 +1249,168 @@ function addGlobalOptions(command: Command): Command {
     .option("--json", "emit machine-readable task contracts and verdicts", false);
 }
 
+interface SetupCommandOptions {
+  createEnv: boolean;
+  open: boolean;
+  nonInteractive: boolean;
+  envFallback: boolean;
+  replace: boolean;
+}
+
+async function runSetupCommand(
+  options: GlobalOptions,
+  setupOptions: SetupCommandOptions,
+): Promise<boolean> {
+  if (options.apiKey) {
+    throw new Error(
+      "Setup refuses --api-key because command arguments can be inspected. Use hidden interactive input or KRATER_API_KEY with --non-interactive.",
+    );
+  }
+  const terminalInteractive =
+    Boolean(process.stdin.isTTY) &&
+    Boolean(process.stdout.isTTY) &&
+    !options.json &&
+    !setupOptions.nonInteractive;
+
+  if (!terminalInteractive) {
+    const result = await setupWorkspace({
+      overrides: globalOverrides(options),
+      createEnvironmentFile: setupOptions.createEnv,
+      validateCredential: true,
+      persistence: "none",
+    });
+    process.stdout.write(renderSetupResult(result, Boolean(options.json)));
+    process.exitCode =
+      result.status === "ready"
+        ? 0
+        : result.status === "setup_required"
+          ? SETUP_REQUIRED_EXIT_CODE
+          : 1;
+    return result.status === "ready";
+  }
+
+  let inspection = await setupWorkspace({
+    overrides: globalOverrides(options),
+    createEnvironmentFile: setupOptions.createEnv,
+  });
+  let existingVerificationFailure:
+    | Awaited<ReturnType<typeof setupWorkspace>>
+    | undefined;
+  if (inspection.credential.configured && !setupOptions.replace) {
+    const result = await setupWorkspace({
+      overrides: globalOverrides(options),
+      validateCredential: true,
+      persistence: "none",
+    });
+    if (result.status === "ready") {
+      process.stdout.write(renderSetupResult(result));
+      process.exitCode = 0;
+      return true;
+    }
+    existingVerificationFailure = result;
+    process.stdout.write(
+      "The currently configured credential did not pass authenticated model discovery. Enter a replacement; the old credential remains untouched unless replacement succeeds.\n",
+    );
+  }
+
+  process.stdout.write(
+    [
+      `${orange}Krater Pro first-run setup${reset}`,
+      "Krater inference requires a Krater-issued API key.",
+      "The key is entered without terminal echo and is validated using authenticated model discovery before any persistence.",
+      `Create or retrieve one at ${KRATER_DEVELOPER_URL}.`,
+      "",
+    ].join("\n"),
+  );
+  if (setupOptions.open) {
+    await openKraterDeveloperPage().catch(() => undefined);
+  }
+  const credential = await readHiddenTerminalInput("Krater API key: ");
+  if (!credential) {
+    const result = existingVerificationFailure ?? inspection;
+    process.stdout.write(renderSetupResult(result));
+    process.exitCode =
+      result.status === "setup_required" ? SETUP_REQUIRED_EXIT_CODE : 1;
+    return false;
+  }
+
+  let persistence: "none" | "credential_store" | "environment_file" =
+    "none";
+  if (setupOptions.envFallback) {
+    process.stdout.write(
+      "The --env-fallback choice stores the verified key as plaintext in an owner-only workspace .env. The OS credential store is safer.\n",
+    );
+    persistence = "environment_file";
+  } else {
+    const storeStatus = await credentialStoreStatus();
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      if (storeStatus.available) {
+        const answer = await readline.question(
+          `${storeStatus.reason} Store the verified key there? [Y/n] `,
+        );
+        if (!/^(n|no)$/i.test(answer.trim())) {
+          persistence = "credential_store";
+        }
+      } else {
+        process.stdout.write(
+          `${storeStatus.reason}\nThe fallback is a plaintext workspace .env restricted to its owner. It can still be exposed by backups or an editor.\n`,
+        );
+      }
+      if (persistence === "none") {
+        const fallback = await readline.question(
+          "Use the disclosed owner-only .env fallback? [y/N] ",
+        );
+        if (/^(y|yes)$/i.test(fallback.trim())) {
+          persistence = "environment_file";
+        }
+      }
+    } finally {
+      readline.close();
+    }
+  }
+
+  let result = await setupWorkspace({
+    overrides: globalOverrides(options),
+    credential,
+    validateCredential: true,
+    persistence,
+  });
+  if (
+    result.status === "storage_unavailable" &&
+    persistence === "credential_store"
+  ) {
+    process.stdout.write(
+      "Secure storage failed after verification. The fallback stores the key as plaintext in an owner-only workspace .env.\n",
+    );
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      const fallback = await readline.question(
+        "Use that fallback now? [y/N] ",
+      );
+      if (/^(y|yes)$/i.test(fallback.trim())) {
+        result = await setupWorkspace({
+          overrides: globalOverrides(options),
+          credential,
+          validateCredential: true,
+          persistence: "environment_file",
+        });
+      }
+    } finally {
+      readline.close();
+    }
+  }
+  process.stdout.write(renderSetupResult(result));
+  process.exitCode = result.status === "ready" ? 0 : 1;
+  return result.status === "ready";
+}
+
 const program = addGlobalOptions(
   new Command()
     .name("krater")
@@ -966,7 +1429,93 @@ program
     const options = command.optsWithGlobals<GlobalOptions>();
     const prompt = parts.join(" ").trim();
     if (prompt) await runPrompt(prompt, options);
-    else await interactive(options);
+    else {
+      const config = loadConfig(globalOverrides(options));
+      if (
+        !config.apiKey &&
+        !(await runSetupCommand(options, {
+          createEnv: false,
+          open: true,
+          nonInteractive: false,
+          envFallback: false,
+          replace: false,
+        }))
+      ) {
+        return;
+      }
+      if (!loadConfig(globalOverrides(options)).apiKey) return;
+      await interactive(options);
+    }
+  });
+
+program
+  .command("setup")
+  .description("prepare this workspace for safe Krater API-key configuration")
+  .option(
+    "--create-env",
+    "create only a missing owner-only .env template",
+    false,
+  )
+  .option(
+    "--non-interactive",
+    "validate KRATER_API_KEY without prompting or persisting it",
+    false,
+  )
+  .option(
+    "--env-fallback",
+    "after validation, explicitly choose owner-only plaintext .env storage",
+    false,
+  )
+  .option(
+    "--replace",
+    "replace the current credential only after the new key validates",
+    false,
+  )
+  .option("--no-open", "do not open Krater's developer page")
+  .action(
+    async (
+      setupOptions: SetupCommandOptions,
+      command: Command,
+    ) => {
+      const options = command.optsWithGlobals<GlobalOptions>();
+      await runSetupCommand(options, setupOptions);
+    },
+  );
+
+program
+  .command("doctor")
+  .description("diagnose local Krater Pro readiness")
+  .option("--json", "emit one machine-readable diagnostic report", false)
+  .option(
+    "--live",
+    "explicitly verify the configured key using authenticated model discovery",
+    false,
+  )
+  .action(async (doctorOptions: { json: boolean; live: boolean }, command: Command) => {
+    const options = command.optsWithGlobals<GlobalOptions>();
+    const json = Boolean(
+      doctorOptions.json || program.opts<GlobalOptions>().json,
+    );
+    const report = await runDoctor({
+      version: VERSION,
+      overrides: globalOverrides(options),
+      live: doctorOptions.live,
+    });
+    process.stdout.write(renderDoctorReport(report, json));
+    process.exitCode = doctorExitCode(report);
+  });
+
+program
+  .command("completion")
+  .description("print a shell completion script")
+  .argument("<shell>", "bash, zsh, or fish")
+  .action((shell: string) => {
+    if (!isCompletionShell(shell)) {
+      throw new Error(
+        `Unsupported shell "${shell}". Expected bash, zsh, or fish.`,
+      );
+    }
+    process.stdout.write(generateCompletion(shell));
   });
 
 program
@@ -1031,6 +1580,173 @@ taskCommands
     const config = loadConfig(globalOverrides(options));
     const detail = await readEvidenceTask(config.cwd, "cli", taskId);
     process.stdout.write(`${JSON.stringify(detail, null, 2)}\n`);
+  });
+
+taskCommands
+  .command("plan")
+  .description("show the current versioned executable plan and proof obligations")
+  .argument("<taskId>", "ProofGraph task ID")
+  .action(async (taskId: string, _localOptions, command: Command) => {
+    const options = command.optsWithGlobals<GlobalOptions>();
+    const config = loadConfig(globalOverrides(options));
+    const projection = await (await openEvidenceStore(config.cwd)).task(taskId);
+    const plan = projection.autopilot.currentPlan;
+    if (!plan) {
+      throw new Error(`Task ${taskId} has no executable plan.`);
+    }
+    printTaskPlan(plan, Boolean(options.json));
+  });
+
+taskCommands
+  .command("approve")
+  .description("approve one exact executable-plan digest")
+  .argument("<taskId>", "ProofGraph task ID")
+  .requiredOption(
+    "--plan-digest <digest>",
+    "exact digest printed by task plan; stale approvals fail closed",
+  )
+  .option("--reason <text>", "concise reason recorded with the revision")
+  .action(
+    async (
+      taskId: string,
+      localOptions: { planDigest: string; reason?: string },
+      command: Command,
+    ) => {
+      const options = command.optsWithGlobals<GlobalOptions>();
+      const config = loadConfig(globalOverrides(options));
+      const store = await openEvidenceStore(config.cwd);
+      const projection = await store.task(taskId);
+      const current = projection.autopilot.currentPlan;
+      if (!current) {
+        throw new Error(`Task ${taskId} has no executable plan.`);
+      }
+      if (localOptions.planDigest !== current.digest) {
+        throw new Error(
+          "The task plan changed after it was opened. Run task plan again before approving it.",
+        );
+      }
+      let plan = current;
+      let idempotent = true;
+      if (current.status !== "approved") {
+        if (current.status === "completed" || current.status === "cancelled") {
+          throw new Error(
+            `A ${current.status} task plan cannot be approved.`,
+          );
+        }
+        const revisedAt = new Date().toISOString();
+        plan = await new VerifiedAutopilotService(store).revisePlan({
+          id: current.id,
+          taskId,
+          status: "approved",
+          objective: current.objective,
+          ...(current.contractDigest
+            ? { contractDigest: current.contractDigest }
+            : {}),
+          steps: current.steps.map(
+            ({ schemaVersion: _schemaVersion, ...step }) => step,
+          ),
+          proofObligations: current.proofObligations.map(
+            ({ schemaVersion: _schemaVersion, ...obligation }) => obligation,
+          ),
+          createdBy: current.createdBy,
+          revisedBy: "user",
+          createdAt: current.createdAt,
+          revisedAt,
+          revisionReason:
+            localOptions.reason?.trim() ||
+            "The user approved this exact plan revision.",
+        });
+        idempotent = false;
+      }
+      const result = { plan, idempotent };
+      if (options.json) {
+        writeJsonEnvelope("task_plan_approval", true, result, taskId);
+        return;
+      }
+      process.stdout.write(
+        `${green}✓ Plan approved${reset} revision ${plan.revision}` +
+          `${idempotent ? " · already approved" : ""}\n` +
+          `${dim}${plan.digest}${reset}\n`,
+      );
+    },
+  );
+
+taskCommands
+  .command("verify")
+  .description(
+    "verify recorded plan, capsule, passport, obligations, and leases offline",
+  )
+  .argument("<taskId>", "ProofGraph task ID")
+  .action(async (taskId: string, _localOptions, command: Command) => {
+    const options = command.optsWithGlobals<GlobalOptions>();
+    const config = loadConfig(globalOverrides(options));
+    const store = await openEvidenceStore(config.cwd);
+    const projection = await store.task(taskId);
+    const result = await recordedTaskVerification(
+      projection,
+      new VerifiedAutopilotService(store),
+    );
+    if (options.json) {
+      writeJsonEnvelope(
+        "task_recorded_verification",
+        result.status === "verified",
+        result,
+        taskId,
+      );
+    } else {
+      const statusColor = result.status === "verified" ? green : red;
+      process.stdout.write(
+        `${statusColor}${result.status === "verified" ? "✓" : "◇"} ${result.status}${reset}` +
+          ` · ${result.obligations.cleared}/${result.obligations.required} required obligation(s) cleared\n` +
+          `${dim}${result.note}${reset}\n`,
+      );
+      for (const error of [
+        ...result.plan.errors,
+        ...result.evidence.capsuleErrors,
+        ...result.evidence.passportErrors,
+      ]) {
+        process.stdout.write(`${dim}  - ${sanitizeTerminalText(error)}${reset}\n`);
+      }
+    }
+    if (result.status !== "verified") process.exitCode = 2;
+  });
+
+taskCommands
+  .command("watch")
+  .description(
+    "show recorded Proof Lease and production-observation state without polling",
+  )
+  .argument("<taskId>", "ProofGraph task ID")
+  .action(async (taskId: string, _localOptions, command: Command) => {
+    const options = command.optsWithGlobals<GlobalOptions>();
+    const config = loadConfig(globalOverrides(options));
+    const store = await openEvidenceStore(config.cwd);
+    const projection = await store.task(taskId);
+    const result = await recordedWatchSnapshot(
+      projection.autopilot,
+      new VerifiedAutopilotService(store),
+    );
+    if (options.json) {
+      writeJsonEnvelope("task_watch_snapshot", true, result, taskId);
+      return;
+    }
+    const color =
+      result.state === "verified"
+        ? green
+        : result.state === "contradicted"
+          ? red
+          : cyan;
+    process.stdout.write(
+      `${color}◇ ${result.state.replaceAll("_", " ")}${reset}` +
+        ` · ${result.productionObservations.length} recorded observation(s)` +
+        ` · ${result.proofLeases.length} proof lease(s)\n` +
+        `${dim}${result.note}${reset}\n`,
+    );
+    if (result.latestObservation) {
+      process.stdout.write(
+        `${dim}Latest: ${sanitizeTerminalText(result.latestObservation.summary)} · ${result.latestObservation.observedAt}${reset}\n`,
+      );
+    }
   });
 
 taskCommands
@@ -1443,6 +2159,35 @@ debugCommands
     },
   );
 
+debugCommands
+  .command("causal-live")
+  .description(
+    "run caller-supplied Node.js or Python causal invocations in verified native containment",
+  )
+  .requiredOption(
+    "--input <path>",
+    "JSON object containing a live causal plan with the current workspace digest",
+  )
+  .action(
+    async (
+      localOptions: { input: string },
+      command: Command,
+    ) => {
+      const options = command.optsWithGlobals<GlobalOptions>();
+      const config = loadConfig(globalOverrides(options));
+      const input = await readJsonArtifact(
+        config.cwd,
+        localOptions.input,
+        "Live causal input",
+      );
+      const result = await runLiveCausalTwin(input, {
+        workspaceRoot: config.cwd,
+        knownSecrets: config.apiKey ? [config.apiKey] : [],
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    },
+  );
+
 const labCommands = program
   .command("lab")
   .description(
@@ -1678,8 +2423,8 @@ auth
           ? `${green}Opened Krater API setup in your browser.${reset}`
           : `Krater API setup: ${KRATER_DEVELOPER_URL}`,
         `${dim}${capabilities.explanation}${reset}`,
-        `${dim}After creating a key, add KRATER_API_KEY=kr_live_… to the workspace .env,`,
-        `or paste it into the Krater Pro GUI Settings for this tab only.${reset}`,
+        `${dim}After creating a key, run \`krater setup\` for hidden input, validation,`,
+        `and OS-protected storage. The GUI Settings key remains tab-only.${reset}`,
         "",
       ].join("\n"),
     );
@@ -1742,6 +2487,19 @@ program
   });
 
 program.parseAsync(process.argv).catch((error) => {
-  process.stderr.write(`${red}Error:${reset} ${(error as Error).message}\n`);
+  if (isSetupRequiredError(error)) {
+    const options = program.opts<GlobalOptions>();
+    const result = createSetupRequiredResult(
+      options.cwd ?? process.cwd(),
+    );
+    const rendered = renderSetupResult(result, options.json);
+    if (options.json) process.stdout.write(rendered);
+    else process.stderr.write(rendered);
+    process.exitCode = SETUP_REQUIRED_EXIT_CODE;
+    return;
+  }
+  process.stderr.write(
+    `${red}Error:${reset} ${sanitizeTerminalText((error as Error).message)}\n`,
+  );
   process.exitCode = 1;
 });

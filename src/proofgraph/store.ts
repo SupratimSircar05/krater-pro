@@ -8,6 +8,16 @@ import {
 import { join, parse, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import {
+  assertValidAgentDelegation,
+  assertValidExternalEffectPlan,
+  assertValidExternalEffectReceipt,
+  assertValidPlanRevision,
+  assertValidProductionObservation,
+  assertValidProofLease,
+  assertValidProofLeaseInvalidation,
+} from "../autopilot/records.js";
+import type { ProofObligation } from "../autopilot/types.js";
 import { canonicalStringify, sha256Hex } from "./canonical.js";
 import { ContentAddressedStore } from "./cas.js";
 import {
@@ -31,6 +41,13 @@ import type {
 } from "./types.js";
 
 const HASH = /^[a-f0-9]{64}$/;
+const EVIDENCE_WEIGHT = {
+  not_established: 0,
+  observed: 1,
+  tested: 2,
+  stress_tested: 3,
+  formally_verified: 4,
+} as const;
 const EVENT_KINDS = new Set<ProofGraphEventKind>([
   "task.created",
   "task.state.changed",
@@ -41,6 +58,13 @@ const EVENT_KINDS = new Set<ProofGraphEventKind>([
   "claim.recorded",
   "capsule.generated",
   "passport.generated",
+  "autopilot.plan.revised",
+  "autopilot.delegation.recorded",
+  "autopilot.external_effect.planned",
+  "autopilot.external_effect.receipt.recorded",
+  "autopilot.proof_lease.issued",
+  "autopilot.proof_lease.invalidated",
+  "autopilot.production.observed",
 ]);
 
 export type TailCorruptionKind =
@@ -103,6 +127,43 @@ interface UnsignedEvent {
   previousHash: string | null;
 }
 
+function assertCurrentObligationEvidence(
+  obligation: ProofObligation,
+  projection: TaskProjection,
+  leasedEvidenceIds?: ReadonlySet<string>,
+): void {
+  if (obligation.status === "waived") return;
+  if (obligation.status !== "satisfied") {
+    throw new TypeError(
+      `Proof obligation is not cleared: ${obligation.id}`,
+    );
+  }
+  const current = obligation.evidenceIds
+    .map((evidenceId) =>
+      projection.evidence.find((evidence) => evidence.id === evidenceId),
+    )
+    .filter(
+      (evidence): evidence is NonNullable<typeof evidence> =>
+        evidence !== undefined &&
+        !evidence.stale &&
+        (!leasedEvidenceIds || leasedEvidenceIds.has(evidence.id)),
+    );
+  if (current.length === 0) {
+    throw new TypeError(
+      `Proof obligation lacks current evidence: ${obligation.id}`,
+    );
+  }
+  const strongest = current.reduce(
+    (weight, evidence) => Math.max(weight, EVIDENCE_WEIGHT[evidence.grade]),
+    0,
+  );
+  if (strongest < EVIDENCE_WEIGHT[obligation.minimumGrade]) {
+    throw new TypeError(
+      `Proof obligation does not meet grade ${obligation.minimumGrade}: ${obligation.id}`,
+    );
+  }
+}
+
 function validateAppendSemantics(
   events: readonly StoredProofGraphEvent[],
   input: AppendProofGraphEvent,
@@ -121,8 +182,8 @@ function validateAppendSemantics(
     throw new Error(`ProofGraph task does not exist: ${input.taskId}`);
   }
 
+  const current = rebuildTaskProjection(events, input.taskId);
   if (input.kind === "task.state.changed") {
-    const current = rebuildTaskProjection(events, input.taskId);
     if (input.payload.from && input.payload.from !== current.state) {
       throw new Error(
         `Task state event expected ${input.payload.from}, current state is ${current.state}.`,
@@ -132,20 +193,323 @@ function validateAppendSemantics(
     return;
   }
 
-  const recordTaskId =
-    input.kind === "contract.set"
-      ? input.payload.contract.taskId
-      : input.kind === "intent.recorded"
-        ? input.payload.intent.taskId
-        : input.kind === "action.recorded"
-          ? input.payload.action.taskId
-          : input.kind === "evidence.recorded"
-            ? input.payload.evidence.taskId
-            : input.kind === "claim.recorded"
-              ? input.payload.claim.taskId
-              : input.kind === "capsule.generated"
-                ? input.payload.capsule.taskId
-                : input.payload.passport.taskId;
+  let recordTaskId: string;
+  switch (input.kind) {
+    case "contract.set":
+      recordTaskId = input.payload.contract.taskId;
+      break;
+    case "intent.recorded":
+      recordTaskId = input.payload.intent.taskId;
+      break;
+    case "action.recorded":
+      recordTaskId = input.payload.action.taskId;
+      break;
+    case "evidence.recorded":
+      recordTaskId = input.payload.evidence.taskId;
+      break;
+    case "claim.recorded":
+      recordTaskId = input.payload.claim.taskId;
+      break;
+    case "capsule.generated":
+      recordTaskId = input.payload.capsule.taskId;
+      break;
+    case "passport.generated":
+      recordTaskId = input.payload.passport.taskId;
+      break;
+    case "autopilot.plan.revised":
+      recordTaskId = input.payload.plan.taskId;
+      assertValidPlanRevision(current.autopilot.currentPlan, input.payload.plan);
+      for (const obligation of input.payload.plan.proofObligations) {
+        if (obligation.status === "satisfied") {
+          assertCurrentObligationEvidence(obligation, current);
+        }
+      }
+      break;
+    case "autopilot.delegation.recorded": {
+      const delegation = input.payload.delegation;
+      recordTaskId = delegation.taskId;
+      assertValidAgentDelegation(delegation);
+      const plan = current.autopilot.currentPlan;
+      if (
+        !plan ||
+        delegation.planId !== plan.id ||
+        delegation.planDigest !== plan.digest
+      ) {
+        throw new TypeError(
+          "Agent delegation must reference the current task plan revision.",
+        );
+      }
+      if (
+        current.autopilot.delegations.some(
+          (existing) => existing.id === delegation.id,
+        )
+      ) {
+        throw new Error(`Agent delegation already exists: ${delegation.id}`);
+      }
+      const stepIds = new Set(plan.steps.map((step) => step.id));
+      const missing = delegation.stepIds.find((stepId) => !stepIds.has(stepId));
+      if (missing) {
+        throw new TypeError(
+          `Agent delegation references missing plan step: ${missing}`,
+        );
+      }
+      const currentEvidenceIds = new Set(
+        current.evidence
+          .filter((evidence) => !evidence.stale)
+          .map((evidence) => evidence.id),
+      );
+      const missingEvidence = delegation.resultEvidenceIds.find(
+        (evidenceId) => !currentEvidenceIds.has(evidenceId),
+      );
+      if (missingEvidence) {
+        throw new TypeError(
+          `Agent delegation references missing or stale evidence: ${missingEvidence}`,
+        );
+      }
+      break;
+    }
+    case "autopilot.external_effect.planned": {
+      const effectPlan = input.payload.effectPlan;
+      recordTaskId = effectPlan.taskId;
+      assertValidExternalEffectPlan(effectPlan);
+      const plan = current.autopilot.currentPlan;
+      if (
+        !plan ||
+        effectPlan.planId !== plan.id ||
+        effectPlan.planDigest !== plan.digest
+      ) {
+        throw new TypeError(
+          "External effect must reference the current task plan revision.",
+        );
+      }
+      if (
+        current.autopilot.externalEffectPlans.some(
+          (existing) => existing.id === effectPlan.id,
+        )
+      ) {
+        throw new Error(`External effect plan already exists: ${effectPlan.id}`);
+      }
+      if (!plan.steps.some((step) => step.id === effectPlan.stepId)) {
+        throw new TypeError(
+          `External effect references missing plan step: ${effectPlan.stepId}`,
+        );
+      }
+      const obligations = new Map(
+        plan.proofObligations.map((obligation) => [obligation.id, obligation]),
+      );
+      for (const obligationId of effectPlan.preconditionProofObligationIds) {
+        const obligation = obligations.get(obligationId);
+        if (!obligation) {
+          throw new TypeError(
+            `External effect references missing proof obligation: ${obligationId}`,
+          );
+        }
+        if (!["satisfied", "waived"].includes(obligation.status)) {
+          throw new TypeError(
+            `External effect proof obligation is not cleared: ${obligationId}`,
+          );
+        }
+        assertCurrentObligationEvidence(obligation, current);
+      }
+      break;
+    }
+    case "autopilot.external_effect.receipt.recorded": {
+      const receipt = input.payload.receipt;
+      recordTaskId = receipt.taskId;
+      assertValidExternalEffectReceipt(receipt);
+      if (
+        current.autopilot.externalEffectReceipts.some(
+          (existing) => existing.id === receipt.id,
+        )
+      ) {
+        throw new Error(`External effect receipt already exists: ${receipt.id}`);
+      }
+      const effectPlan = current.autopilot.externalEffectPlans.find(
+        (candidate) => candidate.id === receipt.effectPlanId,
+      );
+      if (!effectPlan || effectPlan.digest !== receipt.effectPlanDigest) {
+        throw new TypeError(
+          "External effect receipt does not match a durable effect plan.",
+        );
+      }
+      if (
+        effectPlan.approvalRequired &&
+        receipt.status !== "refused" &&
+        !receipt.approvalReceiptDigest
+      ) {
+        throw new TypeError(
+          "External effect receipt requires an exact approval receipt digest.",
+        );
+      }
+      if (Date.parse(receipt.startedAt) > Date.parse(effectPlan.expiresAt)) {
+        throw new TypeError(
+          "External effect execution started after its plan expired.",
+        );
+      }
+      const currentEvidenceIds = new Set(
+        current.evidence
+          .filter((evidence) => !evidence.stale)
+          .map((evidence) => evidence.id),
+      );
+      const missingReceiptEvidence = [
+        ...receipt.preflightEvidenceIds,
+        ...receipt.resultEvidenceIds,
+      ].find((evidenceId) => !currentEvidenceIds.has(evidenceId));
+      if (missingReceiptEvidence) {
+        throw new TypeError(
+          `External effect receipt references missing or stale evidence: ${missingReceiptEvidence}`,
+        );
+      }
+      const priorReceipts =
+        current.autopilot.externalEffectReceipts.filter(
+          (candidate) => candidate.effectPlanId === effectPlan.id,
+        );
+      if (receipt.status === "compensated") {
+        if (
+          !priorReceipts.some((candidate) =>
+            ["succeeded", "partially_succeeded"].includes(candidate.status),
+          )
+        ) {
+          throw new TypeError(
+            "A compensation receipt requires a prior successful or partial effect.",
+          );
+        }
+      } else if (
+        priorReceipts.some((candidate) =>
+          ["succeeded", "partially_succeeded", "compensated"].includes(
+            candidate.status,
+          ),
+        )
+      ) {
+        throw new Error(
+          "External effect plan already has a terminal mutating receipt.",
+        );
+      }
+      break;
+    }
+    case "autopilot.proof_lease.issued": {
+      const lease = input.payload.lease;
+      recordTaskId = lease.taskId;
+      assertValidProofLease(lease);
+      if (
+        current.autopilot.proofLeases.some(
+          (existing) => existing.id === lease.id,
+        )
+      ) {
+        throw new Error(`Proof lease already exists: ${lease.id}`);
+      }
+      const plan = current.autopilot.currentPlan;
+      if (
+        !plan ||
+        lease.planId !== plan.id ||
+        lease.planRevision !== plan.revision ||
+        lease.planDigest !== plan.digest
+      ) {
+        throw new TypeError(
+          "Proof lease must reference the current task plan revision.",
+        );
+      }
+      const obligations = new Map(
+        plan.proofObligations.map((obligation) => [obligation.id, obligation]),
+      );
+      const evidenceIds = new Set(current.evidence.map((evidence) => evidence.id));
+      const leasedEvidenceIds = new Set(lease.evidenceIds);
+      for (const obligationId of lease.proofObligationIds) {
+        const obligation = obligations.get(obligationId);
+        if (!obligation) {
+          throw new TypeError(
+            `Proof lease references missing proof obligation: ${obligationId}`,
+          );
+        }
+        if (!["satisfied", "waived"].includes(obligation.status)) {
+          throw new TypeError(
+            `Proof lease obligation is not cleared: ${obligationId}`,
+          );
+        }
+        assertCurrentObligationEvidence(
+          obligation,
+          current,
+          leasedEvidenceIds,
+        );
+      }
+      const missingEvidence = lease.evidenceIds.find(
+        (evidenceId) =>
+          !evidenceIds.has(evidenceId) ||
+          current.evidence.find((evidence) => evidence.id === evidenceId)?.stale,
+      );
+      if (missingEvidence) {
+        throw new TypeError(
+          `Proof lease references missing evidence: ${missingEvidence}`,
+        );
+      }
+      break;
+    }
+    case "autopilot.proof_lease.invalidated": {
+      const invalidation = input.payload.invalidation;
+      recordTaskId = invalidation.taskId;
+      assertValidProofLeaseInvalidation(invalidation);
+      if (
+        current.autopilot.proofLeaseInvalidations.some(
+          (existing) => existing.id === invalidation.id,
+        )
+      ) {
+        throw new Error(
+          `Proof lease invalidation already exists: ${invalidation.id}`,
+        );
+      }
+      const lease = current.autopilot.proofLeases.find(
+        (candidate) => candidate.id === invalidation.leaseId,
+      );
+      if (!lease || lease.digest !== invalidation.leaseDigest) {
+        throw new TypeError(
+          "Proof lease invalidation does not match a durable proof lease.",
+        );
+      }
+      break;
+    }
+    case "autopilot.production.observed": {
+      const observation = input.payload.observation;
+      recordTaskId = observation.taskId;
+      assertValidProductionObservation(observation);
+      if (
+        current.autopilot.productionObservations.some(
+          (existing) => existing.id === observation.id,
+        )
+      ) {
+        throw new Error(
+          `Production observation already exists: ${observation.id}`,
+        );
+      }
+      if (
+        observation.effectReceiptDigest &&
+        !current.autopilot.externalEffectReceipts.some(
+          (receipt) => receipt.digest === observation.effectReceiptDigest,
+        )
+      ) {
+        throw new TypeError(
+          "Production observation references an unknown external effect receipt.",
+        );
+      }
+      const evidenceIds = new Set(current.evidence.map((evidence) => evidence.id));
+      const missingEvidence = observation.evidenceIds.find(
+        (evidenceId) =>
+          !evidenceIds.has(evidenceId) ||
+          current.evidence.find((evidence) => evidence.id === evidenceId)?.stale,
+      );
+      if (missingEvidence) {
+        throw new TypeError(
+          `Production observation references missing evidence: ${missingEvidence}`,
+        );
+      }
+      break;
+    }
+    default: {
+      const neverInput: never = input;
+      throw new TypeError(
+        `Unsupported ProofGraph event: ${(neverInput as AppendProofGraphEvent).kind}`,
+      );
+    }
+  }
   if (recordTaskId !== input.taskId) {
     throw new TypeError(`${input.kind} payload task ID must match the event task ID.`);
   }

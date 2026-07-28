@@ -49,7 +49,7 @@ export interface CommandCapabilityRequest {
 
 export interface ResourceCapabilityRequest {
   kind: "resource";
-  access: "read" | "write" | "read_write";
+  access: "read" | "write" | "read_write" | "deny";
   paths: readonly string[];
   reason: string;
 }

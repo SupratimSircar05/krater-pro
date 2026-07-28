@@ -29,10 +29,10 @@ afterEach(async () => {
 });
 
 describe("evidence benchmark manifest", () => {
-  it("validates the 20 deterministic foundation tasks and all sealed assets", async () => {
+  it("validates the 100 deterministic foundation tasks and all sealed assets", async () => {
     const manifest = await readEvidenceBenchmarkManifest(benchmarkRoot);
-    expect(manifest.tasks).toHaveLength(20);
-    expect(new Set(manifest.tasks.map((task) => task.sourceSpecId)).size).toBeGreaterThan(10);
+    expect(manifest.tasks).toHaveLength(100);
+    expect(new Set(manifest.tasks.map((task) => task.sourceSpecId)).size).toBe(100);
     await expect(
       validateEvidenceBenchmarkAssets(benchmarkRoot, manifest),
     ).resolves.toBeUndefined();

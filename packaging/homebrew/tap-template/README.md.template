@@ -1,0 +1,19 @@
+# Krater Pro Homebrew tap
+
+Install the CLI:
+
+```sh
+brew install {{TAP_REPOSITORY}}/krater-pro
+krater setup
+krater doctor
+```
+
+Install the signed and notarized desktop application:
+
+```sh
+brew install --cask {{TAP_REPOSITORY}}/krater-pro-app
+```
+
+Formula and cask updates are generated only from checksum-verified Krater Pro
+GitHub Release assets. Pull requests must pass native formula lifecycle tests
+and macOS cask audit checks before merge.

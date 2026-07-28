@@ -1,18 +1,27 @@
 import { createServer as createHttpServer, type Server } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  realpath,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
-import { createApp } from "./server.js";
+import { createApp, type ServerOptions } from "./server.js";
 
 const servers: Server[] = [];
 const temporaryPaths: string[] = [];
 
-async function serve(): Promise<{ base: string; token: string }> {
+async function serve(
+  options: ServerOptions = {},
+): Promise<{ base: string; token: string; cwd: string }> {
   const cwd = await mkdtemp(join(tmpdir(), "krater-advanced-api-"));
   temporaryPaths.push(cwd);
-  const app = await createApp(loadConfig({ cwd }, {}));
+  const app = await createApp(loadConfig({ cwd }, {}), options);
   const server = await new Promise<Server>((resolveServer, reject) => {
     const instance = createHttpServer(app);
     instance.listen(0, "127.0.0.1", () => resolveServer(instance));
@@ -26,6 +35,7 @@ async function serve(): Promise<{ base: string; token: string }> {
   return {
     base: `http://127.0.0.1:${address.port}`,
     token: String(app.locals.localToken),
+    cwd,
   };
 }
 
@@ -125,6 +135,150 @@ afterEach(async () => {
 });
 
 describe("advanced evidence-native API adapters", () => {
+  it("forecasts caller-supplied semantic conflicts without reading or mutating the workspace", async () => {
+    const server = await serve();
+    await writeFile(join(server.cwd, "sentinel.txt"), "unchanged\n");
+    const pathsBefore = await readdir(server.cwd);
+
+    const response = await post(server, "/api/v2/merge/forecast", {
+      patches: [
+        {
+          id: "feature-a",
+          symbols: [
+            {
+              id: "src/auth.ts#login",
+              operation: "write",
+              contractDigest: "contract-a",
+            },
+          ],
+          invariants: [
+            { id: "auth:no-plaintext", effect: "preserves" },
+          ],
+        },
+        {
+          id: "feature-b",
+          symbols: [
+            {
+              id: "src/auth.ts#login",
+              operation: "signature_change",
+              contractDigest: "contract-b",
+            },
+          ],
+          invariants: [
+            { id: "auth:no-plaintext", effect: "weakens" },
+          ],
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      schemaVersion: 1,
+      type: "semantic_merge_forecast",
+      analysis: {
+        source: "caller_supplied_descriptors",
+        workspaceRead: false,
+        workspaceMutation: false,
+        executedChecks: false,
+        persisted: false,
+      },
+      forecast: {
+        safeToCombine: false,
+        blockingConflictCount: 2,
+        conflicts: [
+          expect.objectContaining({ category: "invariant" }),
+          expect.objectContaining({ category: "symbol" }),
+        ],
+      },
+      limitations: expect.arrayContaining([
+        expect.stringMatching(/caller-supplied/i),
+        expect.stringMatching(/does not inspect Git/i),
+        expect.stringMatching(/does not mutate/i),
+      ]),
+    });
+    expect(await readFile(join(server.cwd, "sentinel.txt"), "utf8")).toBe(
+      "unchanged\n",
+    );
+    expect(await readdir(server.cwd)).toEqual(pathsBefore);
+  });
+
+  it("strictly rejects unsupported fields, unsafe path syntax, and malformed touches", async () => {
+    const server = await serve();
+    const invalidBodies = [
+      {
+        patches: [{ id: "a" }],
+        workspacePath: "/tmp/untrusted",
+      },
+      {
+        patches: [{ id: "a", path: "../outside" }],
+      },
+      {
+        patches: [{ id: "../outside" }],
+      },
+      {
+        patches: [
+          {
+            id: "a",
+            symbols: [{ id: "/etc/passwd", operation: "read" }],
+          },
+        ],
+      },
+      {
+        patches: [
+          {
+            id: "a",
+            schemas: [{ id: "User", operation: "rewrite" }],
+          },
+        ],
+      },
+      {
+        patches: [
+          {
+            id: "a",
+            migrations: [{ id: "m1", resource: "db", order: -1 }],
+          },
+        ],
+      },
+    ];
+
+    for (const body of invalidBodies) {
+      const response = await post(server, "/api/v2/merge/forecast", body);
+      expect(response.status).toBe(400);
+      const text = await response.text();
+      expect(text).not.toContain("/tmp/untrusted");
+      expect(text).not.toContain("../outside");
+      expect(text).not.toContain("/etc/passwd");
+    }
+  });
+
+  it("reports semantic duplicate IDs as conflicts while enforcing a bounded schema", async () => {
+    const server = await serve();
+    const duplicate = await post(server, "/api/v2/merge/forecast", {
+      patches: [{ id: "same" }, { id: "same" }],
+    });
+
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({
+      forecast: {
+        safeToCombine: false,
+        conflicts: [
+          expect.objectContaining({
+            category: "duplicate_patch",
+            target: "same",
+          }),
+        ],
+      },
+    });
+
+    const oversized = await post(server, "/api/v2/merge/forecast", {
+      patches: Array.from({ length: 65 }, (_, index) => ({
+        id: `patch-${index}`,
+      })),
+    });
+    expect(oversized.status).toBe(400);
+    expect(JSON.stringify(await oversized.json())).toMatch(/at most|1 to 64/i);
+  });
+
   it("replays causal evidence but refuses to imply live execution", async () => {
     const server = await serve();
     const response = await post(
@@ -148,6 +302,32 @@ describe("advanced evidence-native API adapters", () => {
     expect(JSON.stringify(await refused.json())).toMatch(
       /requires recorded executions/i,
     );
+  });
+
+  it("routes live causal requests through the selected local project without relabeling recorded replay", async () => {
+    let selectedWorkspace = "";
+    const server = await serve({
+      liveCausalExecutor: (async (_value, options) => {
+        selectedWorkspace = options.workspaceRoot;
+        return {
+          schemaVersion: 1,
+          mode: "live_sandboxed_process_execution",
+          executedProcesses: true,
+          workspaceDigestVerified: true,
+        } as never;
+      }),
+    });
+    const response = await post(server, "/api/v2/debug/causal/live", {
+      plan: {},
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      mode: "live_sandboxed_process_execution",
+      executedProcesses: true,
+      workspaceDigestVerified: true,
+    });
+    expect(selectedWorkspace).toBe(await realpath(server.cwd));
   });
 
   it("scores sealed results and evaluates promotion without persisting it", async () => {

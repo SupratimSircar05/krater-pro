@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const evidenceProviderState = vi.hoisted(() => ({ instances: 0 }));
+const evidenceProviderState = vi.hoisted(() => ({
+  instances: 0,
+  calls: [] as unknown[][],
+}));
 
 vi.mock("./provider.js", () => ({
   KraterProvider: class FakeEvidenceProvider {
@@ -15,10 +18,46 @@ vi.mock("./provider.js", () => ({
     }
 
     async complete(
-      _messages: unknown,
+      messages: unknown,
       _tools: unknown,
       onText: (text: string) => void,
     ) {
+      const conversation = messages as Array<{
+        role?: string;
+        content?: string | null;
+      }>;
+      evidenceProviderState.calls.push(structuredClone(conversation));
+      const lastUser = [...conversation]
+        .reverse()
+        .find((message) => message.role === "user")?.content;
+      if (lastUser === "Wait for cancellation") {
+        return {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "cancel-command",
+                type: "function",
+                function: {
+                  name: "run_command",
+                  arguments: JSON.stringify({ command: "pwd" }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (lastUser === "Continue from the prior investigation") {
+        onText("The prior file evidence and tool results are still available.");
+        return {
+          message: {
+            role: "assistant",
+            content:
+              "The prior file evidence and tool results are still available.",
+          },
+        };
+      }
       const calls = [
         {
           id: "read-evidence",
@@ -202,6 +241,27 @@ async function seedReviewedProofPatch(
     output: "Exit code: 0",
     ok: true,
   });
+  await task.recordVerifierResult({
+    passed: true,
+    summary:
+      "A context-isolated verifier confirmed the requested source behavior.",
+    kind: "test",
+    grade: "tested",
+    origin: "blind_verifier",
+    command: "sealed-checker source behavior",
+    tool: "test-verifier",
+  });
+  await task.recordVerifierResult({
+    linkToCriterion: false,
+    passed: true,
+    summary:
+      "A context-isolated security verifier found no protected-data or unsafe-success regression.",
+    kind: "security",
+    grade: "tested",
+    origin: "blind_verifier",
+    command: "sealed-security-check",
+    tool: "security-verifier",
+  });
   const prepared = await staged.prepareProofPatch(task.taskId);
   await task.finish({
     baseWorkspaceDigest: prepared.baseWorkspaceDigest,
@@ -227,6 +287,69 @@ afterEach(async () => {
 });
 
 describe("Krater Pro evidence-native API", () => {
+  it("cancels an approval-blocked task once when its browser session closes", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, "source.txt"), "base\n");
+    const server = await serve(cwd);
+    const projectId = await currentProjectId(server);
+    const sessionResponse = await apiFetch(server, "/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    });
+    expect(sessionResponse.status).toBe(201);
+    const { id: sessionId } = (await sessionResponse.json()) as { id: string };
+
+    const messageResponse = await apiFetch(
+      server,
+      `/api/sessions/${sessionId}/messages`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          message: "Wait for cancellation",
+          apiKey: "kr_evidence",
+          model: "evidence/model",
+          assurance: "high",
+        }),
+      },
+    );
+    expect(messageResponse.status).toBe(200);
+    const reader = messageResponse.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let streamed = "";
+    while (!streamed.includes('"type":"approval"')) {
+      const chunk = await reader!.read();
+      expect(chunk.done).toBe(false);
+      streamed += decoder.decode(chunk.value, { stream: true });
+    }
+
+    const deleteResponse = await apiFetch(
+      server,
+      `/api/sessions/${sessionId}`,
+      { method: "DELETE" },
+    );
+    expect(deleteResponse.status).toBe(204);
+    await reader!.cancel();
+
+    await vi.waitFor(
+      async () => {
+        const tasksResponse = await apiFetch(server, "/api/v2/tasks");
+        expect(tasksResponse.status).toBe(200);
+        const tasks = (await tasksResponse.json()) as {
+          tasks: Array<{ state: string }>;
+        };
+        expect(tasks.tasks).toHaveLength(1);
+        expect(tasks.tasks[0].state).toBe("cancelled");
+      },
+      { timeout: 5_000, interval: 25 },
+    );
+    const statusResponse = await apiFetch(server, "/api/status");
+    expect(statusResponse.status).toBe(200);
+  });
+
   it("keeps browser-agent edits isolated until explicit evidence publication", async () => {
     const cwd = await temporaryDirectory();
     await writeFile(join(cwd, "source.txt"), "base\n");
@@ -333,6 +456,58 @@ describe("Krater Pro evidence-native API", () => {
       "agent staged\n",
     );
     expect(evidenceProviderState.instances).toBeGreaterThan(0);
+
+    const followupResponse = await apiFetch(
+      server,
+      `/api/sessions/${sessionId}/messages`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          message: "Continue from the prior investigation",
+          apiKey: "kr_evidence",
+          model: "evidence/model",
+          assurance: "fast",
+        }),
+      },
+    );
+    expect(followupResponse.status).toBe(200);
+    expect(parseEvents(await followupResponse.text())).toContainEqual({
+      type: "text",
+      text: "The prior file evidence and tool results are still available.",
+    });
+
+    const followupContext = evidenceProviderState.calls.at(-1) as Array<{
+      role?: string;
+      content?: string | null;
+      tool_calls?: Array<{ id?: string }>;
+      tool_call_id?: string;
+    }>;
+    const serializedContext = JSON.stringify(followupContext);
+    expect(serializedContext).not.toContain("kr_evidence");
+    expect(serializedContext.length).toBeLessThan(120_000);
+    expect(followupContext).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        tool_calls: [
+          expect.objectContaining({
+            id: "read-evidence",
+          }),
+        ],
+      }),
+    );
+    expect(followupContext).toContainEqual(
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "read-evidence",
+        content: expect.stringContaining("base"),
+      }),
+    );
+    expect(followupContext.at(-1)).toEqual({
+      role: "user",
+      content: "Continue from the prior investigation",
+    });
   });
 
   it("publishes and rolls back a reviewed ProofPatch through API v2", async () => {

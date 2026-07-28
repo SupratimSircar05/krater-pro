@@ -240,6 +240,18 @@ function workspaceDigest(manifest: ReadonlyMap<string, FileEntry>): string {
   );
 }
 
+/**
+ * Produces the same secret-excluding, ignored-output-excluding source digest
+ * used by ProofPatch publication. Verified cache callers can reuse work only
+ * when this digest and every other declared dependency still match.
+ */
+export async function computeWorkspaceSnapshotDigest(
+  workspaceRoot: string,
+): Promise<string> {
+  const root = await realpath(resolve(workspaceRoot));
+  return workspaceDigest(await fileManifest(root));
+}
+
 async function ensurePrivateStateRoot(workspaceRoot: string): Promise<string> {
   const state = join(workspaceRoot, ".krater");
   try {

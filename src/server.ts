@@ -5,15 +5,32 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import express, { type Express, type Request, type Response } from "express";
-import { AgentSession } from "./agent.js";
+import {
+  AgentSession,
+  type AgentContinuitySnapshot,
+} from "./agent.js";
+import {
+  VerifiedAutopilotService,
+  type PlanStepInput,
+  type ProofObligationInput,
+  type TaskPlan,
+} from "./autopilot/index.js";
 import {
   calibrateReliabilityCandidate,
   replayRecordedCausalTwin,
   replayReliabilityEvaluation,
 } from "./advanced-adapters.js";
+import {
+  LiveCausalExecutionError,
+  LiveCausalUnavailableError,
+  LiveCausalValidationError,
+  runLiveCausalTwin,
+  scrubCausalText,
+} from "./causal/index.js";
 import { browserAuthCapabilities } from "./browser-auth.js";
 import type { KraterConfig } from "./config.js";
 import {
@@ -35,6 +52,7 @@ import {
   renderPassportMarkdown,
 } from "./evidence-runtime.js";
 import {
+  isSha256Digest,
   verifyChangePassport,
   verifyEvidenceCapsule,
 } from "./proofgraph/index.js";
@@ -46,6 +64,15 @@ import {
   simulatePolicy,
   type PolicySimulationRequest,
 } from "./trust/index.js";
+import {
+  forecastSemanticMerge,
+  type IntentTouch,
+  type InvariantTouch,
+  type MigrationTouch,
+  type SchemaTouch,
+  type SemanticPatch,
+  type SymbolTouch,
+} from "./intelligence/index.js";
 import { VerifiedWorkCache } from "./verified-cache/index.js";
 import {
   StagedTaskWorkspace,
@@ -54,6 +81,15 @@ import {
   publishBoundProofPatch,
   rollbackBoundProofPatch,
 } from "./staging-workspace.js";
+import {
+  ProofGraphShippingCoordinator,
+  ShippingError,
+  durableShippingStatus,
+  type ShippingCredentialHandle,
+  type ShippingEffect,
+  type ShippingLeaseContext,
+  type StructuredShippingService,
+} from "./shipping/index.js";
 import {
   Workspace,
   WorkspaceRevisionConflictError,
@@ -66,6 +102,24 @@ export interface ServerOptions {
    * embedders may opt in during the compatibility release.
    */
   evidenceMode?: boolean;
+  /**
+   * Optional host-owned structured adapter. The normal local server does not
+   * configure one, so API shipping mutations fail closed. Tests and future
+   * audited adapters may inject an implementation explicitly.
+   */
+  structuredShipping?: StructuredShippingService;
+  /**
+   * Allows embedders and tests to disable Vite's HMR websocket while retaining
+   * the transformed development shell. Normal `--dev` use keeps HMR enabled.
+   */
+  devHmr?: boolean;
+  /** Optional test/embedder override for Vite's HMR websocket listener. */
+  devHmrPort?: number;
+  /**
+   * Test/embedding seam for the live causal orchestrator. Production uses the
+   * verified, fail-closed local implementation.
+   */
+  liveCausalExecutor?: typeof runLiveCausalTwin;
 }
 
 interface PendingApproval {
@@ -80,16 +134,33 @@ const SESSION_IDLE_MS = 60 * 60 * 1_000;
 const MAX_IDE_COMMAND_BYTES = 8_192;
 const MAX_IDE_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_IDE_TERMINALS = 4;
+const MAX_MERGE_PATCHES = 64;
+const MAX_MERGE_DEPENDENCIES = 128;
+const MAX_MERGE_TOUCHES_PER_KIND = 256;
+const MAX_MERGE_TOTAL_TOUCHES = 4_096;
+const MAX_SEMANTIC_IDENTIFIER_BYTES = 256;
+const MAX_SEMANTIC_VALUE_BYTES = 512;
+const MERGE_FORECAST_LIMITATIONS = [
+  "Forecasts only the caller-supplied semantic descriptors.",
+  "Does not inspect Git branches, diffs, source files, schemas, or runtime state.",
+  "Does not create a merge workspace or run type checks, builds, migrations, or tests.",
+  "Does not mutate the selected project or persist the forecast.",
+  "Detects only conflicts represented by the supported touch categories; omitted or inaccurate descriptors can produce false negatives.",
+  "safeToCombine means no blocking conflict was found in the supplied descriptors, not that a Git merge or production behavior is safe.",
+] as const;
 
 class BrowserSession {
   readonly id = randomUUID();
   private agent?: AgentSession;
   private agentKey = "";
   private agentModel = "";
+  private continuity?: AgentContinuitySnapshot;
   private sink?: (event: AgentEvent) => void;
   private activeSignal?: AbortSignal;
   private activeController?: AbortController;
+  private cancelReason?: string;
   private readonly pending = new Map<string, PendingApproval>();
+  private readonly idleWaiters = new Set<() => void>();
   private running = false;
   private lastActivity = Date.now();
   private evidenceTask?: EvidenceTask;
@@ -112,6 +183,13 @@ class BrowserSession {
 
   get lastUsedAt(): number {
     return this.lastActivity;
+  }
+
+  async waitForIdle(): Promise<void> {
+    if (!this.running) return;
+    await new Promise<void>((resolveIdle) => {
+      this.idleWaiters.add(resolveIdle);
+    });
   }
 
   invalidateWorkspaceCache(): void {
@@ -162,7 +240,10 @@ class BrowserSession {
       .update("\0")
       .update(apiKey)
       .digest("hex");
-    if (this.agent && (this.agentKey !== signature || this.agentModel !== model)) {
+    if (
+      this.agentKey &&
+      (this.agentKey !== signature || this.agentModel !== model)
+    ) {
       throw new Error(
         "The API key or model changed during this task. Start a new task before continuing.",
       );
@@ -195,6 +276,9 @@ class BrowserSession {
         maxSteps: this.config.maxSteps,
         sessionTokenBudget: this.config.sessionTokenBudget,
         evidenceMode: this.evidenceMode,
+        knownSecrets: [apiKey],
+        verifiedCacheRoot: join(this.config.cwd, ".krater", "cache"),
+        continuity: this.continuity,
       });
     }
     return this.agent;
@@ -218,6 +302,7 @@ class BrowserSession {
     else signal.addEventListener("abort", forwardAbort, { once: true });
     this.activeController = controller;
     this.activeSignal = controller.signal;
+    this.cancelReason = undefined;
     let proofPatchPrepared = false;
     try {
       let resolvedModel = model;
@@ -290,7 +375,13 @@ class BrowserSession {
         message,
         controller.signal,
       );
+      if (controller.signal.aborted) {
+        throw new Error("Task execution was cancelled.");
+      }
       await this.evidenceTask?.flush();
+      if (controller.signal.aborted) {
+        throw new Error("Task execution was cancelled.");
+      }
       let projection;
       if (
         this.evidenceTask &&
@@ -353,26 +444,37 @@ class BrowserSession {
           state: projection.state,
         });
       } else if (this.evidenceTask && controller.signal.aborted) {
-        await this.evidenceTask.cancel("Task execution was cancelled.");
+        await this.evidenceTask.cancel(
+          this.cancelReason ?? "Task execution was cancelled.",
+        );
       }
       throw error;
     } finally {
       signal.removeEventListener("abort", forwardAbort);
-      this.running = false;
       this.sink = undefined;
       this.activeSignal = undefined;
       this.activeController = undefined;
+      this.cancelReason = undefined;
       this.evidenceTask = undefined;
-      if (this.evidenceMode) {
-        if (this.stagedWorkspace && !proofPatchPrepared) {
-          void this.stagedWorkspace.discard();
+      try {
+        if (this.evidenceMode) {
+          if (this.agent) {
+            this.continuity = this.agent.continuitySnapshot();
+          }
+          if (this.stagedWorkspace && !proofPatchPrepared) {
+            const stagedWorkspace = this.stagedWorkspace;
+            this.stagedWorkspace = undefined;
+            await stagedWorkspace.discard();
+          }
+          this.stagedWorkspace = undefined;
+          this.agent = undefined;
         }
-        this.stagedWorkspace = undefined;
-        this.agent = undefined;
-        this.agentKey = "";
-        this.agentModel = "";
+      } finally {
+        this.denyAll();
+        this.running = false;
+        for (const resolveIdle of this.idleWaiters) resolveIdle();
+        this.idleWaiters.clear();
       }
-      this.denyAll();
     }
   }
 
@@ -388,15 +490,13 @@ class BrowserSession {
   }
 
   dispose(): void {
+    this.cancelReason = "Browser session was closed.";
     this.activeController?.abort();
-    if (this.evidenceTask) {
-      void this.evidenceTask.cancel("Browser session was closed.");
-    }
-    if (this.stagedWorkspace) {
-      void this.stagedWorkspace.discard();
-      this.stagedWorkspace = undefined;
-    }
     this.denyAll();
+    this.continuity = undefined;
+    this.agent = undefined;
+    this.agentKey = "";
+    this.agentModel = "";
     this.sink = undefined;
   }
 
@@ -456,6 +556,27 @@ function secureEqual(left: string | undefined, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+function contentSecurityPolicy(
+  inlineScriptHashes: readonly string[] = [],
+): string {
+  const scriptSources = [
+    "'self'",
+    ...inlineScriptHashes.map((digest) => `'sha256-${digest}'`),
+  ].join(" ");
+  return (
+    "default-src 'self'; connect-src 'self'; img-src 'self' data:; " +
+    `script-src ${scriptSources}; style-src 'self' 'unsafe-inline'; ` +
+    "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+  );
+}
+
+function inlineModuleScriptHashes(html: string): string[] {
+  return [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => match[1] ?? "")
+    .filter((script) => script.length > 0)
+    .map((script) => createHash("sha256").update(script).digest("base64"));
+}
+
 function apiKeyFrom(request: Request, fallback?: string): string | undefined {
   const header = request.header("x-krater-api-key")?.trim();
   return header || fallback;
@@ -476,6 +597,403 @@ function sendWorkspaceError(response: Response, error: unknown): void {
     return;
   }
   sendError(response, 400, (error as Error).message || "Workspace request failed.");
+}
+
+function sendShippingError(response: Response, error: unknown): void {
+  if (error instanceof ShippingError) {
+    const staleRequest =
+      error.code === "shipping_validation_failed" &&
+      /changed|current|exact|durable preflight/i.test(error.message);
+    const status =
+      error.code === "shipping_operation_unsupported"
+        ? 501
+        : error.code === "shipping_replay_refused" ||
+            error.code === "shipping_idempotency_conflict" ||
+            error.code === "shipping_confirmation_invalid" ||
+            error.code === "shipping_state_unavailable" ||
+            staleRequest
+          ? 409
+          : 400;
+    response.status(status).json({
+      error: { code: error.code, message: error.message },
+    });
+    return;
+  }
+  const message = (error as Error).message || "Shipping request failed.";
+  sendError(
+    response,
+    /does not exist|not found|ENOENT/i.test(message)
+      ? 404
+      : /changed|current|exact|digest|reconciliation/i.test(message)
+        ? 409
+        : 400,
+    message,
+  );
+}
+
+function requestObject(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requestArray(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  return value;
+}
+
+function requestString(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value.trim();
+}
+
+function requestExactString(value: unknown, label: string): string {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.trim() !== value ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new Error(
+      `${label} must be a non-empty string without surrounding whitespace or control characters.`,
+    );
+  }
+  return value;
+}
+
+function requestDigest(value: unknown, label: string): `sha256:${string}` {
+  const result = requestExactString(value, label);
+  if (!isSha256Digest(result)) {
+    throw new Error(`${label} must be a SHA-256 digest.`);
+  }
+  return result as `sha256:${string}`;
+}
+
+function requestPositiveInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return Number(value);
+}
+
+function requestStringArray(value: unknown, label: string): string[] {
+  const values = requestArray(value, label);
+  if (
+    values.some(
+      (item) => typeof item !== "string" || !item.trim(),
+    )
+  ) {
+    throw new Error(`${label} must contain only non-empty strings.`);
+  }
+  return values.map((item) => (item as string).trim());
+}
+
+function strictRequestObject(
+  value: unknown,
+  label: string,
+  allowedFields: readonly string[],
+): Record<string, unknown> {
+  const object = requestObject(value, label);
+  const allowed = new Set(allowedFields);
+  if (Object.keys(object).some((key) => !allowed.has(key))) {
+    throw new Error(`${label} contains unsupported fields.`);
+  }
+  return object;
+}
+
+function boundedSemanticValue(
+  value: unknown,
+  label: string,
+  maximumBytes = MAX_SEMANTIC_VALUE_BYTES,
+): string {
+  const text = requestString(value, label);
+  if (
+    /[\u0000-\u001f\u007f]/.test(text) ||
+    Buffer.byteLength(text, "utf8") > maximumBytes
+  ) {
+    throw new Error(
+      `${label} must be at most ${maximumBytes} UTF-8 bytes and contain no control characters.`,
+    );
+  }
+  return text;
+}
+
+function semanticIdentifier(value: unknown, label: string): string {
+  const identifier = boundedSemanticValue(
+    value,
+    label,
+    MAX_SEMANTIC_IDENTIFIER_BYTES,
+  );
+  const normalized = identifier.replaceAll("\\", "/");
+  const pathSegments = normalized.split("/");
+  if (
+    normalized.startsWith("/") ||
+    normalized === "~" ||
+    normalized.startsWith("~/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.startsWith("//") ||
+    normalized.includes("://") ||
+    pathSegments.some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(
+      `${label} must be a workspace-relative semantic identifier without absolute or traversal path syntax.`,
+    );
+  }
+  return identifier;
+}
+
+function optionalSemanticValue(
+  object: Record<string, unknown>,
+  field: string,
+  label: string,
+): string | undefined {
+  return object[field] === undefined
+    ? undefined
+    : boundedSemanticValue(object[field], `${label} "${field}"`);
+}
+
+function enumValue<T extends string>(
+  value: unknown,
+  label: string,
+  allowed: readonly T[],
+): T {
+  if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) {
+    throw new Error(`${label} must be one of: ${allowed.join(", ")}.`);
+  }
+  return value as T;
+}
+
+function optionalSemanticIdentifiers(
+  value: unknown,
+  label: string,
+  maximum = MAX_MERGE_DEPENDENCIES,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  const items = requestArray(value, label);
+  if (items.length > maximum) {
+    throw new Error(`${label} must contain at most ${maximum} items.`);
+  }
+  const identifiers = items.map((item, index) =>
+    semanticIdentifier(item, `${label}[${index}]`),
+  );
+  if (new Set(identifiers).size !== identifiers.length) {
+    throw new Error(`${label} must not contain duplicate identifiers.`);
+  }
+  return identifiers;
+}
+
+function semanticTouchArray<T extends { id: string }>(
+  value: unknown,
+  label: string,
+  parse: (value: unknown, label: string) => T,
+): T[] | undefined {
+  if (value === undefined) return undefined;
+  const values = requestArray(value, label);
+  if (values.length > MAX_MERGE_TOUCHES_PER_KIND) {
+    throw new Error(
+      `${label} must contain at most ${MAX_MERGE_TOUCHES_PER_KIND} items.`,
+    );
+  }
+  const parsed = values.map((item, index) =>
+    parse(item, `${label}[${index}]`),
+  );
+  const ids = parsed.map((item) => item.id);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error(`${label} must not contain duplicate IDs.`);
+  }
+  return parsed;
+}
+
+function parseIntentTouch(value: unknown, label: string): IntentTouch {
+  const object = strictRequestObject(value, label, [
+    "id",
+    "effect",
+    "fingerprint",
+  ]);
+  const fingerprint = optionalSemanticValue(object, "fingerprint", label);
+  return {
+    id: semanticIdentifier(object.id, `${label} "id"`),
+    effect: enumValue(object.effect, `${label} "effect"`, [
+      "fulfills",
+      "modifies",
+      "contradicts",
+      "retires",
+    ]),
+    ...(fingerprint ? { fingerprint } : {}),
+  };
+}
+
+function parseSymbolTouch(value: unknown, label: string): SymbolTouch {
+  const object = strictRequestObject(value, label, [
+    "id",
+    "operation",
+    "contractDigest",
+  ]);
+  const contractDigest = optionalSemanticValue(
+    object,
+    "contractDigest",
+    label,
+  );
+  return {
+    id: semanticIdentifier(object.id, `${label} "id"`),
+    operation: enumValue(object.operation, `${label} "operation"`, [
+      "read",
+      "write",
+      "delete",
+      "signature_change",
+    ]),
+    ...(contractDigest ? { contractDigest } : {}),
+  };
+}
+
+function parseSchemaTouch(value: unknown, label: string): SchemaTouch {
+  const object = strictRequestObject(value, label, [
+    "id",
+    "operation",
+    "shapeDigest",
+  ]);
+  const shapeDigest = optionalSemanticValue(object, "shapeDigest", label);
+  return {
+    id: semanticIdentifier(object.id, `${label} "id"`),
+    operation: enumValue(object.operation, `${label} "operation"`, [
+      "read",
+      "add",
+      "alter",
+      "drop",
+    ]),
+    ...(shapeDigest ? { shapeDigest } : {}),
+  };
+}
+
+function parseMigrationTouch(value: unknown, label: string): MigrationTouch {
+  const object = strictRequestObject(value, label, [
+    "id",
+    "resource",
+    "order",
+    "fromVersion",
+    "toVersion",
+    "effectDigest",
+    "dependsOn",
+  ]);
+  if (
+    typeof object.order !== "number" ||
+    !Number.isSafeInteger(object.order) ||
+    object.order < 0 ||
+    object.order > 1_000_000_000
+  ) {
+    throw new Error(
+      `${label} "order" must be an integer from 0 to 1,000,000,000.`,
+    );
+  }
+  const fromVersion = optionalSemanticValue(object, "fromVersion", label);
+  const toVersion = optionalSemanticValue(object, "toVersion", label);
+  const effectDigest = optionalSemanticValue(object, "effectDigest", label);
+  const dependsOn = optionalSemanticIdentifiers(
+    object.dependsOn,
+    `${label} "dependsOn"`,
+  );
+  return {
+    id: semanticIdentifier(object.id, `${label} "id"`),
+    resource: semanticIdentifier(object.resource, `${label} "resource"`),
+    order: object.order,
+    ...(fromVersion ? { fromVersion } : {}),
+    ...(toVersion ? { toVersion } : {}),
+    ...(effectDigest ? { effectDigest } : {}),
+    ...(dependsOn ? { dependsOn } : {}),
+  };
+}
+
+function parseInvariantTouch(value: unknown, label: string): InvariantTouch {
+  const object = strictRequestObject(value, label, [
+    "id",
+    "effect",
+    "fingerprint",
+  ]);
+  const fingerprint = optionalSemanticValue(object, "fingerprint", label);
+  return {
+    id: semanticIdentifier(object.id, `${label} "id"`),
+    effect: enumValue(object.effect, `${label} "effect"`, [
+      "preserves",
+      "strengthens",
+      "weakens",
+      "violates",
+    ]),
+    ...(fingerprint ? { fingerprint } : {}),
+  };
+}
+
+function parseSemanticPatches(value: unknown): SemanticPatch[] {
+  const patches = requestArray(value, 'Merge forecast "patches"');
+  if (patches.length < 1 || patches.length > MAX_MERGE_PATCHES) {
+    throw new Error(
+      `Merge forecast "patches" must contain from 1 to ${MAX_MERGE_PATCHES} items.`,
+    );
+  }
+  let totalTouches = 0;
+  return patches.map((patchValue, index) => {
+    const label = `Merge forecast "patches"[${index}]`;
+    const object = strictRequestObject(patchValue, label, [
+      "id",
+      "dependencies",
+      "intents",
+      "symbols",
+      "schemas",
+      "migrations",
+      "invariants",
+    ]);
+    const dependencies = optionalSemanticIdentifiers(
+      object.dependencies,
+      `${label} "dependencies"`,
+    );
+    const intents = semanticTouchArray(
+      object.intents,
+      `${label} "intents"`,
+      parseIntentTouch,
+    );
+    const symbols = semanticTouchArray(
+      object.symbols,
+      `${label} "symbols"`,
+      parseSymbolTouch,
+    );
+    const schemas = semanticTouchArray(
+      object.schemas,
+      `${label} "schemas"`,
+      parseSchemaTouch,
+    );
+    const migrations = semanticTouchArray(
+      object.migrations,
+      `${label} "migrations"`,
+      parseMigrationTouch,
+    );
+    const invariants = semanticTouchArray(
+      object.invariants,
+      `${label} "invariants"`,
+      parseInvariantTouch,
+    );
+    totalTouches +=
+      (intents?.length ?? 0) +
+      (symbols?.length ?? 0) +
+      (schemas?.length ?? 0) +
+      (migrations?.length ?? 0) +
+      (invariants?.length ?? 0);
+    if (totalTouches > MAX_MERGE_TOTAL_TOUCHES) {
+      throw new Error(
+        `Merge forecast must contain at most ${MAX_MERGE_TOTAL_TOUCHES} semantic touches in total.`,
+      );
+    }
+    return {
+      id: semanticIdentifier(object.id, `${label} "id"`),
+      ...(dependencies ? { dependencies } : {}),
+      ...(intents ? { intents } : {}),
+      ...(symbols ? { symbols } : {}),
+      ...(schemas ? { schemas } : {}),
+      ...(migrations ? { migrations } : {}),
+      ...(invariants ? { invariants } : {}),
+    };
+  });
 }
 
 function singleQuery(
@@ -520,6 +1038,8 @@ export async function createApp(
   let projectChanging = false;
   let activeWorkspaceOperations = 0;
   let proofPatchMutationActive = false;
+  let shippingExecutionActive = false;
+  let closeDevelopmentServer: (() => Promise<void>) | undefined;
   const terminalControllers = new Set<AbortController>();
   const modelCache = new Map<
     string,
@@ -604,6 +1124,14 @@ export async function createApp(
       );
       return false;
     }
+    if (shippingExecutionActive) {
+      sendError(
+        response,
+        409,
+        "Wait for the active structured shipping execution to finish.",
+      );
+      return false;
+    }
     activeWorkspaceOperations += 1;
     return true;
   };
@@ -646,6 +1174,56 @@ export async function createApp(
   const finishProofPatchMutation = (): void => {
     proofPatchMutationActive = false;
     finishWorkspaceOperation();
+  };
+  const beginShippingExecution = (response: Response): boolean => {
+    if (projectChanging) {
+      sendError(response, 409, "Wait for the project change to finish.");
+      return false;
+    }
+    if (shippingExecutionActive) {
+      sendError(
+        response,
+        409,
+        "Another structured shipping execution is already in progress.",
+      );
+      return false;
+    }
+    if (proofPatchMutationActive || activeWorkspaceOperations > 0) {
+      sendError(
+        response,
+        409,
+        "Wait for active workspace or ProofPatch work before shipping.",
+      );
+      return false;
+    }
+    if (hasRunningSession()) {
+      sendError(
+        response,
+        409,
+        "Stop the active agent response before shipping.",
+      );
+      return false;
+    }
+    shippingExecutionActive = true;
+    activeWorkspaceOperations += 1;
+    return true;
+  };
+  const finishShippingExecution = (): void => {
+    shippingExecutionActive = false;
+    finishWorkspaceOperation();
+  };
+  const requireStructuredShipping = (
+    response: Response,
+  ): StructuredShippingService | undefined => {
+    if (options.structuredShipping) return options.structuredShipping;
+    response.status(501).json({
+      error: {
+        code: "shipping_adapter_unavailable",
+        message:
+          "No structured shipping adapter is configured; no external effect was attempted.",
+      },
+    });
+    return undefined;
   };
   const requireCurrentProject = (
     request: Request,
@@ -704,11 +1282,12 @@ export async function createApp(
     return current;
   };
 
-  app.locals.shutdown = () => {
+  app.locals.shutdown = async () => {
     for (const controller of terminalControllers) controller.abort();
     terminalControllers.clear();
     disposeSessions();
     modelCache.clear();
+    await closeDevelopmentServer?.();
   };
   app.disable("x-powered-by");
 
@@ -731,9 +1310,7 @@ export async function createApp(
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; connect-src 'self'; img-src 'self' data:; " +
-        "script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-        "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      contentSecurityPolicy(),
     );
 
     if (request.path === "/api" || request.path.startsWith("/api/")) {
@@ -1139,6 +1716,7 @@ export async function createApp(
         command,
         timeoutMs,
         controller.signal,
+        { authorization: "approved_attended" },
       );
       if (!controller.signal.aborted && !response.writableEnded) {
         response.json({
@@ -1147,6 +1725,7 @@ export async function createApp(
           stdout: sanitizeTerminalText(result.stdout),
           stderr: sanitizeTerminalText(result.stderr),
           timedOut: result.timedOut,
+          execution: result.execution,
           durationMs: Date.now() - startedAt,
         });
       }
@@ -1189,6 +1768,72 @@ export async function createApp(
     }
   });
 
+  app.post("/api/v2/tasks", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      const body = requestObject(request.body, "Task");
+      const taskRequest = requestString(body.request, 'Task "request"');
+      const assurance = body.assurance ?? "standard";
+      if (
+        assurance !== "fast" &&
+        assurance !== "standard" &&
+        assurance !== "high"
+      ) {
+        throw new Error(
+          'Task "assurance" must be "fast", "standard", or "high".',
+        );
+      }
+      const optionalNumber = (
+        name: "maxCostUsd" | "maxTokens" | "maxTimeMs" | "maxToolSteps",
+      ): number | undefined => {
+        const value = body[name];
+        if (value === undefined) return undefined;
+        if (
+          typeof value !== "number" ||
+          !Number.isFinite(value) ||
+          value <= 0 ||
+          (name !== "maxCostUsd" && !Number.isSafeInteger(value))
+        ) {
+          throw new Error(`Task "${name}" must be a positive number.`);
+        }
+        return value;
+      };
+      const model =
+        body.model === undefined
+          ? undefined
+          : requestString(body.model, 'Task "model"');
+      const task = await EvidenceTask.start({
+        cwd: project.path,
+        projectId: project.id,
+        request: taskRequest,
+        assurance,
+        ...(model ? { model } : {}),
+        ...(optionalNumber("maxCostUsd") === undefined
+          ? {}
+          : { maxCostUsd: optionalNumber("maxCostUsd") }),
+        ...(optionalNumber("maxTokens") === undefined
+          ? {}
+          : { maxTokens: optionalNumber("maxTokens") }),
+        ...(optionalNumber("maxTimeMs") === undefined
+          ? {}
+          : { maxTimeMs: optionalNumber("maxTimeMs") }),
+        ...(optionalNumber("maxToolSteps") === undefined
+          ? {}
+          : { maxToolSteps: optionalNumber("maxToolSteps") }),
+      });
+      response.status(201).json(
+        await readEvidenceTask(
+          project.path,
+          project.id,
+          task.taskId,
+        ),
+      );
+    } catch (error) {
+      sendError(response, 400, (error as Error).message);
+    }
+  });
+
   app.get("/api/v2/tasks", async (request, response) => {
     const project = optionalCurrentProject(request, response, "Task");
     if (!project) return;
@@ -1201,9 +1846,646 @@ export async function createApp(
     }
   });
 
+  app.get("/api/v2/tasks/:taskId/plan", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      const projection = await (
+        await openEvidenceStore(project.path)
+      ).task(request.params.taskId);
+      response.json(projection.autopilot);
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message) ? 404 : 500,
+        message,
+      );
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/plan", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      const body = requestObject(request.body, "Task plan revision");
+      const store = await openEvidenceStore(project.path);
+      const projection = await store.task(request.params.taskId);
+      const current = projection.autopilot.currentPlan;
+      if (!current) {
+        sendError(response, 409, "This task has no executable plan.");
+        return;
+      }
+      const expectedPlanDigest = requestString(
+        body.expectedPlanDigest,
+        'Task plan "expectedPlanDigest"',
+      );
+      if (expectedPlanDigest !== current.digest) {
+        sendError(
+          response,
+          409,
+          "The task plan changed after it was opened. Reload before revising it.",
+        );
+        return;
+      }
+      const revisedAt = new Date().toISOString();
+      const currentSteps = new Map(
+        current.steps.map((step) => [step.id, step]),
+      );
+      const steps: PlanStepInput[] = requestArray(
+        body.steps,
+        'Task plan "steps"',
+      ).map((value, index) => {
+        const item = requestObject(value, `Task plan step ${index + 1}`);
+        const id = requestString(item.id, `Task plan step ${index + 1} "id"`);
+        const existing = currentSteps.get(id);
+        return {
+          id,
+          taskId: request.params.taskId,
+          kind: requestString(
+            item.kind,
+            `Task plan step ${id} "kind"`,
+          ) as PlanStepInput["kind"],
+          title: requestString(item.title, `Task plan step ${id} "title"`),
+          description: requestString(
+            item.description,
+            `Task plan step ${id} "description"`,
+          ),
+          status: requestString(
+            item.status,
+            `Task plan step ${id} "status"`,
+          ) as PlanStepInput["status"],
+          dependsOnStepIds: requestStringArray(
+            item.dependsOnStepIds,
+            `Task plan step ${id} "dependsOnStepIds"`,
+          ),
+          proofObligationIds: requestStringArray(
+            item.proofObligationIds,
+            `Task plan step ${id} "proofObligationIds"`,
+          ),
+          allowedCapabilities: requestStringArray(
+            item.allowedCapabilities,
+            `Task plan step ${id} "allowedCapabilities"`,
+          ),
+          ...(item.assignedDelegationId === undefined
+            ? {}
+            : {
+                assignedDelegationId: requestString(
+                  item.assignedDelegationId,
+                  `Task plan step ${id} "assignedDelegationId"`,
+                ),
+              }),
+          createdAt: existing?.createdAt ?? revisedAt,
+          updatedAt: revisedAt,
+        };
+      });
+      const currentObligations = new Map(
+        current.proofObligations.map((obligation) => [
+          obligation.id,
+          obligation,
+        ]),
+      );
+      const proofObligations: ProofObligationInput[] = requestArray(
+        body.proofObligations,
+        'Task plan "proofObligations"',
+      ).map((value, index) => {
+        const item = requestObject(
+          value,
+          `Task proof obligation ${index + 1}`,
+        );
+        const id = requestString(
+          item.id,
+          `Task proof obligation ${index + 1} "id"`,
+        );
+        const existing = currentObligations.get(id);
+        if (typeof item.required !== "boolean") {
+          throw new Error(
+            `Task proof obligation ${id} "required" must be a boolean.`,
+          );
+        }
+        const status = requestString(
+          item.status,
+          `Task proof obligation ${id} "status"`,
+        ) as ProofObligationInput["status"];
+        const nonApplicabilityReason =
+          item.nonApplicabilityReason === undefined
+            ? undefined
+            : requestString(
+                item.nonApplicabilityReason,
+                `Task proof obligation ${id} "nonApplicabilityReason"`,
+              );
+        let waiver: ProofObligationInput["waiver"];
+        if (item.waiver !== undefined) {
+          const rawWaiver = requestObject(
+            item.waiver,
+            `Task proof obligation ${id} "waiver"`,
+          );
+          const reason = requestString(
+            rawWaiver.reason,
+            `Task proof obligation ${id} waiver "reason"`,
+          );
+          waiver = {
+            approvedBy: "user",
+            reason,
+            approvalReceiptDigest: `sha256:${createHash("sha256")
+              .update(localToken)
+              .update("\0")
+              .update(current.digest)
+              .update("\0")
+              .update(id)
+              .update("\0")
+              .update(reason)
+              .digest("hex")}`,
+            approvedAt: revisedAt,
+          };
+        }
+        return {
+          id,
+          taskId: request.params.taskId,
+          kind: requestString(
+            item.kind,
+            `Task proof obligation ${id} "kind"`,
+          ) as ProofObligationInput["kind"],
+          statement: requestString(
+            item.statement,
+            `Task proof obligation ${id} "statement"`,
+          ),
+          required: item.required,
+          minimumGrade: requestString(
+            item.minimumGrade,
+            `Task proof obligation ${id} "minimumGrade"`,
+          ) as ProofObligationInput["minimumGrade"],
+          status,
+          acceptanceCriterionIds: requestStringArray(
+            item.acceptanceCriterionIds,
+            `Task proof obligation ${id} "acceptanceCriterionIds"`,
+          ),
+          evidenceIds: requestStringArray(
+            item.evidenceIds,
+            `Task proof obligation ${id} "evidenceIds"`,
+          ),
+          scopeDigests: requestStringArray(
+            item.scopeDigests,
+            `Task proof obligation ${id} "scopeDigests"`,
+          ) as ProofObligationInput["scopeDigests"],
+          ...(nonApplicabilityReason
+            ? { nonApplicabilityReason }
+            : {}),
+          ...(waiver ? { waiver } : {}),
+          createdAt: existing?.createdAt ?? revisedAt,
+          updatedAt: revisedAt,
+        };
+      });
+      const service = new VerifiedAutopilotService(store);
+      const plan = await service.revisePlan({
+        id: current.id,
+        taskId: request.params.taskId,
+        status: requestString(
+          body.status,
+          'Task plan "status"',
+        ) as TaskPlan["status"],
+        objective: requestString(
+          body.objective,
+          'Task plan "objective"',
+        ),
+        ...(current.contractDigest
+          ? { contractDigest: current.contractDigest }
+          : {}),
+        steps,
+        proofObligations,
+        revisedBy: "user",
+        revisedAt,
+        revisionReason: requestString(
+          body.revisionReason,
+          'Task plan "revisionReason"',
+        ),
+      });
+      response.json({ plan, revisions: plan.revision });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /changed|revision|reference|missing|current|evidence|waiver/i.test(
+                message,
+              )
+            ? 409
+            : 400,
+        message,
+      );
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/plan/approve", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      const body = requestObject(request.body, "Task plan approval");
+      const store = await openEvidenceStore(project.path);
+      const projection = await store.task(request.params.taskId);
+      const current = projection.autopilot.currentPlan;
+      if (!current) {
+        sendError(response, 409, "This task has no executable plan.");
+        return;
+      }
+      const expectedPlanDigest = requestString(
+        body.expectedPlanDigest,
+        'Task plan approval "expectedPlanDigest"',
+      );
+      if (expectedPlanDigest !== current.digest) {
+        sendError(
+          response,
+          409,
+          "The task plan changed after it was opened. Reload before approving it.",
+        );
+        return;
+      }
+      if (current.status === "approved") {
+        response.json({ plan: current, idempotent: true });
+        return;
+      }
+      if (
+        current.status === "closed" ||
+        current.status === "completed" ||
+        current.status === "cancelled"
+      ) {
+        sendError(
+          response,
+          409,
+          `A ${current.status} task plan cannot be approved.`,
+        );
+        return;
+      }
+      const { schemaVersion: _schemaVersion, digest: _digest, ...planBody } =
+        current;
+      const plan = await new VerifiedAutopilotService(store).revisePlan({
+        ...planBody,
+        steps: current.steps.map(
+          ({ schemaVersion: _version, ...step }) => step,
+        ),
+        proofObligations: current.proofObligations.map(
+          ({ schemaVersion: _version, ...obligation }) => obligation,
+        ),
+        status: "approved",
+        revisedBy: "user",
+        revisedAt: new Date().toISOString(),
+        revisionReason:
+          typeof body.reason === "string" && body.reason.trim()
+            ? body.reason.trim()
+            : "The user approved this exact plan revision.",
+      });
+      response.json({ plan, idempotent: false });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /changed|cannot|revision|current/i.test(message)
+            ? 409
+            : 400,
+        message,
+      );
+    }
+  });
+
+  app.get("/api/v2/tasks/:taskId/ship", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Shipping");
+    if (!project) return;
+    try {
+      const report = await durableShippingStatus(
+        await openEvidenceStore(project.path),
+        request.params.taskId,
+      );
+      response.json({
+        ...report,
+        externalMutationsEnabled: Boolean(options.structuredShipping),
+      });
+    } catch (error) {
+      sendShippingError(response, error);
+    }
+  });
+
+  app.post(
+    "/api/v2/tasks/:taskId/ship/preflight",
+    async (request, response) => {
+      const project = optionalCurrentProject(request, response, "Shipping");
+      if (!project) return;
+      const shipping = requireStructuredShipping(response);
+      if (!shipping || !beginWorkspaceOperation(response)) return;
+      try {
+        const body = strictRequestObject(
+          request.body,
+          "Shipping preflight",
+          [
+            "expectedPlanDigest",
+            "stepId",
+            "effect",
+            "credentialHandle",
+            "idempotencyKey",
+            "expiresInMs",
+          ],
+        );
+        const coordinator = new ProofGraphShippingCoordinator({
+          store: await openEvidenceStore(project.path),
+          shipping,
+        });
+        const preflight = await coordinator.prepare({
+          taskId: request.params.taskId,
+          expectedPlanDigest: requestDigest(
+            body.expectedPlanDigest,
+            'Shipping preflight "expectedPlanDigest"',
+          ),
+          stepId: requestExactString(
+            body.stepId,
+            'Shipping preflight "stepId"',
+          ),
+          effect: requestObject(
+            body.effect,
+            'Shipping preflight "effect"',
+          ) as unknown as ShippingEffect,
+          credentialHandle: requestObject(
+            body.credentialHandle,
+            'Shipping preflight "credentialHandle"',
+          ) as unknown as ShippingCredentialHandle,
+          idempotencyKey: requestExactString(
+            body.idempotencyKey,
+            'Shipping preflight "idempotencyKey"',
+          ),
+          ...(body.expiresInMs === undefined
+            ? {}
+            : {
+                expiresInMs: requestPositiveInteger(
+                  body.expiresInMs,
+                  'Shipping preflight "expiresInMs"',
+                ),
+              }),
+        });
+        response.status(201).json({
+          effectPlan: preflight.effectPlan,
+          preflightDigest: preflight.digest,
+          challenge: preflight.challenge,
+          inspection: preflight.inspection,
+          safety: {
+            externalMutationOccurred: false,
+            credentialValuePersisted: false,
+            idempotencyValuePersisted: false,
+            executionAvailable: true,
+          },
+        });
+      } catch (error) {
+        sendShippingError(response, error);
+      } finally {
+        finishWorkspaceOperation();
+      }
+    },
+  );
+
+  app.post(
+    "/api/v2/tasks/:taskId/ship/confirm",
+    async (request, response) => {
+      const project = optionalCurrentProject(request, response, "Shipping");
+      if (!project) return;
+      const shipping = requireStructuredShipping(response);
+      if (!shipping || !beginWorkspaceOperation(response)) return;
+      try {
+        const body = strictRequestObject(
+          request.body,
+          "Shipping confirmation",
+          [
+            "effectPlanId",
+            "expectedPlanDigest",
+            "expectedEffectPlanDigest",
+            "expectedPreflightDigest",
+            "expectedChallengeDigest",
+            "credentialHandle",
+            "idempotencyKey",
+          ],
+        );
+        const confirmation = await new ProofGraphShippingCoordinator({
+          store: await openEvidenceStore(project.path),
+          shipping,
+        }).confirm({
+          taskId: request.params.taskId,
+          effectPlanId: requestExactString(
+            body.effectPlanId,
+            'Shipping confirmation "effectPlanId"',
+          ),
+          expectedPlanDigest: requestDigest(
+            body.expectedPlanDigest,
+            'Shipping confirmation "expectedPlanDigest"',
+          ),
+          expectedEffectPlanDigest: requestDigest(
+            body.expectedEffectPlanDigest,
+            'Shipping confirmation "expectedEffectPlanDigest"',
+          ),
+          expectedPreflightDigest: requestDigest(
+            body.expectedPreflightDigest,
+            'Shipping confirmation "expectedPreflightDigest"',
+          ),
+          expectedChallengeDigest: requestDigest(
+            body.expectedChallengeDigest,
+            'Shipping confirmation "expectedChallengeDigest"',
+          ),
+          credentialHandle: requestObject(
+            body.credentialHandle,
+            'Shipping confirmation "credentialHandle"',
+          ) as unknown as ShippingCredentialHandle,
+          idempotencyKey: requestExactString(
+            body.idempotencyKey,
+            'Shipping confirmation "idempotencyKey"',
+          ),
+        });
+        response.json({
+          ...confirmation,
+          safety: {
+            externalMutationOccurred: false,
+            credentialValuePersisted: false,
+            idempotencyValuePersisted: false,
+          },
+        });
+      } catch (error) {
+        sendShippingError(response, error);
+      } finally {
+        finishWorkspaceOperation();
+      }
+    },
+  );
+
+  app.post(
+    "/api/v2/tasks/:taskId/ship/execute",
+    async (request, response) => {
+      const project = optionalCurrentProject(request, response, "Shipping");
+      if (!project) return;
+      const shipping = requireStructuredShipping(response);
+      if (!shipping || !beginShippingExecution(response)) return;
+      try {
+        const body = strictRequestObject(
+          request.body,
+          "Shipping execution",
+          [
+            "effectPlanId",
+            "expectedPlanDigest",
+            "expectedEffectPlanDigest",
+            "expectedPreflightDigest",
+            "expectedChallengeDigest",
+            "expectedAuthorizationDigest",
+            "credentialHandle",
+            "idempotencyKey",
+            "lease",
+          ],
+        );
+        const lease = strictRequestObject(
+          body.lease,
+          'Shipping execution "lease"',
+          [
+            "environmentDigest",
+            "policyDigest",
+            "toolchainDigest",
+            "issuedBy",
+            "ttlMs",
+          ],
+        );
+        const result = await new ProofGraphShippingCoordinator({
+          store: await openEvidenceStore(project.path),
+          shipping,
+        }).execute({
+          taskId: request.params.taskId,
+          effectPlanId: requestExactString(
+            body.effectPlanId,
+            'Shipping execution "effectPlanId"',
+          ),
+          expectedPlanDigest: requestDigest(
+            body.expectedPlanDigest,
+            'Shipping execution "expectedPlanDigest"',
+          ),
+          expectedEffectPlanDigest: requestDigest(
+            body.expectedEffectPlanDigest,
+            'Shipping execution "expectedEffectPlanDigest"',
+          ),
+          expectedPreflightDigest: requestDigest(
+            body.expectedPreflightDigest,
+            'Shipping execution "expectedPreflightDigest"',
+          ),
+          expectedChallengeDigest: requestDigest(
+            body.expectedChallengeDigest,
+            'Shipping execution "expectedChallengeDigest"',
+          ),
+          expectedAuthorizationDigest: requestDigest(
+            body.expectedAuthorizationDigest,
+            'Shipping execution "expectedAuthorizationDigest"',
+          ),
+          credentialHandle: requestObject(
+            body.credentialHandle,
+            'Shipping execution "credentialHandle"',
+          ) as unknown as ShippingCredentialHandle,
+          idempotencyKey: requestExactString(
+            body.idempotencyKey,
+            'Shipping execution "idempotencyKey"',
+          ),
+          lease: {
+            environmentDigest: requestDigest(
+              lease.environmentDigest,
+              'Shipping execution lease "environmentDigest"',
+            ),
+            policyDigest: requestDigest(
+              lease.policyDigest,
+              'Shipping execution lease "policyDigest"',
+            ),
+            toolchainDigest: requestDigest(
+              lease.toolchainDigest,
+              'Shipping execution lease "toolchainDigest"',
+            ),
+            issuedBy: enumValue(
+              lease.issuedBy,
+              'Shipping execution lease "issuedBy"',
+              ["host_verifier", "blind_verifier", "human"] as const,
+            ),
+            ttlMs: requestPositiveInteger(
+              lease.ttlMs,
+              'Shipping execution lease "ttlMs"',
+            ),
+          } satisfies ShippingLeaseContext,
+        });
+        response.json(result);
+      } catch (error) {
+        sendShippingError(response, error);
+      } finally {
+        finishShippingExecution();
+      }
+    },
+  );
+
+  app.post(
+    "/api/v2/tasks/:taskId/proof-leases/:leaseId/verify",
+    async (request, response) => {
+      const project = optionalCurrentProject(request, response, "Task");
+      if (!project) return;
+      try {
+        const body = requestObject(request.body, "Proof Lease context");
+        const context = {
+          taskId: request.params.taskId,
+          planDigest: requestString(
+            body.planDigest,
+            'Proof Lease context "planDigest"',
+          ) as `sha256:${string}`,
+          subjectDigest: requestString(
+            body.subjectDigest,
+            'Proof Lease context "subjectDigest"',
+          ) as `sha256:${string}`,
+          environmentDigest: requestString(
+            body.environmentDigest,
+            'Proof Lease context "environmentDigest"',
+          ) as `sha256:${string}`,
+          policyDigest: requestString(
+            body.policyDigest,
+            'Proof Lease context "policyDigest"',
+          ) as `sha256:${string}`,
+          toolchainDigest: requestString(
+            body.toolchainDigest,
+            'Proof Lease context "toolchainDigest"',
+          ) as `sha256:${string}`,
+          ...(body.now === undefined
+            ? {}
+            : {
+                now: requestString(
+                  body.now,
+                  'Proof Lease context "now"',
+                ),
+              }),
+        };
+        const service = new VerifiedAutopilotService(
+          await openEvidenceStore(project.path),
+        );
+        response.json({
+          leaseId: request.params.leaseId,
+          validity: await service.evaluateLease(
+            request.params.taskId,
+            request.params.leaseId,
+            context,
+          ),
+        });
+      } catch (error) {
+        const message = (error as Error).message;
+        sendError(
+          response,
+          /does not exist|not found|ENOENT/i.test(message) ? 404 : 400,
+          message,
+        );
+      }
+    },
+  );
+
   app.get("/api/v2/tasks/:taskId/events", async (request, response) => {
     const project = optionalCurrentProject(request, response, "Task");
     if (!project) return;
+    const rawFollow = singleQuery(request, "follow") ?? "false";
+    if (rawFollow !== "true" && rawFollow !== "false") {
+      sendError(response, 400, 'Task event "follow" must be "true" or "false".');
+      return;
+    }
+    const follow = rawFollow === "true";
     const rawAfter =
       request.header("last-event-id") ?? singleQuery(request, "after") ?? "0";
     if (!/^\d+$/.test(rawAfter)) {
@@ -1221,11 +2503,6 @@ export async function createApp(
         );
         return;
       }
-      const taskEvents = replay.events.filter(
-        (event) =>
-          event.taskId === request.params.taskId &&
-          event.sequence > Number(rawAfter),
-      );
       if (
         !replay.events.some((event) => event.taskId === request.params.taskId)
       ) {
@@ -1235,13 +2512,88 @@ export async function createApp(
       response.status(200);
       response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
       response.setHeader("Cache-Control", "no-store, no-transform");
-      response.setHeader("Connection", "close");
-      for (const event of taskEvents) {
-        response.write(`id: ${event.sequence}\n`);
-        response.write(`event: ${event.kind}\n`);
-        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      response.setHeader("Connection", follow ? "keep-alive" : "close");
+      response.flushHeaders();
+      let lastSequence = Number(rawAfter);
+      const writeEvents = (
+        events: typeof replay.events,
+      ): void => {
+        for (const event of events) {
+          if (
+            event.taskId !== request.params.taskId ||
+            event.sequence <= lastSequence
+          ) {
+            continue;
+          }
+          lastSequence = event.sequence;
+          response.write(`id: ${event.sequence}\n`);
+          response.write(`event: ${event.kind}\n`);
+          response.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+      };
+      writeEvents(replay.events);
+      if (!follow) {
+        response.end();
+        return;
       }
-      response.end();
+
+      const terminalStates = new Set([
+        "complete",
+        "abstained",
+        "blocked",
+        "accepted_with_gaps",
+        "cancelled",
+      ]);
+      const initialProjection = await store.task(request.params.taskId);
+      if (terminalStates.has(initialProjection.state)) {
+        response.end();
+        return;
+      }
+
+      let polling = false;
+      let heartbeatAt = Date.now();
+      const interval = setInterval(async () => {
+        if (polling || response.writableEnded || response.destroyed) return;
+        polling = true;
+        try {
+          const next = await store.replay();
+          if (next.tailCorruption) {
+            response.write("event: krater.error\n");
+            response.write(
+              `data: ${JSON.stringify({
+                code: "proofgraph_tail_corrupt",
+                lineNumber: next.tailCorruption.lineNumber,
+              })}\n\n`,
+            );
+            response.end();
+            return;
+          }
+          writeEvents(next.events);
+          const latest = await store.task(request.params.taskId);
+          if (terminalStates.has(latest.state)) {
+            response.end();
+            return;
+          }
+          if (Date.now() - heartbeatAt >= 15_000) {
+            response.write(": keep-alive\n\n");
+            heartbeatAt = Date.now();
+          }
+        } catch {
+          response.write("event: krater.error\n");
+          response.write(
+            `data: ${JSON.stringify({
+              code: "proofgraph_replay_failed",
+            })}\n\n`,
+          );
+          response.end();
+        } finally {
+          polling = false;
+        }
+      }, 250);
+      interval.unref?.();
+      const cleanup = () => clearInterval(interval);
+      response.once("close", cleanup);
+      response.once("finish", cleanup);
     } catch (error) {
       if (!response.headersSent) {
         const code = (error as NodeJS.ErrnoException).code;
@@ -1614,11 +2966,79 @@ export async function createApp(
     }
   });
 
+  app.post("/api/v2/merge/forecast", (request, response) => {
+    const project = optionalCurrentProject(
+      request,
+      response,
+      "Merge forecast",
+    );
+    if (!project) return;
+    try {
+      const body = strictRequestObject(request.body, "Merge forecast", [
+        "patches",
+      ]);
+      const patches = parseSemanticPatches(body.patches);
+      response.json({
+        schemaVersion: 1,
+        type: "semantic_merge_forecast",
+        projectId: project.id,
+        analysis: {
+          source: "caller_supplied_descriptors",
+          workspaceRead: false,
+          workspaceMutation: false,
+          executedChecks: false,
+          persisted: false,
+        },
+        forecast: forecastSemanticMerge(patches),
+        limitations: MERGE_FORECAST_LIMITATIONS,
+      });
+    } catch (error) {
+      sendError(response, 400, (error as Error).message);
+    }
+  });
+
   app.post("/api/v2/debug/causal", async (request, response) => {
     try {
       response.json(await replayRecordedCausalTwin(request.body));
     } catch (error) {
       sendError(response, 400, (error as Error).message);
+    }
+  });
+
+  app.post("/api/v2/debug/causal/live", async (request, response) => {
+    const project = optionalCurrentProject(
+      request,
+      response,
+      "Live causal debugging",
+    );
+    if (!project) return;
+    try {
+      const execute = options.liveCausalExecutor ?? runLiveCausalTwin;
+      response.json(
+        await execute(request.body, {
+          workspaceRoot: project.path,
+          knownSecrets: config.apiKey ? [config.apiKey] : [],
+        }),
+      );
+    } catch (error) {
+      const status =
+        error instanceof LiveCausalValidationError
+          ? 400
+          : error instanceof LiveCausalUnavailableError
+            ? 503
+            : error instanceof LiveCausalExecutionError
+              ? 422
+              : 500;
+      const message = scrubCausalText(
+        error instanceof Error
+          ? error.message
+          : "Live causal debugging failed.",
+        {
+          secrets: config.apiKey ? [config.apiKey] : [],
+          redactPii: true,
+        },
+      );
+      sendError(response, status, message);
     }
   });
 
@@ -1646,6 +3066,20 @@ export async function createApp(
         join(project.path, ".krater", "cache"),
       );
       response.json(await cache.stats());
+    } catch (error) {
+      sendError(response, 500, (error as Error).message);
+    }
+  });
+
+  app.post("/api/v2/cache/prune", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Cache");
+    if (!project) return;
+    try {
+      const cache = new VerifiedWorkCache(
+        join(project.path, ".krater", "cache"),
+      );
+      const removed = await cache.pruneExpired();
+      response.json({ removed, stats: await cache.stats() });
     } catch (error) {
       sendError(response, 500, (error as Error).message);
     }
@@ -1705,9 +3139,12 @@ export async function createApp(
     response.status(201).json({ id: session.id });
   });
 
-  app.delete("/api/sessions/:sessionId", (request, response) => {
+  app.delete("/api/sessions/:sessionId", async (request, response) => {
     const session = sessions.get(request.params.sessionId);
-    if (session) session.dispose();
+    if (session) {
+      session.dispose();
+      await session.waitForIdle();
+    }
     sessions.delete(request.params.sessionId);
     response.status(204).end();
   });
@@ -1875,10 +3312,40 @@ export async function createApp(
     const vite = await createViteServer({
       root: webRoot,
       configFile: resolve(webRoot, "vite.config.ts"),
-      server: { middlewareMode: true },
-      appType: "spa",
+      server: {
+        middlewareMode: true,
+        hmr:
+          options.devHmr === false
+            ? false
+            : options.devHmrPort === undefined
+              ? true
+              : { port: options.devHmrPort },
+      },
+      appType: "custom",
     });
+    closeDevelopmentServer = () => vite.close();
     app.use(vite.middlewares);
+    app.use(async (request, response, next) => {
+      if (request.path.startsWith("/api/")) {
+        next();
+        return;
+      }
+      try {
+        const template = await readFile(resolve(webRoot, "index.html"), "utf8");
+        const html = await vite.transformIndexHtml(
+          request.originalUrl,
+          template,
+        );
+        response.setHeader(
+          "Content-Security-Policy",
+          contentSecurityPolicy(inlineModuleScriptHashes(html)),
+        );
+        response.status(200).type("html").send(html);
+      } catch (error) {
+        vite.ssrFixStacktrace(error as Error);
+        next(error);
+      }
+    });
   } else {
     const staticRoot = resolve(webRoot, "dist");
     if (!existsSync(staticRoot)) {
@@ -1927,8 +3394,8 @@ export async function startServer(
     url: `http://${displayHost}:${config.port}`,
     close: () => {
       if (closePromise) return closePromise;
-      app.locals.shutdown?.();
-      closePromise = new Promise<void>((resolveClose, reject) => {
+      const shutdown = Promise.resolve(app.locals.shutdown?.());
+      const closeHttpServer = new Promise<void>((resolveClose, reject) => {
         server.close((error) => {
           if (error) reject(error);
           else resolveClose();
@@ -1939,6 +3406,9 @@ export async function startServer(
         // hold process shutdown open until Node's connection timeout expires.
         server.closeAllConnections?.();
       });
+      closePromise = Promise.all([shutdown, closeHttpServer]).then(
+        () => undefined,
+      );
       return closePromise;
     },
   };

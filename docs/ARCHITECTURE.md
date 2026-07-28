@@ -22,6 +22,9 @@ flowchart LR
     Stage --> Patch["ProofPatch journal"]
     Agent --> Proof["ProofGraph"]
     Patch --> Proof
+    Proof --> Ship["Structured shipping coordinator"]
+    Ship --> GitHub["GitHub REST adapter"]
+    Ship --> Cloudflare["Cloudflare deployment adapter"]
     IDEWorkspace --> Workspace
     Agent --> Efficiency["Context, cache, usage"]
     Bench["Custom + official benchmark adapters"] --> Agent
@@ -101,6 +104,17 @@ isolated Git configuration. Each browser session captures the current project
 path at creation. Changing projects is blocked during active work and disposes
 all older sessions before new work can begin.
 
+## Structured shipping
+
+`src/shipping/` separates durable ProofGraph coordination from fixed-domain
+provider executors. The server has no shipping executor by default. A trusted
+embedder must explicitly inject a persistent `StructuredShippingService` whose
+credential and artifact resolvers stay host-owned. Preflight, one-time
+confirmation, execution, compensation, Proof Lease issuance, and interrupted
+execution reconciliation remain tied to the same plan and provider-state
+digests. See [SHIPPING.md](SHIPPING.md) for supported GitHub and Cloudflare
+operations and exact non-claims.
+
 ## Agentic IDE
 
 `web/src/AgenticIde.tsx` presents the selected project as an Explorer, tabbed
@@ -133,8 +147,12 @@ changes.
 The user-entered terminal is not routed through model approval because pressing
 Run is the explicit human execution request. On macOS, `Workspace` uses
 `/usr/bin/sandbox-exec` when available to confine writes and deny protected
-credential paths. Other systems retain process, command, secret, environment,
-workspace, and resource controls but do not gain an OS sandbox.
+credential paths; its response identifies this as an attended compatibility
+profile. Unattended model commands take a different path through the exported
+host-native adapter and `SandboxSupervisor`. The current macOS adapter verifies
+Seatbelt denial and kernel limits, denies network and forks, and binds protected
+path exclusions into the request. Linux and Windows retain explicit
+unavailable contracts, so unattended execution fails closed there.
 
 ## Benchmarks
 

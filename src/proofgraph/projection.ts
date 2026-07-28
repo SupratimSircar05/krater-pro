@@ -1,3 +1,21 @@
+import {
+  assertValidAgentDelegation,
+  assertValidExternalEffectPlan,
+  assertValidExternalEffectReceipt,
+  assertValidPlanRevision,
+  assertValidProductionObservation,
+  assertValidProofLease,
+  assertValidProofLeaseInvalidation,
+} from "../autopilot/records.js";
+import type {
+  AgentDelegation,
+  ExternalEffectPlan,
+  ExternalEffectReceipt,
+  ProductionObservation,
+  ProofLease,
+  ProofLeaseInvalidation,
+  TaskPlan,
+} from "../autopilot/types.js";
 import type {
   ActionRecord,
   ClaimRecord,
@@ -101,6 +119,14 @@ export function rebuildTaskProjection(
   const actions = new Map<string, ActionRecord>();
   const evidence = new Map<string, EvidenceRecord>();
   const claims = new Map<string, ClaimRecord>();
+  const planRevisions: TaskPlan[] = [];
+  const delegations = new Map<string, AgentDelegation>();
+  const externalEffectPlans = new Map<string, ExternalEffectPlan>();
+  const externalEffectReceipts = new Map<string, ExternalEffectReceipt>();
+  const proofLeases = new Map<string, ProofLease>();
+  const proofLeaseInvalidations = new Map<string, ProofLeaseInvalidation>();
+  const productionObservations = new Map<string, ProductionObservation>();
+  let currentPlan: TaskPlan | undefined;
   let capsule: EvidenceCapsule | undefined;
   let passport: ChangePassport | undefined;
   const stateHistory: TaskProjection["stateHistory"] = [
@@ -179,6 +205,158 @@ export function rebuildTaskProjection(
       claims.set(claimEvent.payload.claim.id, claimEvent.payload.claim);
       continue;
     }
+    const planEvent = recordForKind(event, "autopilot.plan.revised");
+    if (planEvent) {
+      if (planEvent.payload.plan.taskId !== taskId) {
+        throw new TaskProjectionError("Task plan has a mismatched task ID.");
+      }
+      try {
+        assertValidPlanRevision(currentPlan, planEvent.payload.plan);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `Task plan revision is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      currentPlan = planEvent.payload.plan;
+      planRevisions.push(currentPlan);
+      continue;
+    }
+    const delegationEvent = recordForKind(
+      event,
+      "autopilot.delegation.recorded",
+    );
+    if (delegationEvent) {
+      const delegation = delegationEvent.payload.delegation;
+      if (delegation.taskId !== taskId) {
+        throw new TaskProjectionError("Agent delegation has a mismatched task ID.");
+      }
+      try {
+        assertValidAgentDelegation(delegation);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `Agent delegation is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      delegations.set(delegation.id, delegation);
+      continue;
+    }
+    const effectPlanEvent = recordForKind(
+      event,
+      "autopilot.external_effect.planned",
+    );
+    if (effectPlanEvent) {
+      const effectPlan = effectPlanEvent.payload.effectPlan;
+      if (effectPlan.taskId !== taskId) {
+        throw new TaskProjectionError(
+          "External effect plan has a mismatched task ID.",
+        );
+      }
+      try {
+        assertValidExternalEffectPlan(effectPlan);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `External effect plan is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      externalEffectPlans.set(effectPlan.id, effectPlan);
+      continue;
+    }
+    const effectReceiptEvent = recordForKind(
+      event,
+      "autopilot.external_effect.receipt.recorded",
+    );
+    if (effectReceiptEvent) {
+      const receipt = effectReceiptEvent.payload.receipt;
+      if (receipt.taskId !== taskId) {
+        throw new TaskProjectionError(
+          "External effect receipt has a mismatched task ID.",
+        );
+      }
+      try {
+        assertValidExternalEffectReceipt(receipt);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `External effect receipt is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      externalEffectReceipts.set(receipt.id, receipt);
+      continue;
+    }
+    const proofLeaseEvent = recordForKind(
+      event,
+      "autopilot.proof_lease.issued",
+    );
+    if (proofLeaseEvent) {
+      const lease = proofLeaseEvent.payload.lease;
+      if (lease.taskId !== taskId) {
+        throw new TaskProjectionError("Proof lease has a mismatched task ID.");
+      }
+      try {
+        assertValidProofLease(lease);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `Proof lease is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      proofLeases.set(lease.id, lease);
+      continue;
+    }
+    const invalidationEvent = recordForKind(
+      event,
+      "autopilot.proof_lease.invalidated",
+    );
+    if (invalidationEvent) {
+      const invalidation = invalidationEvent.payload.invalidation;
+      if (invalidation.taskId !== taskId) {
+        throw new TaskProjectionError(
+          "Proof lease invalidation has a mismatched task ID.",
+        );
+      }
+      try {
+        assertValidProofLeaseInvalidation(invalidation);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `Proof lease invalidation is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      proofLeaseInvalidations.set(invalidation.id, invalidation);
+      continue;
+    }
+    const observationEvent = recordForKind(
+      event,
+      "autopilot.production.observed",
+    );
+    if (observationEvent) {
+      const observation = observationEvent.payload.observation;
+      if (observation.taskId !== taskId) {
+        throw new TaskProjectionError(
+          "Production observation has a mismatched task ID.",
+        );
+      }
+      try {
+        assertValidProductionObservation(observation);
+      } catch (error) {
+        throw new TaskProjectionError(
+          `Production observation is invalid: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      productionObservations.set(observation.id, observation);
+      continue;
+    }
     const capsuleEvent = recordForKind(event, "capsule.generated");
     if (capsuleEvent) {
       if (capsuleEvent.payload.capsule.taskId !== taskId) {
@@ -206,6 +384,16 @@ export function rebuildTaskProjection(
     evidence: [...evidence.values()],
     claims: [...claims.values()],
     stateHistory,
+    autopilot: {
+      ...(currentPlan ? { currentPlan } : {}),
+      planRevisions,
+      delegations: [...delegations.values()],
+      externalEffectPlans: [...externalEffectPlans.values()],
+      externalEffectReceipts: [...externalEffectReceipts.values()],
+      proofLeases: [...proofLeases.values()],
+      proofLeaseInvalidations: [...proofLeaseInvalidations.values()],
+      productionObservations: [...productionObservations.values()],
+    },
     ...(capsule ? { capsule } : {}),
     ...(passport ? { passport } : {}),
     lastSequence: last.sequence,

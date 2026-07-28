@@ -77,6 +77,43 @@ describe("ambiguity preflight", () => {
     expect(result.interpretations.every((item) => !item.selected)).toBe(true);
   });
 
+  it("prefers an exact workspace-root manifest under --assume=best", async () => {
+    const root = await temporaryWorkspace();
+    await mkdir(join(root, "apps", "web"), { recursive: true });
+    await mkdir(join(root, "packages", "shared"), { recursive: true });
+    await writeFile(join(root, "package.json"), '{"name":"root"}\n');
+    await writeFile(
+      join(root, "apps", "web", "package.json"),
+      '{"name":"web"}\n',
+    );
+    await writeFile(
+      join(root, "packages", "shared", "package.json"),
+      '{"name":"shared"}\n',
+    );
+
+    const result = await runAmbiguityPreflight({
+      cwd: root,
+      request: "Update package.json scripts and run the relevant tests.",
+      mode: "best",
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.candidates[0]?.interpretations).toEqual([
+      "package.json",
+      "apps/web/package.json",
+      "packages/shared/package.json",
+    ]);
+    expect(result.assumptions.at(-1)).toMatchObject({
+      source: "agent",
+      resolved: false,
+      statement: expect.stringContaining("“package.json”"),
+    });
+    expect(
+      result.interpretations.find((interpretation) => interpretation.selected)
+        ?.description,
+    ).toContain(" package.json");
+  });
+
   it("does not interrupt when two repository paths resolve to the same target", async () => {
     const root = await temporaryWorkspace();
     await mkdir(join(root, "src"));

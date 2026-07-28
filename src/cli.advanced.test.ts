@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { EvidenceTask, readEvidenceTask } from "./evidence-runtime.js";
 import {
+  computeWorkspaceSnapshotDigest,
   StagedTaskWorkspace,
   loadProofPatchBinding,
 } from "./staging-workspace.js";
@@ -224,6 +225,145 @@ describe("advanced CLI adapters", () => {
       },
     });
   });
+
+  it("exposes the live command separately and verifies the workspace digest before execution", async () => {
+    const parent = await temporaryDirectory();
+    const cwd = join(parent, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(cwd, "fixture.mjs"), "process.exit(0);\n");
+    const currentDigest = await computeWorkspaceSnapshotDigest(cwd);
+    const inputPath = join(parent, "live-causal.json");
+    await writeFile(
+      inputPath,
+      JSON.stringify({
+        plan: {
+          id: "cli-live-causal",
+          snapshotDigest: `sha256:${"0".repeat(64)}`,
+          baseline: { runtime: "node", entrypoint: "fixture.mjs" },
+          hypotheses: [
+            {
+              id: "one",
+              statement: "First hypothesis.",
+              baselineExpectation: { keys: ["success"] },
+            },
+            {
+              id: "two",
+              statement: "Second hypothesis.",
+              baselineExpectation: { keys: ["success"] },
+            },
+          ],
+          experiments: [],
+        },
+      }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+
+    const result = await runCli([
+      "--cwd",
+      cwd,
+      "debug",
+      "causal-live",
+      "--input",
+      inputPath,
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/snapshot digest does not match/i);
+    expect(result.stderr).not.toContain(currentDigest);
+  });
+
+  it.runIf(process.platform === "darwin")(
+    "runs the live CLI path through verified macOS containment",
+    async () => {
+      const parent = await temporaryDirectory();
+      const cwd = join(parent, "workspace");
+      await mkdir(cwd);
+      await writeFile(
+        join(cwd, "fixture.mjs"),
+        'process.exit(process.env.KRATER_CAUSAL_MODE === "safe" ? 0 : 7);\n',
+      );
+      const inputPath = join(parent, "live-causal.json");
+      await writeFile(
+        inputPath,
+        JSON.stringify({
+          plan: {
+            id: "cli-live-contained",
+            snapshotDigest: await computeWorkspaceSnapshotDigest(cwd),
+            baseline: {
+              runtime: "node",
+              entrypoint: "fixture.mjs",
+              environment: { KRATER_CAUSAL_MODE: "broken" },
+            },
+            hypotheses: [
+              {
+                id: "mode",
+                statement: "Mode causes the failure.",
+                baselineExpectation: { keys: ["exit:7"] },
+              },
+              {
+                id: "fixture",
+                statement: "Fixture always fails.",
+                baselineExpectation: { keys: ["exit:7"] },
+              },
+            ],
+            experiments: [
+              {
+                id: "safe-mode",
+                title: "Change only mode.",
+                intervention: {
+                  kind: "environment",
+                  description: "Use safe mode.",
+                  changedInputs: ["KRATER_CAUSAL_MODE"],
+                  isolated: true,
+                },
+                invocation: {
+                  runtime: "node",
+                  entrypoint: "fixture.mjs",
+                  environment: { KRATER_CAUSAL_MODE: "safe" },
+                },
+                estimatedCost: 1,
+                predictions: [
+                  { hypothesisId: "mode", expected: { keys: ["success"] } },
+                  {
+                    hypothesisId: "fixture",
+                    expected: { keys: ["exit:7"] },
+                  },
+                ],
+              },
+            ],
+            limits: { defaultTimeoutMs: 2_000 },
+          },
+        }),
+        { encoding: "utf8", mode: 0o600 },
+      );
+
+      const result = await runCli([
+        "--cwd",
+        cwd,
+        "debug",
+        "causal-live",
+        "--input",
+        inputPath,
+      ]);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        mode: "live_sandboxed_process_execution",
+        executedProcesses: true,
+        workspaceDigestVerified: true,
+        execution: {
+          containment: "secure",
+          adapterId: "macos-seatbelt-v1",
+          executionCount: 3,
+        },
+        report: {
+          verdict: "causal_evidence_established",
+          causalHypothesisIds: ["mode"],
+        },
+      });
+    },
+    20_000,
+  );
 
   it("fails closed when a reliability replay artifact is not sealed", async () => {
     const cwd = await temporaryDirectory();

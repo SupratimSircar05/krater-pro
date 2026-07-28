@@ -50,6 +50,8 @@ test("desktop release config covers every requested native format", async () => 
   );
   assert.match(buildScript, /!environment\.CSC_LINK/);
   assert.match(buildScript, /builderArguments\.push\("--config\.mac\.identity=-"\)/);
+  assert.match(buildScript, /KRATER_RELEASE_MODE === "stable"/);
+  assert.match(buildScript, /"--config\.mac\.notarize=true"/);
 
   const afterPack = await readFile(
     join(repositoryRoot, "desktop", "scripts", "after-pack.mjs"),
@@ -108,12 +110,34 @@ test("write-capable release automation pins actions and isolates permission", as
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.match(
     workflow,
-    /release:[\s\S]*permissions:\n      contents: write/,
+    /publish:[\s\S]*permissions:\n      contents: write/,
   );
   assert.equal(/uses:\s+[^@\s]+@v\d/.test(workflow), false);
-  assert.equal(
-    (workflow.match(/persist-credentials: false/g) ?? []).length,
-    3,
+  assert.ok(
+    (workflow.match(/persist-credentials: false/g) ?? []).length >= 5,
+  );
+  for (const required of [
+    "macos-14",
+    "macos-15-intel",
+    "windows-2022",
+    "ubuntu-22.04",
+    "node-version: 22.23.1",
+    "NPM_VERSION: 11.16.0",
+    "release:cli",
+    "smoke-built-desktop.mjs",
+    "validate-release-environment.mjs",
+    "create-release-manifest.mjs",
+    "sign-release-artifacts.mjs",
+    "actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6",
+    "HOMEBREW_TAP_TOKEN",
+    "production-release",
+  ]) {
+    assert.ok(workflow.includes(required), `missing release gate: ${required}`);
+  }
+  assert.doesNotMatch(
+    workflow,
+    /echo\s+["']?\$\{\{\s*secrets\./,
+    "release workflow must never print a secret expression",
   );
 });
 

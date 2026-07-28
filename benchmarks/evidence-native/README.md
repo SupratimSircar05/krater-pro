@@ -1,15 +1,21 @@
-# Evidence-Native Foundation Benchmark
+# Evidence-Native Sealed Microbenchmark
 
-This directory contains Krater Pro's first **20 executable local acceptance
-tasks** for the evidence-native foundation. They are intentionally small,
-deterministic Node.js and Python repairs derived from concepts in
-`benchmarks/tasks.json`.
+This directory contains **100 executable local repair tasks**, with one distinct
+microbenchmark mapped to every expert specification from `KC-001` through
+`KC-100` in `benchmarks/tasks.json`. The tasks use deterministic Node.js and
+Python fixtures and a host-side sealed checker.
 
-These are infrastructure acceptance tasks. They validate that Krater can
-materialize a controlled seed, withhold a behavioral checker, run it, and
-record a typed verdict. They are **not** the “20 hardest coding problems,” do
-not replace the 100 expert specifications, and do not constitute a SWE-bench
-score.
+These tasks cover focused invariants from distributed state, parsers, data
+integrity, security, performance, accessibility, build tooling, protocols,
+reliability, and agent-safe repository operations. They validate that Krater
+can materialize a controlled seed, withhold a behavioral checker, run it, and
+record a typed verdict.
+
+Each task deliberately narrows one expert specification to a bounded function
+or state-machine repair. Passing a microbenchmark is **not** equivalent to
+solving its multi-hour expert source specification. This suite does not
+constitute a SWE-bench score or an authoritative score for the separate
+100-task expert catalog.
 
 ## Commands
 
@@ -93,6 +99,14 @@ Every manifest object uses an exact-key schema. A task declares:
 Manifest data cannot declare commands, arguments, network access,
 environment variables, setup scripts, or teardown scripts. Adding one of
 those fields is a validation error.
+
+The checked-in manifest has additional release invariants:
+
+- exactly 100 unique `EB-001` through `EB-100` task identifiers;
+- exactly 100 unique `KC-001` through `KC-100` source-specification mappings;
+- one fixture directory and one exhaustive regular-file inventory per task;
+- 52 Node.js tasks and 48 Python tasks; and
+- every seed is intentionally incomplete and rejected by its checker.
 
 When checker behavior changes, recompute the digest deliberately:
 

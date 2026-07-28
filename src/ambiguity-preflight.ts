@@ -240,7 +240,21 @@ async function discoverRepository(
       continue;
     }
     const namedMatches = matches.get(basename(token)) ?? [];
-    const uniquePaths = [...new Set(namedMatches.map((match) => match.path))].sort();
+    const uniquePaths = [
+      ...new Set(namedMatches.map((match) => match.path)),
+    ].sort((left, right) => {
+      // A bare filename conventionally names the workspace-root file when one
+      // exists. Keep that exact match ahead of nested monorepo manifests so
+      // --assume=best does not accidentally select a lexicographically earlier
+      // package such as apps/web/package.json.
+      const leftExact = left === token ? 0 : 1;
+      const rightExact = right === token ? 0 : 1;
+      if (leftExact !== rightExact) return leftExact - rightExact;
+      const leftDepth = left.split("/").length;
+      const rightDepth = right.split("/").length;
+      if (leftDepth !== rightDepth) return leftDepth - rightDepth;
+      return left.localeCompare(right);
+    });
     if (uniquePaths.length === 1) {
       const selected = uniquePaths[0]!;
       facts.push({

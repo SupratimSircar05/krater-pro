@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-07-28T09:49:51.567Z",
+  "artifact": {
+    "path": "krater-pro-space-manager-tri-region-demo.mp4",
+    "sha256": "34802db590d7ae340c7227efb50e3a56cb40fa41e3d49c210b3c706f2ef59628",
+    "bytes": 24497618,
+    "durationSeconds": 243.24
+  },
+  "streamChecks": {
+    "h264": true,
+    "fullHd": true,
+    "aac": true,
+    "fortyEightKhz": true,
+    "subtitles": true
+  },
+  "timelineQa": {
+    "samples": 12,
+    "contactSheet": "generated/qa/contact-sheet.png",
+    "contactSheetSha256": "60d4a644ae3a20c174d05b6f2503cc98fbde4c31d010a616bbe8ed39143f22fc"
+  },
+  "subtitleChecks": {
+    "embeddedFormat": "mov_text",
+    "extractedCueCount": 12,
+    "extractedPath": "generated/qa/embedded-captions.vtt",
+    "extractedSha256": "b159d6707f83c2e1384b63b571e8f2265cf660087f603b99052ebd33b14e45ea"
+  },
+  "privacyChecks": {
+    "noEmailAddress": true,
+    "noAbsoluteUserPath": true,
+    "noBearerValue": true,
+    "noCookieAssignment": true,
+    "noRawPrivateFrame": true
+  },
+  "privateInputsPresentInRepository": false
+}

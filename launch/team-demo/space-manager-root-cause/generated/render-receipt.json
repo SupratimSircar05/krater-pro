@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28T09:47:01.227Z",
+  "format": "Edited, narrated, credential-free screen demo assembled from sanitized live captures",
+  "output": {
+    "path": "krater-pro-space-manager-root-cause-demo.mp4",
+    "sha256": "d7ffe52ee6cbb8d455ebf0189dfb7b51397e6c547314d44941e9cdca3394a931",
+    "durationSeconds": 140.1,
+    "width": 1920,
+    "height": 1080,
+    "videoCodec": "H.264",
+    "audio": "AAC narration",
+    "subtitles": "English mov_text track plus on-screen scene captions"
+  },
+  "inputs": [
+    {
+      "path": "frames/03-live-space-manager-symptom.png",
+      "sha256": "db186f3d3e144a747902de9de36d648caf3bc0bdfdc61bda2584ba32224bd945"
+    },
+    {
+      "path": "frames/04-monitor-dashboard-evidence.png",
+      "sha256": "41356e4116dd7aa1d219505cef1aab4b0ba35ed04e5d5299eb0546d544ece0fc"
+    },
+    {
+      "path": "frames/05-krater-corrected-diagnosis.png",
+      "sha256": "3ae2fe5db9c6daca924138a10454b60c6e5bdb3dc4486e1b076916f465cd4c39"
+    },
+    {
+      "path": "frames/06-krater-corrected-remediation.png",
+      "sha256": "3a4f84fa0be5d6c2fc99cd74d38b0f93d63fc8a7f07dfdcca1b012f978df4804"
+    }
+  ],
+  "privacy": {
+    "credentialsIncluded": false,
+    "cookiesIncluded": false,
+    "authorizationHeadersIncluded": false,
+    "sourceIdentityRedacted": true
+  }
+}

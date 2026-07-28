@@ -32,6 +32,8 @@ transient Krater API key.
 ## Highlights
 
 - First-class `krater` and `krater-pro` terminal commands
+- Secret-safe first-run setup, offline diagnostics, and Bash/Zsh/Fish
+  completion generation
 - Interactive task prompts, one-shot execution, model discovery, and approval
   controls
 - Auditable Smart Coding Router that selects the lowest-cost qualified model
@@ -68,28 +70,27 @@ transient Krater API key.
 
 ## Quick start
 
-Requirements: Node.js 20.19 or newer (or 22.12+), npm, and a Krater account
-with API access.
+Requirements: Node.js `^20.19.0 || >=22.12.0`, npm, and a Krater account with
+API access.
 
 ```sh
 npm install
-cp .env.example .env
-# Edit .env and set KRATER_API_KEY
 npm run build
+npm link
+krater setup
+krater doctor
 ```
 
 Start the terminal agent:
 
 ```sh
-node dist/cli.js
+krater
 ```
 
-Or link both command names:
+Without a global link:
 
 ```sh
-npm link
-krater
-# krater-pro is equivalent
+node dist/cli.js
 ```
 
 Start the local GUI:
@@ -99,6 +100,9 @@ krater web
 ```
 
 Then open [http://127.0.0.1:4317](http://127.0.0.1:4317).
+
+Full source, first-run, Homebrew-readiness, shell-completion, update, and
+uninstall guidance: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 ## Desktop apps
 
@@ -131,7 +135,8 @@ Krater Pro resolves a key in this order:
 
 1. `--api-key`
 2. `KRATER_API_KEY` in the process environment
-3. `KRATER_API_KEY` in the selected workspace’s `.env`
+3. an OS-protected credential referenced by the selected workspace
+4. `KRATER_API_KEY` in the selected workspace’s `.env`
 
 It intentionally ignores `OPENAI_API_KEY` and `OPENAI_BASE_URL`. A command-line
 key can remain in shell history, so `.env` or a carefully scoped environment
@@ -145,10 +150,18 @@ KRATER_MODEL=auto
 For browser-assisted setup:
 
 ```sh
+krater setup
+krater doctor
 krater auth login
 krater auth status
 ```
 
+`krater setup` accepts the key without terminal echo, validates authenticated
+model discovery, then recommends macOS Keychain, Linux Secret Service, or
+Windows DPAPI. The key is never placed in process arguments or output. A
+permission-restricted plaintext `.env` is offered only as an explicitly
+disclosed fallback. `krater doctor` is offline by default;
+`krater doctor --live` explicitly repeats authenticated discovery.
 Krater currently documents bearer API keys, not a third-party OAuth/OIDC flow.
 Krater Pro therefore opens the official developer setup page but never reads a
 logged-in browser’s cookies, local storage, or private session tokens. Account
@@ -168,11 +181,17 @@ krater --model auto "Repair this race condition and run the tests"
 krater -C ../project --model moonshotai/kimi-k3 \
   "Find the failing test, fix it, and verify the result"
 
-# Automatically approve displayed mutations and commands
+# Approve staged file edits; commands remain fail-closed and contained
 krater --yes "Run the tests and repair the failure"
 
 # List models available to the configured account
 krater models
+
+# Check setup without making an API request
+krater doctor --json
+
+# Generate a completion script
+krater completion zsh
 
 # Tune context/cost behavior for one invocation
 krater --context-chars 90000 --tool-output-chars 12000 \
@@ -182,8 +201,10 @@ krater --context-chars 90000 --tool-output-chars 12000 \
 
 Interactive commands include `/contract`, `/assumptions`, `/evidence`, `/why`,
 `/publish`, and `/rollback`, plus `/help`, `/clear`, `/exit`, and `/quit`. File
-edits and commands ask for approval unless `--yes` is set. Non-interactive
-protected actions are denied unless `--yes` is supplied.
+edits and commands ask for approval unless `--yes` is set. Under `--yes`, file
+edits use the staged workspace and commands use the verified fail-closed
+unattended policy described below. Non-interactive protected actions are denied
+unless `--yes` is supplied.
 
 Full command reference: [docs/CLI.md](docs/CLI.md).
 
@@ -303,6 +324,7 @@ npm run dev:web
 
 - IDE guide: [docs/IDE.md](docs/IDE.md)
 - GUI behavior and API endpoints: [docs/GUI.md](docs/GUI.md)
+- CLI installation and first run: [docs/INSTALLATION.md](docs/INSTALLATION.md)
 - Native desktop installation and releases: [docs/DESKTOP.md](docs/DESKTOP.md)
 
 ## Configuration
@@ -453,7 +475,7 @@ mode. Model-run commands receive a minimal environment without Krater or
 unrelated provider keys. Obviously destructive commands are blocked even under
 `--yes`.
 
-Approvals are not a sandbox: an allowed command can execute project code.
+Approvals are not a sandbox: an allowed attended command can execute project code.
 ProofGraph hashes make tampering detectable but do not prove tool honesty;
 ProofPatch cannot compensate arbitrary process or network side effects; and
 the new policy simulator is not yet an end-to-end context firewall. Review the
@@ -462,9 +484,21 @@ The IDE terminal is a separate, explicit user action: it uses project-ID
 binding, time/output limits, secret-stripped environment variables, and command
 guards. On macOS it additionally uses `sandbox-exec` when available to confine
 writes, deny protected credential paths, and deny spawned-command network
-access. Evidence-mode `--yes` fails closed for commands when verified native
-containment is unavailable; an interactive user must approve the exact
-command. Other platforms do not gain an OS sandbox from these controls. See
+access.
+
+`--yes` is a separate unattended policy. On macOS, Krater first executes live
+Seatbelt, network-denial, no-fork, and kernel-limit probes, then runs the
+command with staged-path rules, deny-all networking, a strict one-process
+ceiling, hard CPU/address-space limits, and output/wall-time bounds. This
+initial shell-string integration therefore supports shell builtins only. The
+underlying native adapter can run one exact executable for structured,
+host-owned callers, but external programs and builds are refused through
+`run_command` because they require a child process. Exact network allowlists
+are not claimed. If any required control is unavailable—or on Linux/Windows,
+where no verified native adapter ships yet—the unattended command fails closed
+without turning itself into an approval prompt. An interactive user may still
+approve the exact attended command, whose result identifies whether it used
+the compatibility macOS profile or an explicitly approved uncontained path. See
 [docs/SECURITY.md](docs/SECURITY.md) and
 [docs/evidence-native.md](docs/evidence-native.md).
 

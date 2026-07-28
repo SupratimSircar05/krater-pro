@@ -1,0 +1,126 @@
+{
+  "title": "Krater Pro × Cisco Spaces — Tri-region Space Manager evidence",
+  "format": "Edited, narrated, credential-free team demo assembled from sanitized read-only captures and verified public source-map excerpts",
+  "scenes": [
+    {
+      "id": "01-title",
+      "kind": "title",
+      "minimumSeconds": 8,
+      "eyebrow": "KRATER PRO · EVIDENCE-NATIVE DIAGNOSIS",
+      "headline": "Space Manager\nacross US, EU & SG",
+      "detail": "Runtime reproduction, monitor telemetry, bundle parity, and source-level evidence — without overstating causality.",
+      "caption": "Sanitized team evidence · read-only captures · 28 Jul 2026",
+      "narration": "This credential-free team demo shows how Krater Pro combines read-only Cisco Spaces observations across the US, Europe, and Singapore with monitor telemetry and public production source maps. No account was changed, and the conclusion remains proportional to the evidence."
+    },
+    {
+      "id": "02-tri-region",
+      "kind": "tri-region",
+      "minimumSeconds": 16,
+      "eyebrow": "DIRECT OBSERVATION · THREE REGIONS",
+      "headline": "One visible outcome across US, EU and SG",
+      "detail": "Each regional validation overview displayed “Please select a location.” Initial captures also stated that permitted locations lacked a published Rich Map.",
+      "caption": "Identity-redacted captures · same visible outcome · three independent regional sessions",
+      "narration": "In three authorized, read-only sessions, the US, Europe, and Singapore validation overviews each displayed Please select a location. Their initial captures also said that building and floor selection was unavailable because the permitted locations had no published Rich Map."
+    },
+    {
+      "id": "03-separate-outcomes",
+      "kind": "separation",
+      "minimumSeconds": 15,
+      "eyebrow": "IMPORTANT DISTINCTION",
+      "headline": "Configuration outcome ≠ selection defect",
+      "detail": "The three regional validation environments establish a Rich Map configuration condition. They do not prove the separate US incident-environment defect.",
+      "caption": "Krater keeps evidence from different environments in separate claim capsules",
+      "narration": "Krater does not merge unlike evidence. The three validation captures establish a Rich Map configuration outcome in those environments. They are useful comparisons, but they do not prove the separate location selection defect reproduced in the US incident environment."
+    },
+    {
+      "id": "04-runtime-reproduction",
+      "kind": "runtime",
+      "minimumSeconds": 18,
+      "eyebrow": "EXACT RUNTIME REPRODUCTION · US",
+      "headline": "Visible selection never commits",
+      "detail": "Space Manager defaulted to BGL 15 and First Floor. Two read-only attempts to choose visible BGL 17 left both the selector and header on BGL 15.",
+      "caption": "Observed twice · target visible · selected building unchanged",
+      "narration": "The stronger runtime reproduction comes from a separate US incident environment. Space Manager defaulted to BGL 15 and First Floor. On two read-only attempts, BGL 17 was visible and chosen, yet the selector and header remained on BGL 15. That is an exact reproduction of the monitor's location selection mismatch."
+    },
+    {
+      "id": "05-monitor-evidence",
+      "kind": "monitor",
+      "minimumSeconds": 20,
+      "eyebrow": "SANITIZED MONITOR API · LATEST FULL RUN",
+      "headline": "The transport works; location state does not",
+      "detail": "Run 20260728T085201Z_US_a5ecc05c83: 0/5 pass and 0% availability across 30 runs.",
+      "caption": "All request totals succeeded · Devices WebSocket 101 + 18 frames · API/UI 327 = 327",
+      "narration": "The sanitized latest full monitor run sharpens the boundary. All five sections failed and availability was zero percent over thirty runs. But every recorded request succeeded: six of six, six of six, three of three, four of four, and one of one. Devices upgraded its WebSocket with HTTP 101 and received eighteen frames. User Management matched exactly at API 327 and UI 327."
+    },
+    {
+      "id": "06-bundle-parity",
+      "kind": "hashes",
+      "minimumSeconds": 17,
+      "eyebrow": "PRODUCTION ARTIFACT PROVENANCE",
+      "headline": "US, EU and SG shipped the same code",
+      "detail": "Exact SHA-256 parity holds for both the Space Manager bundle and the shared location-hierarchy bundle.",
+      "caption": "Byte-identical bundles reduce the likelihood of a region-only code fork",
+      "narration": "Krater then checks production artifact provenance. The Space Manager JavaScript bundle is byte identical across US, Europe, and Singapore. The shared location hierarchy bundle is also byte identical across all three. This does not prove identical configuration or data, but it rules out a regional code fork for these two artifacts."
+    },
+    {
+      "id": "07-source-lh",
+      "kind": "source-lh",
+      "minimumSeconds": 20,
+      "eyebrow": "PUBLIC SOURCE MAP · SHARED LOCATION HIERARCHY",
+      "headline": "Three proven selection behaviors",
+      "detail": "The captured production source map exposes a direct first-node dispatch, a null deselection guard, and explicit access gating.",
+      "caption": "Proven source behavior · possible failure surfaces · not a causal verdict",
+      "narration": "Public source maps provide source-level behaviors. The shared location hierarchy dispatches the first hierarchy node when full tree data changes, without a local nonempty guard at that line. A click callback ignores null deselection before invoking single location selection. Selection is also explicitly access gated, rejecting nodes whose access is Read unless the application role can bypass that check. These are verified behaviors and plausible failure surfaces, not proof that any one caused this incident."
+    },
+    {
+      "id": "08-source-sm",
+      "kind": "source-sm",
+      "minimumSeconds": 18,
+      "eyebrow": "PUBLIC SOURCE MAP · SPACE MANAGER STATE",
+      "headline": "Null can be stopped before shared state",
+      "detail": "Middleware skips a nullish locationWrap update, while selected location and floor state begin as null.",
+      "caption": "A consistent state boundary exists between hierarchy selection and Space Manager consumers",
+      "narration": "The Space Manager source map adds another verified boundary. Its middleware skips location wrap updates with null or undefined payloads. The application slice initializes selected location, selected floor location, and selected floor to null. Together, these behaviors show exactly where an empty hierarchy or access-rejected selection could leave downstream consumers without location state."
+    },
+    {
+      "id": "09-evidence-ladder",
+      "kind": "ladder",
+      "minimumSeconds": 18,
+      "eyebrow": "KRATER PRO · CLAIM DISCIPLINE",
+      "headline": "What is proved — and what is not",
+      "detail": "Observed runtime behavior and source paths support a shared client location-state boundary. The exact causal transition is not established.",
+      "caption": "Strongest supported conclusion: shared client selection/state propagation",
+      "narration": "Krater's strongest supported conclusion is a shared client location selection and state propagation problem. Access gating and empty hierarchy handling are code-level suspects. Backend authentication, HTTP transport, the realtime channel, and at least one exact API to UI path were broadly available. The exact causal state transition remains not established until an intervention changes the outcome as predicted."
+    },
+    {
+      "id": "10-krater-result",
+      "kind": "krater",
+      "minimumSeconds": 15,
+      "eyebrow": "AUTHENTIC KRATER RESULT · SANITIZED CROP",
+      "headline": "A diagnosis with an epistemic label",
+      "detail": "Krater preserved the distinction between the leading inference and formal causal proof.",
+      "caption": "Private path, project, and identity removed · result excerpt only",
+      "narration": "The authentic Krater result records the same epistemic limit: strongest evidence-supported inference, not formal causal proof. The shared screenshot is aggressively cropped so no local path, project identity, email, account identifier, cookie, or credential appears."
+    },
+    {
+      "id": "11-proof-contract",
+      "kind": "proof",
+      "minimumSeconds": 17,
+      "eyebrow": "REPLAYABLE FIX CONTRACT",
+      "headline": "How we will know the defect is fixed",
+      "detail": "Commit the requested building and floor, propagate non-null state to all five sections, preserve exact API/UI parity, and improve the 30-run baseline.",
+      "caption": "No incident closure from one green screenshot",
+      "narration": "The repair contract is concrete. Selecting BGL 17 and Seventh Floor must update the visible selector and header. All five sections and nested views must receive non-null location state. Exact API and UI parity must remain intact. The full monitor must pass repeatedly, and availability must move off the thirty-run zero percent baseline."
+    },
+    {
+      "id": "12-result",
+      "kind": "result",
+      "minimumSeconds": 9,
+      "eyebrow": "OUTCOME",
+      "headline": "Source-level focus.\nNo false certainty.",
+      "detail": "Krater narrows the investigation to one shared client boundary and defines the production replay needed for causal confirmation.",
+      "caption": "Krater Pro · evidence-native verified autonomy",
+      "narration": "The outcome is source-level focus without false certainty: one shared client boundary to instrument, two concrete suspect behaviors to test, and a production replay contract that can confirm or reject causality."
+    }
+  ]
+}

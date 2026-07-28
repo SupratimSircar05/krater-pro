@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 2,
+  "demo": {
+    "title": "Krater Pro × Cisco Spaces — Space Manager root-cause evidence demo",
+    "format": "Edited, narrated screen demo assembled from sanitized live captures and identifier-free authentic Krater excerpts",
+    "continuousRawRecording": false,
+    "capturedOn": "2026-07-28",
+    "scope": "Read-only Space Manager diagnosis; no production mutation"
+  },
+  "sources": [
+    {
+      "id": "CAP-COMPARISON-SYMPTOM",
+      "path": "frames/03-live-space-manager-symptom.png",
+      "sha256": "db186f3d3e144a747902de9de36d648caf3bc0bdfdc61bda2584ba32224bd945",
+      "role": "Identity-redacted comparison symptom; not target-incident proof"
+    },
+    {
+      "id": "CAP-TARGET-MONITOR",
+      "path": "frames/04-monitor-dashboard-evidence.png",
+      "sha256": "41356e4116dd7aa1d219505cef1aab4b0ba35ed04e5d5299eb0546d544ece0fc",
+      "role": "Identifier-redacted live aggregate incident evidence",
+      "note": "Schema counters were not evaluated and are explicitly labelled as such."
+    },
+    {
+      "id": "CAP-KRATER-DIAGNOSIS",
+      "path": "frames/05-krater-corrected-diagnosis.png",
+      "sha256": "3ae2fe5db9c6daca924138a10454b60c6e5bdb3dc4486e1b076916f465cd4c39",
+      "role": "Authentic corrected Krater diagnosis excerpt with private path, project, and target identifiers excluded"
+    },
+    {
+      "id": "CAP-KRATER-REMEDIATION",
+      "path": "frames/06-krater-corrected-remediation.png",
+      "sha256": "3a4f84fa0be5d6c2fc99cd74d38b0f93d63fc8a7f07dfdcca1b012f978df4804",
+      "role": "Authentic Krater narrow-fix and epistemic-label excerpt with target-specific values excluded"
+    }
+  ],
+  "claims": [
+    {
+      "id": "CLAIM-001",
+      "grade": "observed",
+      "statement": "The target monitor was current, its incident was active, all five monitored Space Manager sections failed, and the hierarchy sweep covered the target location.",
+      "supports": ["CAP-TARGET-MONITOR"]
+    },
+    {
+      "id": "CLAIM-002",
+      "grade": "observed",
+      "statement": "Overview reported location_selection_mismatch; the other monitored sections reported location_state_null.",
+      "supports": ["CAP-TARGET-MONITOR"]
+    },
+    {
+      "id": "CLAIM-003",
+      "grade": "observed",
+      "statement": "Recorded requests completed successfully, a WebSocket upgraded and exchanged frames, and one API/UI count matched exactly.",
+      "supports": ["CAP-TARGET-MONITOR", "CAP-KRATER-DIAGNOSIS"],
+      "caveat": "Schema validity was not evaluated. These facts narrow the fault domain but do not prove every backend dependency healthy."
+    },
+    {
+      "id": "CLAIM-004",
+      "grade": "inferred",
+      "confidence": "strong",
+      "statement": "A shared client-side location-state selection-commit defect is the most evidence-supported root cause.",
+      "supports": ["CLAIM-001", "CLAIM-002", "CLAIM-003", "CAP-KRATER-DIAGNOSIS"],
+      "caveat": "This is not formal causal proof; source instrumentation and a controlled intervention remain required."
+    },
+    {
+      "id": "CLAIM-005",
+      "grade": "tested",
+      "statement": "The local monitor baseline passed 140 tests plus 27 subtests, and the dashboard baseline passed 32 tests plus 2 subtests on Python 3.11.",
+      "caveat": "Baseline tests validate monitoring code, not repair of the live product incident."
+    }
+  ],
+  "repairAndRecheck": {
+    "status": "hypothesis_to_confirm",
+    "repairBoundary": "Commit selected location to one shared client store and prevent silent reversion.",
+    "publicationGate": "All five sections and nested views must receive non-null location state, exact API/UI checks must agree, and the live monitor must replay cleanly."
+  },
+  "artifact": {
+    "path": "krater-pro-space-manager-root-cause-demo.mp4",
+    "sha256": "d7ffe52ee6cbb8d455ebf0189dfb7b51397e6c547314d44941e9cdca3394a931",
+    "bytes": 20425967,
+    "durationSeconds": 140.20,
+    "width": 1920,
+    "height": 1080,
+    "framesPerSecond": 30,
+    "video": "H.264 High, yuv420p",
+    "audio": "AAC LC, 48 kHz mono",
+    "subtitles": "Embedded English mov_text track plus on-screen scene captions"
+  },
+  "supportingArtifacts": [
+    {"path": "captions.vtt", "sha256": "cc48b227b1c21c51ff7119df16df8e8b74cfb8c9a288ca2f91c16c4137f9e5e3"},
+    {"path": "transcript.md", "sha256": "338f6202f898f3c28c091e9fa730546b7c339261fc778aee92beb337ab283034"},
+    {"path": "storyboard.json", "sha256": "a7dcc250f0a8b37ad773d1a8a1ca40725e4f1e6c7199fc244f1fe3235666422f"},
+    {"path": "storyboard.md", "sha256": "e40a197c58a4f01f96e95d115f1f2717ff8e16517983976fe641907a12350c98"},
+    {"path": "README.md", "sha256": "daa9698194f2603b9856e9af8bab92024fb823a1fd228ff07fa9c56059cc742a"},
+    {"path": "scripts/render-demo.mjs", "sha256": "4def0f2db4cbea71f8929b4b2879953482f951e44e0a2cabb76bb9bf4d74a7ef"},
+    {"path": "generated/render-receipt.json", "sha256": "716b553dfbeabac59fb0917a1168d0690f73f563197d84ac946d67ca5464ae6f"},
+    {"path": "generated/qa/contact-sheet.png", "sha256": "f306ee17696f85b0ced0382ac464521a08879ee5825742d29c78d034089ccc1a"}
+  ],
+  "qualityChecks": {
+    "containerAndStreams": "pass",
+    "eightFrameTimelineReview": "pass",
+    "subtitleExtraction": "pass",
+    "narrationMeanDb": -16.1,
+    "narrationMaxDb": -1.8,
+    "silenceLongerThanThreeSeconds": false,
+    "rawPrivateCaptureInRepository": false,
+    "knownSecretAndIdentityScan": "pass"
+  },
+  "privacy": {
+    "serviceIdentityIncluded": false,
+    "tenantOrCustomerIdIncluded": false,
+    "absoluteUserPathIncluded": false,
+    "credentialsIncluded": false,
+    "cookiesIncluded": false,
+    "authorizationHeadersIncluded": false,
+    "privateAuthStateIncluded": false,
+    "productionMutationPerformed": false
+  }
+}

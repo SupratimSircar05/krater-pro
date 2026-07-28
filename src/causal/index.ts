@@ -15,4 +15,22 @@ export {
   defaultOutcomeEvaluator,
   runCausalTwin,
 } from "./runner.js";
+export {
+  LiveCausalExecutionError,
+  parseLiveCausalPlan,
+  runLiveCausalTwin,
+} from "./live.js";
+export {
+  LiveCausalProcessRunner,
+  LiveCausalUnavailableError,
+  LiveCausalValidationError,
+} from "./live-process-runner.js";
+export type {
+  LiveCausalTwinResult,
+  RunLiveCausalTwinOptions,
+} from "./live.js";
+export type {
+  LiveCausalExecutionSummary,
+  LiveCausalProcessRunnerOptions,
+} from "./live-process-runner.js";
 export type * from "./types.js";

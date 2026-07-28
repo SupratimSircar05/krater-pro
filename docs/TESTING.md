@@ -38,6 +38,31 @@ Coverage includes:
 The full automated suite is expected to pass; use the current `npm test` output
 as the authoritative test and file count rather than a hard-coded snapshot.
 
+## Release automation acceptance
+
+Run the focused release suite and build a real immutable CLI archive:
+
+```sh
+npm run release:test
+npm run build
+npm run release:cli
+```
+
+Release tests cover shrinkwrap inclusion, reproducible metadata, SPDX
+normalization, source-bound checksums, fail-closed signing configuration,
+secret-free GPG arguments, native runner coverage, packaged-renderer smoke
+entry, checksum-gated formula/cask generation, and tap CI scaffolding.
+
+`npm run release:cli` performs the stronger integration check: two independently
+packed archives from the same staged inputs must be byte-identical. Extract the
+result in a temporary directory, run `npm ci --omit=dev --ignore-scripts`, and
+exercise `node dist/cli.js --version` before a release.
+
+Workflow and Ruby syntax validation are necessary but not sufficient. Stable
+acceptance requires the protected GitHub workflow to run on all four native
+runner targets with real publisher credentials. Never infer Windows, Linux, or
+Intel macOS launch success from a local Apple-silicon build.
+
 ## Built CLI acceptance
 
 The production `dist/cli.js` was exercised against a local
@@ -148,7 +173,11 @@ Chat layout:
 
 macOS terminal acceptance should also confirm that `sandbox-exec` is used when
 present and that writes outside the workspace/protected credential reads are
-denied. On a platform without that facility, the record must state that only
+denied. The response must label this as the attended compatibility profile.
+Separate unattended acceptance must prove the native probe, protected-path
+deny overrides, network/fork denial, hard non-raiseable CPU/address-space
+ceilings, output cutoff, wall-time cancellation, and fail-closed behavior
+without an adapter. On a platform without that facility, the record must state that only
 the process, environment, command, timeout, and workspace controls were
 exercised; it must not call the terminal OS-sandboxed.
 

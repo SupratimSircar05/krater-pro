@@ -55,6 +55,15 @@ type TerminalResult = {
   stderr: string;
   timedOut: boolean;
   durationMs: number;
+  execution?: {
+    authorization: "host_direct" | "approved_attended" | "verified_unattended";
+    containment:
+      | "verified_native"
+      | "macos_seatbelt_best_effort"
+      | "approved_uncontained"
+      | "host_process";
+    summary: string;
+  };
 };
 
 type TerminalPayload = Omit<TerminalResult, "command">;
@@ -1344,6 +1353,22 @@ export default function AgenticIde({
                           {terminalStatus(entry)}
                         </i>
                       </div>
+                      {entry.execution && (
+                        <div className="ide-terminal-entry__containment">
+                          <strong>
+                            {entry.execution.containment === "verified_native"
+                              ? "Verified native"
+                              : entry.execution.containment ===
+                                  "macos_seatbelt_best_effort"
+                                ? "Attended macOS profile"
+                                : entry.execution.containment ===
+                                    "approved_uncontained"
+                                  ? "Approved without native containment"
+                                  : "Host process"}
+                          </strong>
+                          <span>{entry.execution.summary}</span>
+                        </div>
+                      )}
                       {entry.stdout && <pre>{entry.stdout}</pre>}
                       {entry.stderr && <pre className="is-stderr">{entry.stderr}</pre>}
                     </section>

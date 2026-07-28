@@ -18,12 +18,20 @@ GitHub Release assets are built natively on GitHub-hosted runners:
 | Windows x64 | NSIS setup and portable `.exe` |
 | Linux x64 | `.AppImage` and Debian `.deb` |
 
-Every release also includes `SHA256SUMS.txt`. Verify the download before
-opening it:
+Every stable release also includes SPDX dependency SBOMs, a source-bound release
+manifest, `SHA256SUMS.txt`, detached signatures for the integrity files, and
+GitHub artifact attestations. Verify the download before opening it:
 
 ```sh
 # macOS or Linux, from the download directory
 shasum -a 256 -c SHA256SUMS.txt
+
+# With the documented public release-signing key imported:
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+
+# Online GitHub provenance check:
+gh attestation verify Krater-Pro-0.1.0-arm64.dmg \
+  --repo SupratimSircar05/krater-pro
 ```
 
 On Windows PowerShell, compare the value for the downloaded file:
@@ -129,43 +137,55 @@ npm run desktop:dist:linux -- --x64
 icons from the canonical Krater Pro SVG, and runs the desktop security tests.
 Outputs go to `release/`.
 
-## GitHub Release automation
+## GitHub release automation
 
 [`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-release.yml)
-runs the complete test/typecheck/build gate, builds on each native operating
-system, generates a combined SHA-256 manifest, and creates a GitHub Release when
-a `v*` tag is pushed. The tag must exactly match `package.json`; for 0.1.0:
+runs the full source gate, creates the CLI archive twice and compares its bytes,
+builds on native macOS ARM64, macOS Intel, Windows x64, and Linux x64 runners,
+launches the packaged renderer, produces normalized SPDX dependency SBOMs,
+attests artifacts, signs the release receipt, publishes a matching GitHub
+Release, and opens a Homebrew tap update PR.
+
+Manual workflow dispatch is a non-publishing release-candidate path. It permits
+ad-hoc/unsigned candidates, labels them as candidates, and uploads CI artifacts
+only. A tag is the stable path and fails closed when any required protected
+capability is missing. The tag must exactly match `package.json`; for 0.1.0:
 
 ```sh
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-A manual workflow dispatch builds downloadable CI artifacts but deliberately
-does not create a public Release.
-
 ## Signing and notarization
 
-The current pipeline assumes no private signing material and produces unsigned
-artifacts. On macOS, the unsigned community build is still ad-hoc signed after
-Electron fuses are applied so Apple silicon can validate every executable page.
-Its explicit hardened-runtime entitlements allow Electron's V8 JIT and disable
-library validation because ad-hoc nested frameworks have no common Developer
-ID team identifier. This establishes bundle integrity, not publisher identity.
-Never commit certificates, passwords, API keys, or notarization credentials.
+Configure the `production-release` GitHub environment with required reviewers
+and these secrets:
 
-Future maintainers can enable signing through protected GitHub Actions
-environments and repository secrets:
+| Capability | Secret |
+| --- | --- |
+| macOS Developer ID | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD` |
+| Apple notarization | `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` |
+| Windows Authenticode | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` |
+| Detached receipt signature | `RELEASE_GPG_PRIVATE_KEY_BASE64`, `RELEASE_GPG_KEY_ID`, `RELEASE_GPG_PASSPHRASE` |
+| Homebrew tap PR | `HOMEBREW_TAP_TOKEN` |
 
-- macOS signing: `CSC_LINK`, `CSC_KEY_PASSWORD`
-- Apple notarization: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
-  `APPLE_TEAM_ID`
-- Windows code signing: `CSC_LINK`, `CSC_KEY_PASSWORD`
-- optional Linux detached signatures: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`
+Stable packaging refuses to fall back to ad-hoc signing. It verifies macOS
+codesign, Gatekeeper assessment, and notarization staples; verifies every
+Windows executable's Authenticode status; and verifies detached signatures
+immediately after creating them. The Apple key and imported signing material
+exist only on the protected runner and are removed after use. Krater API keys
+are neither required nor available in release jobs.
 
-Apple notarization still requires an explicit reviewed `mac.notarize`
-configuration. Before a Developer ID release, review whether all dependencies
-can run without `disable-library-validation`; the V8 JIT entitlements remain
-required by Electron. Linux GPG signing requires an explicit release step.
-Rotate any credential that is ever printed in CI and keep pull-request
-workflows unable to read release secrets.
+An unsigned local or manually dispatched macOS candidate remains ad-hoc signed
+after Electron fuses are applied so Apple silicon validates executable pages.
+That establishes bundle integrity, not publisher identity, and is never
+eligible for stable publication or the Homebrew cask.
+
+Before a Developer ID release, review whether every dependency can run without
+`disable-library-validation`; the V8 JIT entitlements remain required by
+Electron. Never commit certificates, private keys, passwords, notarization
+credentials, or API keys.
+
+GitHub attestations bind subjects to the workflow, repository, ref, and commit;
+they are not a guarantee that an artifact is safe. Consumers must verify them
+against the expected repository and release policy.

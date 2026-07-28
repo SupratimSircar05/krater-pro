@@ -1,0 +1,6 @@
+audio/
+segments/
+slides/
+base-video.mp4
+segments.txt
+qa/frame-*.png
