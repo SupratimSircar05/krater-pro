@@ -26,6 +26,14 @@ const targetsMac =
     !forwarded.includes("--linux") &&
     process.platform === "darwin");
 const environment = { ...process.env };
+// GitHub expressions materialize unavailable secrets as empty strings. An
+// empty CSC_LINK is not equivalent to an unset value in electron-builder: it
+// is resolved as the project directory and fails with "not a file" before
+// candidate ad-hoc signing can begin.
+if (!environment.CSC_LINK?.trim()) delete environment.CSC_LINK;
+if (!environment.CSC_KEY_PASSWORD?.trim()) {
+  delete environment.CSC_KEY_PASSWORD;
+}
 const stableRelease = environment.KRATER_RELEASE_MODE === "stable";
 if (stableRelease && targetsMac) {
   validateReleaseEnvironment({

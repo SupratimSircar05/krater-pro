@@ -28,6 +28,13 @@ type EvidenceGrade =
   | "stress_tested"
   | "formally_verified";
 
+export type EvidenceOrigin =
+  | "repository"
+  | "agent_author"
+  | "blind_verifier"
+  | "human"
+  | "tool";
+
 type TaskSummary = {
   id: string;
   projectId: string;
@@ -51,9 +58,10 @@ type EvidenceRecord = {
   id: string;
   kind: string;
   grade: EvidenceGrade;
+  origin: unknown;
   summary: string;
   ok?: boolean;
-  createdAt?: string;
+  observedAt?: string;
   stale?: boolean;
 };
 
@@ -167,6 +175,40 @@ function GradeBadge({ grade }: { grade: EvidenceGrade }) {
       aria-label={`Evidence grade: ${humanize(grade)}`}
     >
       {humanize(grade)}
+    </span>
+  );
+}
+
+const EVIDENCE_ORIGIN_LABELS: Readonly<Record<EvidenceOrigin, string>> = {
+  repository: "Repository evidence",
+  agent_author: "Agent-authored evidence",
+  blind_verifier: "Independent verifier",
+  human: "Human-provided evidence",
+  tool: "Host tool evidence",
+};
+
+function isEvidenceOrigin(origin: unknown): origin is EvidenceOrigin {
+  return (
+    typeof origin === "string" &&
+    Object.prototype.hasOwnProperty.call(EVIDENCE_ORIGIN_LABELS, origin)
+  );
+}
+
+export function EvidenceOriginBadge({
+  origin,
+}: {
+  origin: unknown;
+}) {
+  const knownOrigin = isEvidenceOrigin(origin) ? origin : undefined;
+  const label = knownOrigin
+    ? EVIDENCE_ORIGIN_LABELS[knownOrigin]
+    : "Unknown source";
+  return (
+    <span
+      className={`evidence-origin evidence-origin--${knownOrigin ?? "unknown"}`}
+      aria-label={`Evidence source: ${label}`}
+    >
+      Source: {label}
     </span>
   );
 }
@@ -633,9 +675,10 @@ function TaskDetailView({
                       <strong>{record.summary}</strong>
                       <span>
                         {humanize(record.kind)}
-                        {record.createdAt ? ` · ${formatDate(record.createdAt)}` : ""}
+                        {record.observedAt ? ` · ${formatDate(record.observedAt)}` : ""}
                         {record.stale ? " · stale" : ""}
                       </span>
+                      <EvidenceOriginBadge origin={record.origin} />
                     </div>
                     <GradeBadge grade={record.grade} />
                   </li>

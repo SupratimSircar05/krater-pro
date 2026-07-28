@@ -23,6 +23,9 @@ export const LOGIN_ACCOUNT_RATE_LIMIT = 12;
 export const LOGIN_ACCOUNT_RATE_WINDOW_SECONDS = 15 * 60;
 export const MIN_RATE_LIMIT_SALT_BYTES = 16;
 export const MIN_PASSWORD_PEPPER_BYTES = 32;
+export const HSTS_POLICY = "max-age=63072000; includeSubDomains";
+export const PERMISSIONS_POLICY =
+  "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()";
 
 export type RateLimitScope =
   | "register"
@@ -232,8 +235,11 @@ export function apiHeaders(extra?: HeadersInit): Headers {
   const headers = new Headers(extra);
   headers.set("Cache-Control", "no-store, max-age=0");
   headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  headers.set("Permissions-Policy", PERMISSIONS_POLICY);
   headers.set("Referrer-Policy", "no-referrer");
+  headers.set("Strict-Transport-Security", HSTS_POLICY);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   return headers;

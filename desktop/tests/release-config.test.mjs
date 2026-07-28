@@ -49,6 +49,8 @@ test("desktop release config covers every requested native format", async () => 
     "utf8",
   );
   assert.match(buildScript, /!environment\.CSC_LINK/);
+  assert.match(buildScript, /delete environment\.CSC_LINK/);
+  assert.match(buildScript, /delete environment\.CSC_KEY_PASSWORD/);
   assert.match(buildScript, /builderArguments\.push\("--config\.mac\.identity=-"\)/);
   assert.match(buildScript, /KRATER_RELEASE_MODE === "stable"/);
   assert.match(buildScript, /"--config\.mac\.notarize=true"/);
@@ -123,6 +125,8 @@ test("write-capable release automation pins actions and isolates permission", as
     "ubuntu-22.04",
     "node-version: 22.23.1",
     "NPM_VERSION: 11.16.0",
+    'npm install --global "npm@${{ env.NPM_VERSION }}"',
+    "NODE_OPTIONS: --max-old-space-size=6144",
     "release:cli",
     "smoke-built-desktop.mjs",
     "validate-release-environment.mjs",

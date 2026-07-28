@@ -114,7 +114,7 @@ vi.mock("./provider.js", () => ({
   },
 }));
 import { loadConfig } from "./config.js";
-import { EvidenceTask } from "./evidence-runtime.js";
+import { EvidenceTask, openEvidenceStore } from "./evidence-runtime.js";
 import { createApp } from "./server.js";
 import {
   loadProofPatchBinding,
@@ -287,6 +287,58 @@ afterEach(async () => {
 });
 
 describe("Krater Pro evidence-native API", () => {
+  it("returns repository, agent, verifier, and human evidence origins", async () => {
+    const cwd = await temporaryDirectory();
+    const server = await serve(cwd);
+    const projectId = await currentProjectId(server);
+    const task = await EvidenceTask.start({
+      cwd,
+      projectId,
+      request: "Inspect evidence provenance",
+      assurance: "fast",
+    });
+    const store = await openEvidenceStore(cwd);
+    const origins = [
+      "repository",
+      "agent_author",
+      "blind_verifier",
+      "human",
+      "tool",
+    ] as const;
+
+    for (const [index, origin] of origins.entries()) {
+      await store.append({
+        taskId: task.taskId,
+        kind: "evidence.recorded",
+        payload: {
+          evidence: {
+            id: `api-evidence-origin-${index + 1}`,
+            taskId: task.taskId,
+            kind: "test",
+            grade: "observed",
+            origin,
+            summary: `${origin} provenance`,
+            supportsClaimIds: [],
+            contradictsClaimIds: [],
+            artifactDigests: [],
+            stale: false,
+            observedAt: "2026-07-28T12:00:00.000Z",
+          },
+        },
+      });
+    }
+
+    const response = await apiFetch(
+      server,
+      `/api/v2/tasks/${task.taskId}`,
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      evidence: Array<{ origin: string }>;
+    };
+    expect(body.evidence.map((evidence) => evidence.origin)).toEqual(origins);
+  });
+
   it("cancels an approval-blocked task once when its browser session closes", async () => {
     const cwd = await temporaryDirectory();
     await writeFile(join(cwd, "source.txt"), "base\n");

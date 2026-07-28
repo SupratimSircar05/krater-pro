@@ -4,6 +4,8 @@ import {
   MIN_PASSWORD_PEPPER_BYTES,
   MAX_MESSAGE_BYTES,
   SESSION_COOKIE,
+  HSTS_POLICY,
+  PERMISSIONS_POLICY,
   HttpError,
   assertSameOrigin,
   clearSessionCookie,
@@ -181,6 +183,11 @@ describe("cloud security helpers", () => {
     const response = jsonResponse({ ok: true });
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("Strict-Transport-Security")).toBe(HSTS_POLICY);
+    expect(response.headers.get("Cross-Origin-Opener-Policy")).toBe(
+      "same-origin",
+    );
     expect(response.headers.get("Cross-Origin-Resource-Policy")).toBe("same-origin");
+    expect(response.headers.get("Permissions-Policy")).toBe(PERMISSIONS_POLICY);
   });
 });

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalJson,
   computeCacheKey,
+  sha256,
   VerifiedWorkCache,
   type CacheDescriptor,
 } from "./index.js";
@@ -94,6 +95,163 @@ describe("cache key declarations", () => {
 });
 
 describe("VerifiedWorkCache", () => {
+  it(
+    "rejects all 10,000 deterministic dependency mutations without a stale hit",
+    async () => {
+      const cache = new VerifiedWorkCache(await temporaryDirectory());
+      const baseline: CacheDescriptor = {
+        namespace: "invalidation-property",
+        artifactKind: "repository_map",
+        schemaVersion: 1,
+        inputs: {
+          source: { digest: sha256("source:baseline") },
+          config: { digest: sha256("config:baseline") },
+          toolchain: { digest: sha256("toolchain:baseline") },
+          environment: { digest: sha256("environment:baseline") },
+          policy: { digest: sha256("policy:baseline") },
+          dependencies: { digest: sha256("dependencies:baseline") },
+        },
+        proofDependencies: [
+          {
+            id: "proof:baseline",
+            digest: sha256("proof:baseline"),
+            kind: "test_result",
+          },
+        ],
+      };
+      await cache.put(baseline, { generation: "baseline" }, { now: 1_000 });
+
+      const inputDimensions = [
+        "source",
+        "config",
+        "toolchain",
+        "environment",
+        "policy",
+        "dependencies",
+      ] as const;
+      const dimensions = [
+        ...inputDimensions,
+        "proofDependencyDigest",
+        "proofDependencyId",
+        "proofDependencyKind",
+        "namespace",
+        "artifactKind",
+        "schemaVersion",
+      ] as const;
+      type Dimension = (typeof dimensions)[number];
+
+      // Xorshift32 makes the mutation schedule stable across platforms and
+      // Vitest workers without depending on Math.random().
+      let randomState = 0x6d2b_79f5;
+      const nextRandom = (): number => {
+        randomState ^= randomState << 13;
+        randomState ^= randomState >>> 17;
+        randomState ^= randomState << 5;
+        return randomState >>> 0;
+      };
+
+      const counts = new Map<Dimension, number>(
+        dimensions.map((dimension) => [dimension, 0]),
+      );
+      const mutatedKeys = new Set<string>();
+      const mutations: Array<{
+        descriptor: CacheDescriptor;
+        dimension: Dimension;
+        iteration: number;
+      }> = [];
+
+      for (let iteration = 0; iteration < 10_000; iteration += 1) {
+        const random = nextRandom();
+        const dimension = dimensions[random % dimensions.length]!;
+        const digest = sha256(
+          `verified-cache-invalidation:${iteration}:${random}`,
+        );
+        const mutated: CacheDescriptor = {
+          ...baseline,
+          inputs: { ...baseline.inputs },
+        };
+        if (
+          inputDimensions.includes(
+            dimension as (typeof inputDimensions)[number],
+          )
+        ) {
+          mutated.inputs = {
+            ...baseline.inputs,
+            [dimension]: { digest },
+          };
+        } else if (dimension === "proofDependencyDigest") {
+          mutated.proofDependencies = [
+            {
+              id: "proof:baseline",
+              digest,
+              kind: "test_result",
+            },
+          ];
+        } else if (dimension === "proofDependencyId") {
+          mutated.proofDependencies = [
+            {
+              id: `proof:${digest}`,
+              digest: baseline.proofDependencies![0]!.digest,
+              kind: "test_result",
+            },
+          ];
+        } else if (dimension === "proofDependencyKind") {
+          mutated.proofDependencies = [
+            {
+              id: "proof:baseline",
+              digest: baseline.proofDependencies![0]!.digest,
+              kind: `test_result:${digest}`,
+            },
+          ];
+        } else if (dimension === "namespace") {
+          mutated.namespace = `invalidation-property:${digest}`;
+        } else if (dimension === "artifactKind") {
+          mutated.artifactKind = "semantic_index";
+        } else {
+          mutated.schemaVersion = iteration + 2;
+        }
+        counts.set(dimension, (counts.get(dimension) ?? 0) + 1);
+        mutatedKeys.add(computeCacheKey(mutated));
+        mutations.push({ descriptor: mutated, dimension, iteration });
+      }
+
+      const baselineKey = computeCacheKey(baseline);
+      expect(mutatedKeys.has(baselineKey)).toBe(false);
+      expect([...counts.values()].every((count) => count > 0)).toBe(true);
+      expect(mutations).toHaveLength(10_000);
+
+      const stale: Array<{
+        dimension: Dimension;
+        iteration: number;
+        status: string;
+      }> = [];
+      const batchSize = 128;
+      for (let offset = 0; offset < mutations.length; offset += batchSize) {
+        const batch = mutations.slice(offset, offset + batchSize);
+        const lookups = await Promise.all(
+          batch.map(({ descriptor }) => cache.get(descriptor, { now: 1_001 })),
+        );
+        lookups.forEach((lookup, index) => {
+          if (lookup.status !== "miss") {
+            const mutation = batch[index]!;
+            stale.push({
+              dimension: mutation.dimension,
+              iteration: mutation.iteration,
+              status: lookup.status,
+            });
+          }
+        });
+      }
+
+      expect(stale).toEqual([]);
+      expect(await cache.get(baseline, { now: 1_001 })).toMatchObject({
+        status: "hit",
+        value: { generation: "baseline" },
+      });
+    },
+    30_000,
+  );
+
   it("stores content-addressed values and verifies them on read", async () => {
     const cache = new VerifiedWorkCache(await temporaryDirectory());
     const key = descriptor();

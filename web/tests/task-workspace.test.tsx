@@ -1,7 +1,10 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import EvidenceCenter from "../src/EvidenceCenter";
+import EvidenceCenter, {
+  EvidenceOriginBadge,
+  type EvidenceOrigin,
+} from "../src/EvidenceCenter";
 import {
   ASSURANCE_PROFILES,
   IntentMirror,
@@ -254,5 +257,34 @@ describe("TaskWorkspace", () => {
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-label="Task details"');
     expect(html).toContain('aria-busy="true"');
+  });
+
+  it.each([
+    ["repository", "Repository evidence"],
+    ["agent_author", "Agent-authored evidence"],
+    ["blind_verifier", "Independent verifier"],
+    ["human", "Human-provided evidence"],
+    ["tool", "Host tool evidence"],
+  ] satisfies Array<[EvidenceOrigin, string]>)(
+    "renders the %s provenance in plain language",
+    (origin, label) => {
+      const html = renderToStaticMarkup(
+        <EvidenceOriginBadge origin={origin} />,
+      );
+
+      expect(html).toContain(`Source: ${label}`);
+      expect(html).toContain(`aria-label="Evidence source: ${label}"`);
+    },
+  );
+
+  it("renders unknown API provenance safely", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceOriginBadge origin="future_attestation_provider" />,
+    );
+
+    expect(html).toContain("Source: Unknown source");
+    expect(html).toContain('aria-label="Evidence source: Unknown source"');
+    expect(html).toContain("evidence-origin--unknown");
+    expect(html).not.toContain("future_attestation_provider");
   });
 });

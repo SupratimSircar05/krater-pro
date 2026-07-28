@@ -61,7 +61,7 @@ transient Krater API key.
   conversation compaction, and cached-token/session metrics
 - Exactly 100 expert benchmark tasks across ten categories, with an offline-safe
   validator and opt-in live runner
-- 20 executable evidence-foundation fixtures with content-addressed sealed
+- 100 executable evidence-foundation fixtures with content-addressed sealed
   checkers; these are infrastructure acceptance tasks, not an external
   benchmark score
 - Workspace confinement, protected secret paths, journaled conflict-checked
@@ -416,8 +416,8 @@ path and SHA-256 before execution.
 Catalog: [benchmarks/TASKS.md](benchmarks/TASKS.md)
 Methodology: [benchmarks/REPORT.md](benchmarks/REPORT.md)
 
-The separate evidence-foundation suite currently makes the first 20
-specifications executable with deterministic seeds and withheld,
+The separate evidence-foundation suite maps all 100 expert specifications to
+bounded executable microtasks with deterministic seeds and withheld,
 SHA-256-pinned behavioral checkers:
 
 ```sh

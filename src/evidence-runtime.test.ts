@@ -446,6 +446,50 @@ describe("EvidenceTask", () => {
     expect(persisted).toContain("[REDACTED]");
   });
 
+  it("preserves every user-facing evidence origin in task detail projections", async () => {
+    const cwd = await temporaryDirectory();
+    const task = await EvidenceTask.start({
+      cwd,
+      projectId: "project-1",
+      request: "Inspect evidence provenance",
+      assurance: "fast",
+    });
+    const store = await openEvidenceStore(cwd);
+    const origins = [
+      "repository",
+      "agent_author",
+      "blind_verifier",
+      "human",
+      "tool",
+    ] as const;
+
+    for (const [index, origin] of origins.entries()) {
+      await store.append({
+        taskId: task.taskId,
+        kind: "evidence.recorded",
+        payload: {
+          evidence: {
+            id: `evidence-origin-${index + 1}`,
+            taskId: task.taskId,
+            kind: "test",
+            grade: "observed",
+            origin,
+            summary: `${origin} provenance`,
+            supportsClaimIds: [],
+            contradictsClaimIds: [],
+            artifactDigests: [],
+            stale: false,
+            observedAt: "2026-07-28T12:00:00.000Z",
+          },
+        },
+      });
+    }
+
+    const detail = await readEvidenceTask(cwd, "project-1", task.taskId);
+
+    expect(detail.evidence.map((evidence) => evidence.origin)).toEqual(origins);
+  });
+
   it("requires explicit gap acceptance and durably finalizes a published ProofPatch", async () => {
     const cwd = await temporaryDirectory();
     const task = await EvidenceTask.start({

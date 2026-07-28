@@ -20,7 +20,7 @@ The current implementation provides:
 - selective-jury, merge-forecast, causal-debugging, reliability-promotion,
   mastery, and sandbox-supervisor foundations, with recorded-artifact CLI/API
   adapters for causal and reliability evaluation; and
-- 20 deterministic evidence-foundation benchmark tasks with sealed checkers.
+- 100 deterministic evidence-foundation microbenchmarks with sealed checkers.
 
 Several of those foundations are not yet connected to the normal agent flow.
 The [current limitations](#current-limitations) section is normative when it
@@ -230,6 +230,9 @@ and build-like commands using bounded command-name matching. Successful
 recognized commands become `tested` evidence with origin `agent_author`.
 Action-gate evidence is `observed`. This classification does not inspect test
 quality, mutation score, mock use, branch coverage, or checker independence.
+The Evidence view exposes every record's typed origin as repository, agent,
+independent verifier, human, or host-tool evidence instead of presenting all
+green checks as interchangeable.
 
 An evidence capsule contains:
 
@@ -280,6 +283,11 @@ after a process interruption.
 transaction engine. A multi-file change cannot be made indivisible by the
 underlying filesystem, so crash recovery and backup verification are part of
 the guarantee.
+
+The crash-recovery matrix injects every declared failure point before and
+after each create, edit, delete, and two-step move/rename journal position. It
+verifies exact intermediate state, file modes, restart recovery, complete base
+restoration, reopened status, and idempotent second recovery.
 
 `src/staging-workspace.ts` adds a bounded copy-based task workspace and creates
 a task-to-transaction binding under `.krater/proofpatch/bindings/`. CLI tasks
@@ -563,10 +571,12 @@ account can read unencrypted `.krater/` data.
 
 ## Evidence-foundation benchmark
 
-`benchmarks/evidence-native/` contains 20 deterministic Node.js/Python
-microtasks (`EB-001` through `EB-020`). They are executable infrastructure
-acceptance tasks derived from broader `KC-NNN` specifications. They are not the
-100 hardest problems and are not a SWE-bench score.
+`benchmarks/evidence-native/` contains 100 deterministic Node.js/Python
+microtasks (`EB-001` through `EB-100`), one bounded executable mapping for each
+broader `KC-001` through `KC-100` specification. They prove the fixture,
+withheld-checker, and verdict infrastructure; passing these focused repairs is
+not equivalent to solving the 100 multi-hour expert specifications and is not
+a SWE-bench score.
 
 Run them without a Krater key or network:
 
@@ -591,8 +601,8 @@ by SHA-256. It is not encrypted or signed. The runner applies path, timeout,
 environment, output, and process-group bounds, but it is not an OS sandbox and
 must not run arbitrary downloaded code.
 
-The existing 100-task catalog remains a specification/runner suite. Only these
-first 20 evidence-foundation tasks have the new deterministic seed plus sealed
+The existing 100-task catalog remains the broader specification/runner suite.
+All 100 evidence-foundation microtasks have a deterministic seed plus sealed
 checker format.
 
 ## Foundation libraries not yet wired end to end
@@ -659,11 +669,15 @@ foundation:
   service are not implemented.
 - WCAG 2.2 AA, VoiceOver, NVDA, Orca, and participatory accessibility
   acceptance have not been completed.
-- There are 20 executable evidence-foundation tasks, not 100 in the new sealed
-  format.
-- FixedBench, AgentDojo-derived policy targets, cache invalidation fuzzing,
-  jury gains, semantic-conflict metrics, and causal-debugging exit gates have
-  not been measured by this implementation.
+- There are 100 executable sealed microtasks, but their focused behavioral
+  checks do not establish correctness on the broader expert specifications.
+- A deterministic property suite now proves zero stale hits across 10,000
+  mutations of every declared Verified Work Cache dependency dimension.
+  Normal execution currently caches only recomputed workspace maps; build,
+  test, static-analysis, and verifier artifact reuse remains unimplemented.
+- FixedBench, AgentDojo-derived policy targets, jury gains,
+  semantic-conflict metrics, and causal-debugging exit gates have not been
+  measured by this implementation.
 - Release signing/notarization and supported-architecture launch gates remain
   separate release work.
 - No evidence is graded `formally_verified` without a real proof artifact, and

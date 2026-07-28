@@ -4568,6 +4568,19 @@ select:focus-visible {
   font-size: 8.5px;
 }
 
+.evidence-list span.evidence-origin {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid rgba(122, 167, 205, 0.18);
+  border-radius: 999px;
+  background: rgba(122, 167, 205, 0.06);
+  color: #9ab5ca;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: 0.025em;
+}
+
 .evidence-list code,
 .evidence-passport-digest code {
   overflow: hidden;
