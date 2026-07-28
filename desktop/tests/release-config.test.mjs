@@ -51,6 +51,17 @@ test("desktop release config covers every requested native format", async () => 
   assert.match(buildScript, /!environment\.CSC_LINK/);
   assert.match(buildScript, /delete environment\.CSC_LINK/);
   assert.match(buildScript, /delete environment\.CSC_KEY_PASSWORD/);
+  for (const notaryVariable of [
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER",
+  ]) {
+    assert.match(
+      buildScript,
+      new RegExp(`delete environment\\.${notaryVariable}`),
+      `candidate builds must discard ${notaryVariable}`,
+    );
+  }
   assert.match(buildScript, /builderArguments\.push\("--config\.mac\.identity=-"\)/);
   assert.match(buildScript, /KRATER_RELEASE_MODE === "stable"/);
   assert.match(buildScript, /"--config\.mac\.notarize=true"/);
@@ -113,6 +124,11 @@ test("write-capable release automation pins actions and isolates permission", as
   assert.match(
     workflow,
     /publish:[\s\S]*permissions:\n      contents: write/,
+  );
+  assert.match(
+    workflow,
+    /- name: Select ephemeral Apple key path\n\s+if: github\.event_name == 'push' && matrix\.platform == 'mac'/,
+    "candidate builds must not opt into notarization without stable-release credentials",
   );
   assert.equal(/uses:\s+[^@\s]+@v\d/.test(workflow), false);
   assert.ok(

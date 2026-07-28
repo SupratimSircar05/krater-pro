@@ -217,7 +217,7 @@ jobs:
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
       - name: Select ephemeral Apple key path
-        if: matrix.platform == 'mac'
+        if: github.event_name == 'push' && matrix.platform == 'mac'
         shell: bash
         run: echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey_KraterPro.p8" >> "$GITHUB_ENV"
       - name: Materialize Apple notarization key without logging it

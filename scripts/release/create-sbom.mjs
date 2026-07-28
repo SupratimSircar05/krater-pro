@@ -90,6 +90,34 @@ export function addElectronPackage(document, manifest) {
   return document;
 }
 
+export function npmInvocation(
+  arguments_,
+  {
+    platform = process.platform,
+    environment = process.env,
+  } = {},
+) {
+  if (platform === "win32") {
+    return {
+      executable: environment.ComSpec || environment.COMSPEC || "cmd.exe",
+      arguments: ["/d", "/s", "/c", "npm.cmd", ...arguments_],
+    };
+  }
+  return {
+    executable: "npm",
+    arguments: arguments_,
+  };
+}
+
+async function executeNpm(arguments_, options) {
+  const invocation = npmInvocation(arguments_);
+  return execFileAsync(
+    invocation.executable,
+    invocation.arguments,
+    options,
+  );
+}
+
 export async function createDesktopSbom({
   output,
   sourceDateEpoch,
@@ -108,7 +136,6 @@ export async function createDesktopSbom({
   const shrinkwrap = releaseShrinkwrap(JSON.parse(lockText));
   const packagedManifestText = stableJson(packagedManifest);
   const shrinkwrapText = stableJson(shrinkwrap);
-  const executable = process.platform === "win32" ? "npm.cmd" : "npm";
   const stagingRoot = await mkdtemp(join(tmpdir(), "krater-desktop-sbom-"));
   let stdout;
   try {
@@ -116,8 +143,7 @@ export async function createDesktopSbom({
       writeFile(join(stagingRoot, "package.json"), packagedManifestText),
       writeFile(join(stagingRoot, "npm-shrinkwrap.json"), shrinkwrapText),
     ]);
-    await execFileAsync(
-      executable,
+    await executeNpm(
       [
         "ci",
         "--omit=dev",
@@ -131,8 +157,7 @@ export async function createDesktopSbom({
         maxBuffer: 50 * 1024 * 1024,
       },
     );
-    ({ stdout } = await execFileAsync(
-      executable,
+    ({ stdout } = await executeNpm(
       ["sbom", "--omit=dev", "--sbom-format=spdx"],
       {
         cwd: stagingRoot,

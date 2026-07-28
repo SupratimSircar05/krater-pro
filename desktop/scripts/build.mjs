@@ -35,6 +35,14 @@ if (!environment.CSC_KEY_PASSWORD?.trim()) {
   delete environment.CSC_KEY_PASSWORD;
 }
 const stableRelease = environment.KRATER_RELEASE_MODE === "stable";
+// Candidate builds must never inherit partial notarization state from the
+// runner. electron-builder treats APPLE_API_KEY alone as an instruction to
+// notarize, even when the build explicitly uses an ad-hoc identity.
+if (!stableRelease || !targetsMac) {
+  delete environment.APPLE_API_KEY;
+  delete environment.APPLE_API_KEY_ID;
+  delete environment.APPLE_API_ISSUER;
+}
 if (stableRelease && targetsMac) {
   validateReleaseEnvironment({
     platform: "mac",

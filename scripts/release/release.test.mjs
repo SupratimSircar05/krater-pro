@@ -10,7 +10,10 @@ import {
   releasePackageManifest,
   releaseShrinkwrap,
 } from "./build-cli-artifact.mjs";
-import { addElectronPackage } from "./create-sbom.mjs";
+import {
+  addElectronPackage,
+  npmInvocation,
+} from "./create-sbom.mjs";
 import {
   createReleaseManifest,
   isManifestArtifact,
@@ -119,6 +122,34 @@ describe("release automation", () => {
         relationshipType: "DEPENDS_ON",
       }),
     );
+  });
+
+  it("runs npm command shims through cmd.exe on Windows", () => {
+    expect(
+      npmInvocation(["ci", "--omit=dev"], {
+        platform: "win32",
+        environment: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
+      }),
+    ).toEqual({
+      executable: "C:\\Windows\\System32\\cmd.exe",
+      arguments: [
+        "/d",
+        "/s",
+        "/c",
+        "npm.cmd",
+        "ci",
+        "--omit=dev",
+      ],
+    });
+    expect(
+      npmInvocation(["sbom"], {
+        platform: "linux",
+        environment: {},
+      }),
+    ).toEqual({
+      executable: "npm",
+      arguments: ["sbom"],
+    });
   });
 
   it("creates sorted checksums and source-bound release metadata", async () => {
