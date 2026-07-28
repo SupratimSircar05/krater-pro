@@ -73,6 +73,8 @@
     "test:watch": "vitest",
     "benchmark": "node --import tsx benchmarks/run.ts",
     "benchmark:validate": "node --import tsx benchmarks/run.ts --validate",
+    "benchmark:evidence:validate": "node --import tsx benchmarks/evidence-native/runner.ts --validate",
+    "benchmark:evidence:smoke": "node --import tsx benchmarks/evidence-native/runner.ts --smoke",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && npm run typecheck --workspace web"
   },
   "engines": {

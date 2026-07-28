@@ -91,6 +91,11 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
     main,
     /closeLocalServer\(\)\.finally\(\(\) => \{[\s\S]*app\.exit\(0\)/,
   );
+  assert.match(
+    main,
+    /startServer\(config, \{ evidenceMode: true \}\)/,
+    "desktop must use the same evidence-native staged agent runtime as krater web",
+  );
 });
 
 test("write-capable release automation pins actions and isolates permission", async () => {

@@ -32,11 +32,11 @@ transient Krater API key.
 ## Highlights
 
 - First-class `krater` and `krater-pro` terminal commands
-- Interactive conversations, one-shot prompts, model discovery, and approval
+- Interactive task prompts, one-shot execution, model discovery, and approval
   controls
 - Auditable Smart Coding Router that selects the lowest-cost qualified model
   from live Krater pricing and capability metadata
-- Full agentic IDE with a safe file explorer, conflict-aware tabbed editor,
+- Full agentic IDE with a safe file explorer, conflict-aware Monaco editor,
   bounded workspace terminal, Git status/diffs, and the active Krater agent
 - Native macOS, Windows, and Linux apps with a sandboxed Electron renderer,
   loopback-only ephemeral server, and reproducible GitHub Release automation
@@ -51,13 +51,20 @@ transient Krater API key.
   private session tokens
 - Repository maps, progressive expert-skill loading, and 40+ language/ecosystem
   references
+- Evidence-native foundation with bounded ambiguity preflight, a host-enforced
+  Action/Abstention Gate, local hash-chained ProofGraph, isolated ProofPatch
+  staging, conservative evidence capsules, Change Passports, and an Evidence
+  review view
 - Cache-friendly prompts, read-only tool-result reuse, bounded output,
   conversation compaction, and cached-token/session metrics
 - Exactly 100 expert benchmark tasks across ten categories, with an offline-safe
   validator and opt-in live runner
-- Workspace confinement, protected secret paths, atomic single-file
-  publication, minimal child-process environments, destructive-command guards,
-  and loopback-only web serving
+- 20 executable evidence-foundation fixtures with content-addressed sealed
+  checkers; these are infrastructure acceptance tasks, not an external
+  benchmark score
+- Workspace confinement, protected secret paths, journaled conflict-checked
+  multi-file ProofPatch publication, minimal child-process environments,
+  destructive-command guards, and loopback-only web serving
 
 ## Quick start
 
@@ -173,11 +180,89 @@ krater --context-chars 90000 --tool-output-chars 12000 \
   "Review the current implementation"
 ```
 
-Interactive commands are `/help`, `/clear`, `/exit`, and `/quit`. File edits and
-commands ask for approval unless `--yes` is set. Non-interactive protected
-actions are denied unless `--yes` is supplied.
+Interactive commands include `/contract`, `/assumptions`, `/evidence`, `/why`,
+`/publish`, and `/rollback`, plus `/help`, `/clear`, `/exit`, and `/quit`. File
+edits and commands ask for approval unless `--yes` is set. Non-interactive
+protected actions are denied unless `--yes` is supplied.
 
 Full command reference: [docs/CLI.md](docs/CLI.md).
+
+## Evidence-native foundation
+
+Evidence mode requires bounded discovery and a host-validated
+Action/Abstention Gate before model-proposed file edits. Each task records a
+local outcome contract and hash-chained ProofGraph events, then produces a
+conservative evidence capsule and Change Passport. A supported no-change
+result is a valid `abstained` outcome; missing required evidence remains a
+visible gap instead of becoming a clean success.
+
+Before provider selection or staging, the CLI resolves unambiguous referenced
+repository paths and ranks divergent choices. `--assume ask` asks one
+highest-value question interactively; a non-interactive or `--json`
+clarification persists the task, emits structured choices, performs no
+provider call, and exits `3`. `--assume best` records its best-judgment choice
+as unresolved for verification during discovery.
+
+```sh
+# Run and inspect a durable task
+krater task run --assurance standard \
+  "Reproduce the failure, repair it, and verify the result"
+krater task list
+krater task show <task-id>
+krater task cancel <task-id> --reason "Stopped before publication"
+
+# Inspect and verify its redacted evidence
+krater proof show <task-id>
+krater proof verify <task-id>
+krater proof export <task-id> --format markdown -o passport.md
+
+# Explicitly initialize shared living intent
+krater intent init
+krater intent check
+
+# Preflight one labeled context flow and inspect local cache state
+krater policy simulate \
+  --operation execute --resource npm-test --scope workspace \
+  --destination command --source repository --trust untrusted_data \
+  --sensitivity public
+
+# Replay recorded causal outcomes and score sealed reliability artifacts
+krater debug causal --input recorded-causal-run.json
+krater lab replay --input sealed-evaluation.json
+krater lab calibrate --input promotion-evaluation.json
+krater cache stats
+```
+
+Private task state, transactions, and caches live under the ignored
+`.krater/` directory. Shared living-intent files are created only by explicit
+`krater intent init` and live under `.krater-intent/`.
+
+CLI and `krater web` agent edits run in an isolated copy. A change produces a
+ProofPatch preview and stays in `review`; it reaches the selected workspace
+only after `krater task publish <task-id>` or interactive `/publish`.
+Publication refuses unresolved evidence gaps unless the user explicitly
+supplies `--accept-gaps` or confirms them interactively. A task binding can be
+cancelled with `task cancel`, discarded or restored with
+`task rollback`/`/rollback`. Cancellation discards staged work first and
+refuses published work, which requires explicit rollback. The GUI Evidence
+view offers the same publish, explicit gap-acceptance, discard, and rollback
+flow.
+
+This is a foundation release, not the completed nine-month roadmap. Persistent
+verified-cache reuse, end-to-end taint enforcement, native cross-platform
+containment, blind verification, jury orchestration, live Causal Twin process
+execution, Mastery Mode UI, signed passports, OS-key encryption, desktop
+platform acceptance, and the remaining v2 task-creation, clarification,
+capability, intent-graph, and verification APIs remain incomplete. The desktop
+uses the same evidence-enabled loopback server, but native release acceptance
+is not established by that reuse alone.
+The current causal interface only replays caller-recorded outcomes, and the
+current reliability interface only scores sealed result artifacts or evaluates
+a non-persisted promotion decision.
+
+Implementation details, evidence grades, storage, `/api/v2` routes, exact CLI
+status, benchmark commands, and the complete non-claim list:
+[docs/evidence-native.md](docs/evidence-native.md).
 
 ## Web GUI
 
@@ -195,9 +280,13 @@ default; choosing an exact ID is a hard override and starts a fresh task.
 The default IDE view puts the selected project’s file tree, tabbed UTF-8 editor,
 bounded non-interactive terminal, Git status/diffs, and the complete streaming
 Krater agent in one workbench. **Ask Krater** attaches the selected code or
-current file to the same conversation used in Chat view. Agent changes refresh
-the explorer, source control, and clean tabs; unsaved tabs remain untouched and
-revision checks prevent stale saves.
+current file to the same visible task transcript used in Chat view. In
+evidence-enabled web sessions, each submitted prompt starts an independent
+durable task; the displayed transcript is not silently reused as model context
+for the next task. The **Evidence** view lists durable task contracts, intent,
+claims, checks, gaps, and downloadable passports. Explicit ProofPatch
+publication refreshes the explorer, source control, and clean tabs; unsaved
+tabs remain untouched and revision checks prevent stale saves.
 
 Use the project dropdown in the top bar to switch a registered workspace, open
 an existing absolute local path, shallow-clone a public
@@ -240,8 +329,8 @@ override defaults.
 
 ## Smart Coding Router
 
-When `KRATER_MODEL` is unset or `auto`, Krater Pro classifies the first task in
-a conversation by complexity, risk, context size, and required coding tools. It
+When `KRATER_MODEL` is unset or `auto`, Krater Pro classifies an evidence task
+by complexity, risk, context size, and required coding tools. It
 then compares the current `/v1/models` catalog using provider-reported pricing,
 context window, tool support, and coding/agentic quality metadata. Ineligible
 models are removed, the accuracy/cost Pareto frontier is calculated, and the
@@ -253,11 +342,11 @@ and other non-chat catalog endpoints remain available as explicit choices but
 cannot be selected automatically.
 
 The CLI and GUI show the chosen model, tier, confidence, catalog source, and
-reasoning. The choice stays fixed for that conversation so context remains
-coherent. `/clear` or a new GUI task reroutes the next prompt. If catalog
-discovery fails, the decision is visibly marked as fallback and uses the
-validated `moonshotai/kimi-k3` profile. Supplying any exact model ID bypasses
-automatic routing completely.
+reasoning. The choice stays fixed for the duration of that task. A later
+evidence task is routed again unless the user supplied an exact model ID. If
+catalog discovery fails, the decision is visibly marked as fallback and uses
+the validated `moonshotai/kimi-k3` profile. Supplying any exact model ID
+bypasses automatic routing completely.
 
 ## Programming-language skills
 
@@ -305,6 +394,19 @@ path and SHA-256 before execution.
 Catalog: [benchmarks/TASKS.md](benchmarks/TASKS.md)
 Methodology: [benchmarks/REPORT.md](benchmarks/REPORT.md)
 
+The separate evidence-foundation suite currently makes the first 20
+specifications executable with deterministic seeds and withheld,
+SHA-256-pinned behavioral checkers:
+
+```sh
+node --import tsx benchmarks/evidence-native/runner.ts --validate
+node --import tsx benchmarks/evidence-native/runner.ts --smoke
+```
+
+“Sealed” means withheld from the candidate workspace and content-addressed,
+not encrypted, signed, or safely sandboxed for arbitrary downloaded code. See
+[benchmarks/evidence-native/README.md](benchmarks/evidence-native/README.md).
+
 ### Official benchmark adapters
 
 Krater Pro also includes container adapters for DeepSWE, SWE-bench Pro-os, and
@@ -351,14 +453,20 @@ mode. Model-run commands receive a minimal environment without Krater or
 unrelated provider keys. Obviously destructive commands are blocked even under
 `--yes`.
 
-Approvals are not a sandbox: an allowed command can execute project code. Review
-the exact command, use version control, and avoid `--yes` on untrusted
-repositories. The IDE terminal is a separate, explicit user action: it uses
-project-ID binding, time/output limits, secret-stripped environment variables,
-and command guards. On macOS it additionally uses `sandbox-exec` when available
-to confine writes and deny protected credential paths. Other platforms do not
-gain an OS sandbox from these controls. See
-[docs/SECURITY.md](docs/SECURITY.md).
+Approvals are not a sandbox: an allowed command can execute project code.
+ProofGraph hashes make tampering detectable but do not prove tool honesty;
+ProofPatch cannot compensate arbitrary process or network side effects; and
+the new policy simulator is not yet an end-to-end context firewall. Review the
+exact command, use version control, and avoid `--yes` on untrusted repositories.
+The IDE terminal is a separate, explicit user action: it uses project-ID
+binding, time/output limits, secret-stripped environment variables, and command
+guards. On macOS it additionally uses `sandbox-exec` when available to confine
+writes, deny protected credential paths, and deny spawned-command network
+access. Evidence-mode `--yes` fails closed for commands when verified native
+containment is unavailable; an interactive user must approve the exact
+command. Other platforms do not gain an OS sandbox from these controls. See
+[docs/SECURITY.md](docs/SECURITY.md) and
+[docs/evidence-native.md](docs/evidence-native.md).
 
 ## Development and verification
 
@@ -371,8 +479,11 @@ node dist/cli.js --help
 ```
 
 The test suite covers configuration precedence, provider streaming, cache-aware
-usage, agent tool loops, approvals, caching, skill confinement, workspace and
-symlink boundaries, command guards, API/SSE sessions, benchmark validation,
+usage, agent tool loops, approvals, ambiguity preflight and clarification exit
+behavior, caching, skill confinement, workspace and symlink boundaries,
+command guards, API/SSE sessions, ProofGraph replay and tamper detection,
+Action Gate enforcement, ProofPatch publish/cancel/rollback recovery,
+intent/policy/cache foundations, evidence capsules, benchmark validation,
 isolated live-run behavior with fakes, and report generation.
 
 Live Krater/Kimi and GUI acceptance evidence is documented in
