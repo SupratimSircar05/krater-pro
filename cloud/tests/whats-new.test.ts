@@ -12,9 +12,10 @@ describe("cloud What's New section", () => {
     expect(html).toContain("ProofGraph + Change Passport");
     expect(html).toContain("Isolated ProofPatch");
     expect(html).toContain("Action / Abstention Gate");
-    expect(html).toContain("Monaco + evidence lenses");
+    expect(html).toContain("One durable Task Workspace");
     expect(html).toContain("moonshotai/kimi-k3");
-    expect(html).toContain("Task-lifecycle parity");
+    expect(html).toContain("Proof, shipping, and release foundations");
+    expect(html).toContain("All 100 sealed fixtures");
     expect(html).toContain("It is not the finished 1.0 system.");
     expect(html).toContain("Built by <a href=\"https://www.linkedin.com/in/supratimsircar/\"");
   });

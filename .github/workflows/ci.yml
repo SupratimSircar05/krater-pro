@@ -1,0 +1,45 @@
+name: Verified checkpoint
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verified-checkpoint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NPM_VERSION: 11.16.0
+
+jobs:
+  validate:
+    name: Test source, proof, packaging, and cloud
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22.23.1
+          cache: npm
+      - name: Pin npm used by locked release inputs
+        run: npm install --global "npm@$NPM_VERSION"
+      - run: npm ci
+      - run: npm run guard:secrets
+      - run: npm test -- --testTimeout=120000 --hookTimeout=30000
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run desktop:test
+      - run: npm run cloud:test
+      - run: npm run benchmark:validate
+      - run: npm run benchmark:evidence:validate
+      - run: npm run benchmark:evidence:smoke
+      - run: npm run release:test
+      - run: npm pack --dry-run
