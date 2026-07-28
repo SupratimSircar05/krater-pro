@@ -1,0 +1,271 @@
+{
+  "format": "krater.evidence-benchmark/v1",
+  "suite": {
+    "id": "evidence-native-foundation",
+    "name": "Krater Evidence-Native Foundation Tasks",
+    "version": "0.1.0",
+    "description": "Twenty deterministic infrastructure acceptance tasks derived from the broader Krater catalog. These small tasks validate fixture and sealed-checker plumbing; they are not substitutes for the expert benchmark."
+  },
+  "tasks": [
+    {
+      "id": "EB-001",
+      "sourceSpecId": "KC-069",
+      "title": "Strict Port Parser",
+      "runtime": "node",
+      "prompt": "Repair parsePort so it accepts only canonical decimal ports from 1 through 65535 and rejects partial, padded, signed, empty, or out-of-range input.",
+      "acceptanceCriteria": [
+        "Canonical decimal port strings produce the corresponding integer.",
+        "Malformed and out-of-range values fail explicitly instead of being partially parsed."
+      ],
+      "fixture": { "root": "fixtures/EB-001", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-002",
+      "sourceSpecId": "KC-048",
+      "title": "Stable Unique Sequence",
+      "runtime": "node",
+      "prompt": "Repair stableUnique so duplicate values are removed while the order of first appearance and JavaScript SameValueZero identity semantics are preserved.",
+      "acceptanceCriteria": [
+        "The first occurrence order is preserved without sorting.",
+        "Repeated NaN and signed zero values follow Set-style identity semantics."
+      ],
+      "fixture": { "root": "fixtures/EB-002", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-003",
+      "sourceSpecId": "KC-050",
+      "title": "Immutable Interval Merge",
+      "runtime": "node",
+      "prompt": "Repair mergeIntervals to validate intervals, merge every overlap correctly, produce sorted output, and leave all caller-owned arrays unchanged.",
+      "acceptanceCriteria": [
+        "Nested and chained overlaps are merged into canonical sorted intervals.",
+        "Invalid intervals fail and neither the input list nor its child arrays are mutated."
+      ],
+      "fixture": { "root": "fixtures/EB-003", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-004",
+      "sourceSpecId": "KC-061",
+      "title": "Dependency-Aware Job Order",
+      "runtime": "node",
+      "prompt": "Repair orderJobs to return a deterministic dependency-respecting order and reject missing dependencies, duplicate identifiers, and dependency cycles.",
+      "acceptanceCriteria": [
+        "Every declared dependency appears before the job that consumes it.",
+        "Cycles and references to missing jobs fail explicitly."
+      ],
+      "fixture": { "root": "fixtures/EB-004", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-005",
+      "sourceSpecId": "KC-078",
+      "title": "Bounded Retry Delay",
+      "runtime": "node",
+      "prompt": "Repair retryDelay so nonnegative retry attempts use capped exponential backoff without overflow and malformed numeric configuration fails explicitly.",
+      "acceptanceCriteria": [
+        "Delay growth is exponential and never exceeds the configured maximum.",
+        "Negative attempts and invalid limits are rejected while large attempts remain finite."
+      ],
+      "fixture": { "root": "fixtures/EB-005", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-006",
+      "sourceSpecId": "KC-094",
+      "title": "Confined Child Path",
+      "runtime": "node",
+      "prompt": "Repair isSafeChildPath so it uses path-component semantics, accepts genuine descendants, and rejects the root itself, traversal, and lexical prefix collisions.",
+      "acceptanceCriteria": [
+        "A normalized descendant below the root is accepted.",
+        "Sibling prefixes, traversal results, and the root path itself are rejected."
+      ],
+      "fixture": { "root": "fixtures/EB-006", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-007",
+      "sourceSpecId": "KC-036",
+      "title": "Structured Secret Redaction",
+      "runtime": "node",
+      "prompt": "Repair redactSecrets to remove bearer credentials and API-key assignment values while preserving unrelated prose and field names for useful diagnostics.",
+      "acceptanceCriteria": [
+        "Supported credential values do not survive in the returned string.",
+        "Unrelated words and non-secret diagnostic content remain intact."
+      ],
+      "fixture": { "root": "fixtures/EB-007", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-008",
+      "sourceSpecId": "KC-087",
+      "title": "Chained Event Digest",
+      "runtime": "node",
+      "prompt": "Repair hashEvent so each digest commits to the previous digest and a deterministic key-ordered event encoding, returning lowercase SHA-256 hexadecimal.",
+      "acceptanceCriteria": [
+        "Changing the previous digest changes the resulting event digest.",
+        "Equivalent event objects have a deterministic lowercase SHA-256 representation."
+      ],
+      "fixture": { "root": "fixtures/EB-008", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-009",
+      "sourceSpecId": "KC-047",
+      "title": "True LRU Cache",
+      "runtime": "node",
+      "prompt": "Repair LruCache so reads and updates refresh recency, eviction removes the least recently used entry, and invalid capacity is rejected.",
+      "acceptanceCriteria": [
+        "A successful get protects that key from the next capacity eviction.",
+        "Updating a key preserves size and nonpositive capacity is rejected."
+      ],
+      "fixture": { "root": "fixtures/EB-009", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-010",
+      "sourceSpecId": "KC-100",
+      "title": "Truthful Action Gate",
+      "runtime": "node",
+      "prompt": "Repair classifyAction so established satisfaction abstains, known partial repairs are distinguished, reproduced defects require change, and insufficient facts cannot establish action.",
+      "acceptanceCriteria": [
+        "Already-satisfied work is classified separately from change-required work.",
+        "Partial fixes and insufficient evidence receive their own conservative classifications."
+      ],
+      "fixture": { "root": "fixtures/EB-010", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-011",
+      "sourceSpecId": "KC-055",
+      "title": "Strict Boolean Decoder",
+      "runtime": "python",
+      "prompt": "Repair parse_bool so common explicit true and false spellings decode case-insensitively after trimming, while ambiguous values raise ValueError.",
+      "acceptanceCriteria": [
+        "Explicit true and false strings decode to actual booleans.",
+        "Ambiguous or unsupported strings are rejected rather than treated as truthy."
+      ],
+      "fixture": { "root": "fixtures/EB-011", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-012",
+      "sourceSpecId": "KC-002",
+      "title": "Bounded Sequence Chunks",
+      "runtime": "python",
+      "prompt": "Repair chunks so it yields only nonempty order-preserving chunks, handles empty input without output, and rejects a nonpositive chunk size.",
+      "acceptanceCriteria": [
+        "Exact multiples do not produce a trailing empty chunk.",
+        "Empty input is empty and nonpositive chunk sizes fail explicitly."
+      ],
+      "fixture": { "root": "fixtures/EB-012", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-013",
+      "sourceSpecId": "KC-084",
+      "title": "Non-Mutating Deep Merge",
+      "runtime": "python",
+      "prompt": "Repair deep_merge so nested dictionaries merge recursively into fresh structures, unrelated keys survive, and caller-owned values are not mutated.",
+      "acceptanceCriteria": [
+        "Nested mappings merge recursively while right-side scalar values win.",
+        "Neither caller-owned input mapping is changed as a side effect."
+      ],
+      "fixture": { "root": "fixtures/EB-013", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-014",
+      "sourceSpecId": "KC-041",
+      "title": "Quoted CSV Record",
+      "runtime": "python",
+      "prompt": "Repair parse_csv_line to parse one RFC-4180-style record, including quoted commas, doubled quotes, and trailing empty fields without lossy splitting.",
+      "acceptanceCriteria": [
+        "Quoted separators and doubled quotes decode into the intended field values.",
+        "A trailing delimiter produces a final empty field."
+      ],
+      "fixture": { "root": "fixtures/EB-014", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-015",
+      "sourceSpecId": "KC-043",
+      "title": "Boundary-Correct TTL Cache",
+      "runtime": "python",
+      "prompt": "Repair TtlCache so entries expire at the exact deadline, invalid TTL values are rejected, and time remains injectable for deterministic behavior.",
+      "acceptanceCriteria": [
+        "An entry is unavailable when the clock equals or exceeds its deadline.",
+        "Nonpositive TTL values fail before mutating the cache."
+      ],
+      "fixture": { "root": "fixtures/EB-015", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-016",
+      "sourceSpecId": "KC-057",
+      "title": "Unicode Slug Normalizer",
+      "runtime": "python",
+      "prompt": "Repair slugify to normalize accented Latin text, lowercase it, collapse punctuation and separators, and remove leading or trailing separators.",
+      "acceptanceCriteria": [
+        "Accented Latin characters normalize into their ASCII base forms.",
+        "Runs of punctuation collapse to one hyphen without edge hyphens."
+      ],
+      "fixture": { "root": "fixtures/EB-016", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-017",
+      "sourceSpecId": "KC-095",
+      "title": "Atomic Text Edit Set",
+      "runtime": "python",
+      "prompt": "Repair apply_edits so all coordinates refer to the original text, nonoverlapping edits apply atomically, and malformed or overlapping ranges fail.",
+      "acceptanceCriteria": [
+        "Multiple nonoverlapping edits use original-text coordinates regardless of length changes.",
+        "Overlapping and invalid ranges are rejected before any partial result is returned."
+      ],
+      "fixture": { "root": "fixtures/EB-017", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-018",
+      "sourceSpecId": "KC-014",
+      "title": "Conservative Taint Join",
+      "runtime": "python",
+      "prompt": "Repair join_labels so combining context labels always returns the most restrictive known sensitivity, treats no labels as public, and rejects unknown labels.",
+      "acceptanceCriteria": [
+        "The most restrictive label dominates every less restrictive input label.",
+        "An empty set is public and unknown labels fail closed."
+      ],
+      "fixture": { "root": "fixtures/EB-018", "files": ["src/solution.py"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-019",
+      "sourceSpecId": "KC-077",
+      "title": "Tamper-Evident Resume Cursor",
+      "runtime": "node",
+      "prompt": "Repair encodeCursor and decodeCursor so cursor payloads round-trip deterministically and an HMAC bound to the supplied secret rejects modification or the wrong key.",
+      "acceptanceCriteria": [
+        "Untampered cursor state round-trips without changing its JSON value.",
+        "Any token modification or verification under a different secret fails closed."
+      ],
+      "fixture": { "root": "fixtures/EB-019", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    },
+    {
+      "id": "EB-020",
+      "sourceSpecId": "KC-099",
+      "title": "Conservative Evidence Grade",
+      "runtime": "node",
+      "prompt": "Repair gradeClaim so failed evidence prevents establishment and successful observations, tests, and stress tests produce only their justified conservative grade.",
+      "acceptanceCriteria": [
+        "Any contradictory or failed required evidence yields not-established.",
+        "Ordinary tests never produce a formally-verified claim grade."
+      ],
+      "fixture": { "root": "fixtures/EB-020", "files": ["src/solution.mjs"] },
+      "checker": { "entry": "checkers/sealed-checker.mjs", "sha256": "1515abba592a8e36c82fa41b5905deb9277a65016f93e6ec2f40d8437964ebf3", "timeoutMs": 3000 }
+    }
+  ]
+}

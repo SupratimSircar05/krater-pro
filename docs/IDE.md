@@ -3,8 +3,9 @@
 Krater Pro includes an integrated browser workbench powered by the same
 `AgentSession`, Krater provider, Smart Coding Router, tools, approvals, and
 selected project as the CLI and Chat view. It is not a disconnected editor
-mock: agent tool calls operate on the workspace shown in the IDE, and the
-explorer, Git view, and clean editor tabs refresh after an agent turn.
+mock: evidence-enabled agent tool calls operate on an isolated snapshot of the
+selected project, and explicit ProofPatch publication updates the project shown
+in the IDE.
 
 ## Start the IDE
 
@@ -13,9 +14,10 @@ npm run build
 krater web
 ```
 
-Open <http://127.0.0.1:4317>. The app starts in **IDE** view. Use the IDE/Chat
-switch in the top bar to move between the workbench and a full-width
-conversation without starting a second agent session.
+Open <http://127.0.0.1:4317>. The app starts in **IDE** view. Use the
+IDE/Chat/Evidence switch in the top bar to move among the workbench,
+full-width transcript, and durable task review without duplicating an active
+IDE/Chat task.
 
 The server accepts loopback hosts only. Do not expose it through a tunnel,
 reverse proxy, container port, or public interface without adding a real
@@ -26,14 +28,15 @@ multi-user authentication and authorization layer.
 The IDE combines four project-scoped surfaces:
 
 - **Explorer** — a filtered, collapsible tree of safe workspace files.
-- **Editor** — tabbed UTF-8 text editing with line numbers, dirty-state
-  indicators, explicit reload/save, and conflict detection.
+- **Editor** — Monaco-based, tabbed UTF-8 editing with syntax modes, line
+  numbers, per-tab model/view state, dirty-state indicators, explicit
+  reload/save, and conflict detection.
 - **Terminal and source control** — bounded non-interactive commands, Git
   status, and working-tree or staged diffs.
 - **Krater agent** — the complete streaming conversation, Smart Router audit,
   tool activity, token metrics, and Allow/Deny approval cards.
 
-The agent panel can be hidden without stopping its conversation. On smaller
+The agent panel can be hidden without stopping an active task. On smaller
 screens, the explorer and agent become overlay panels so the editor remains
 usable.
 
@@ -44,20 +47,26 @@ menu, or choose **Ask Krater** without a selection to attach the current file.
 Krater Pro adds the relative path, selected line range, and at most 6,000
 characters of code to the composer. Context truncation is explicit.
 
-Review the generated prompt before sending it. The prompt enters the same
-conversation shown in Chat view:
+Review the generated prompt before sending it. The prompt appears in the same
+visible transcript shown in Chat view. Evidence-enabled prompts are independent
+durable tasks; earlier transcript cards are not silently replayed as model
+context:
 
-1. `Auto · Smart Router` resolves the first task, unless an exact model was
+1. `Auto · Smart Router` resolves the task, unless an exact model was
    selected.
-2. The chosen model inspects or changes the selected project with Krater Pro
-   tools.
+2. The chosen model inspects a private snapshot and proposes changes with
+   Krater Pro tools.
 3. Agent-requested edits and commands still produce Allow/Deny cards.
-4. When the turn finishes, the explorer, Git state, and editor tabs that had no
-   local unsaved changes refresh from disk.
+4. When the turn finishes, the base project remains unchanged and the task
+   appears in **Evidence** as a ProofPatch preview.
+5. Review the evidence and gaps, then choose **Publish patch** or **Discard
+   patch**. Publication reloads the explorer, Git state, and clean editor tabs.
 
-Dirty tabs are deliberately not overwritten by an agent refresh. If both the
-agent and editor changed the same file, the next save is rejected as a revision
-conflict; reload or merge the latest file instead of forcing an overwrite.
+Dirty tabs are deliberately not overwritten by a publication refresh. If the
+base file changed after staging, ProofPatch rejects publication instead of
+overwriting it. If an already-open editor tab became stale, its next save is
+also rejected by the revision check; reload or merge instead of forcing an
+overwrite.
 
 ## Editor consistency boundaries
 
@@ -71,8 +80,9 @@ must include:
   exist.
 
 The server returns HTTP `409` if the selected project changed or the file was
-created, removed, or modified since it was opened. Saves are serialized per
-destination and published with the same atomic-write path used by agent edits.
+created, removed, or modified since it was opened. Direct editor saves are
+serialized per destination and use the workspace's single-file atomic-write
+path. Agent publication uses the separate multi-file ProofPatch journal.
 Binary files, invalid UTF-8, protected secrets, paths outside the workspace,
 hard-linked files, and editor documents over 1 MiB are rejected.
 
@@ -156,7 +166,9 @@ flow. Configure `KRATER_API_KEY` in `.env`, the process environment, the CLI
 invocation, or the tab-memory Settings field. See
 [AUTHENTICATION.md](AUTHENTICATION.md).
 
-The current workbench focuses on agent collaboration, text editing, bounded
-commands, and Git inspection. It does not claim an interactive shell, language
-server, debugger adapter, extension marketplace, or complete containment of
-untrusted project code.
+The current workbench focuses on agent collaboration, Monaco editing, bounded
+commands, evidence review, and Git inspection. Monaco supplies local
+TypeScript/JavaScript, JSON, CSS, HTML, and base editor workers, but Krater Pro
+does not yet claim a host-owned language service, Python semantics, local LSP
+integration, debugger adapter, extension marketplace, interactive shell, or
+complete containment of untrusted project code.

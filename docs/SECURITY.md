@@ -26,6 +26,22 @@ atomic rename, preserving an existing file's executable mode. This prevents
 readers from observing partially written content, but it is not a multi-file
 transaction and does not eliminate every filesystem TOCTOU race.
 
+Evidence-enabled CLI and `krater web` agent tasks add a separate ProofPatch
+layer. Model file tools operate on a private copy under `.krater/staging/`.
+After the turn, Krater records a create/edit/delete/move preview plus
+base/final digests and leaves the selected workspace unchanged. Explicit
+publication rechecks each file's existence, digest, size, and mode, writes
+verified backups, journals each applied change, and rolls back after an error.
+The journal can recover incomplete publication states after a restart.
+
+This is recoverable multi-file publication, not one indivisible filesystem
+operation. Commands can have process, network, database, or external API side
+effects that ProofPatch cannot reverse. The current staging implementation is
+a bounded copy, not a detached Git worktree or filesystem copy-on-write layer.
+The CLI, `krater web`, and Electron desktop launcher opt into this evidence
+path. Direct server embedders must opt in explicitly during the compatibility
+release.
+
 The IDE adds optimistic concurrency to this write path. Opening a file returns a
 `sha256:` revision of its bytes. Saving requires both that revision and the
 current `projectId`; a stale revision, missing/replaced file, or project switch
@@ -65,13 +81,17 @@ On macOS, if `/usr/bin/sandbox-exec` exists, commands run with a generated
 sandbox profile and a private temporary home. Writes are allowed only beneath
 the selected workspace and that temporary directory. Reads and writes to
 `.env`, `.krater`, common credential files, and developer credential
-directories are denied. Network access remains available for package managers,
-tests, and provider-independent project tooling.
+directories are denied. Network access from the spawned command is denied; the
+host performs Krater inference outside that command sandbox. Package downloads
+therefore require a separate, explicitly authorized host workflow.
 
 On other systems, or without `sandbox-exec`, these process, environment,
 workspace, timeout, and command controls do not form an OS sandbox. Even on
 macOS the profile is defense in depth, not a proof that project code is safe. A
 permitted test/build can execute arbitrary code with reachable user privileges.
+Evidence-mode `--yes` never auto-approves `run_command` when verified native
+containment is unavailable: unattended execution fails closed, while an
+interactive user may still approve the exact command after the warning.
 
 ## Local server
 
@@ -153,3 +173,7 @@ See [AUTHENTICATION.md](AUTHENTICATION.md).
   output.
 - Rotate any credential that appears in a prompt, log, screenshot, report, or
   committed file.
+
+ProofGraph, policy simulation, persistent cache, and ProofPatch have additional
+threat and non-claim boundaries in
+[evidence-native.md](evidence-native.md#threat-boundaries).

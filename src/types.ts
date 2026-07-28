@@ -33,6 +33,13 @@ export interface Usage {
   providerRequests?: number;
 }
 
+export type ActionGateOutcome =
+  | "change_required"
+  | "partial_fix_requires_change"
+  | "configuration_documentation_or_user_action"
+  | "already_satisfied_no_change"
+  | "cannot_establish_safely";
+
 export class ProviderCompletionError extends Error {
   constructor(
     message: string,
@@ -45,6 +52,24 @@ export class ProviderCompletionError extends Error {
 }
 
 export type AgentEvent =
+  | {
+      type: "task";
+      id: string;
+      state:
+        | "intake"
+        | "discovery"
+        | "clarification"
+        | "reproduction"
+        | "staging"
+        | "verification"
+        | "review"
+        | "publication"
+        | "complete"
+        | "abstained"
+        | "blocked"
+        | "accepted_with_gaps"
+        | "cancelled";
+    }
   | {
       type: "route";
       model: string;
@@ -72,6 +97,43 @@ export type AgentEvent =
       output: string;
       ok: boolean;
       cached?: boolean;
+    }
+  | {
+      type: "action_gate";
+      outcome: ActionGateOutcome;
+      shouldStageCode: boolean;
+      reasons: string[];
+      evidenceRefs: string[];
+    }
+  | {
+      type: "evidence";
+      id: string;
+      kind: string;
+      grade:
+        | "not_established"
+        | "observed"
+        | "tested"
+        | "stress_tested"
+        | "formally_verified";
+      summary: string;
+      ok: boolean;
+    }
+  | {
+      type: "verdict";
+      taskId: string;
+      state:
+        | "complete"
+        | "abstained"
+        | "blocked"
+        | "accepted_with_gaps"
+        | "review";
+      evidenceGrade:
+        | "not_established"
+        | "observed"
+        | "tested"
+        | "stress_tested"
+        | "formally_verified";
+      gaps: string[];
     }
   | ({
       type: "usage";

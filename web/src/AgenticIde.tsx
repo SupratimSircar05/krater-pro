@@ -1,7 +1,9 @@
 import {
   FormEvent,
   KeyboardEvent,
+  lazy,
   ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -9,6 +11,9 @@ import {
   useState,
 } from "react";
 import { apiFetch } from "./api";
+import { editorResourceKey, monacoLanguageForPath } from "./editor-language";
+
+const MonacoCodeEditor = lazy(() => import("./MonacoCodeEditor"));
 
 type TreeEntry = {
   path: string;
@@ -75,6 +80,7 @@ type AgenticIdeProps = {
   active: boolean;
   assistant: ReactNode;
   agentBusy: boolean;
+  workspaceRevision?: number;
   onAskKrater: (prompt: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -187,6 +193,7 @@ export default function AgenticIde({
   active,
   assistant,
   agentBusy,
+  workspaceRevision = 0,
   onAskKrater,
   onDirtyChange,
 }: AgenticIdeProps) {
@@ -225,8 +232,7 @@ export default function AgenticIde({
     y: number;
   } | null>(null);
 
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const gutterRef = useRef<HTMLPreElement>(null);
+  const editorHostRef = useRef<HTMLDivElement>(null);
   const treeFilterRef = useRef<HTMLInputElement>(null);
   const terminalInputRef = useRef<HTMLInputElement>(null);
   const bottomOutputRef = useRef<HTMLDivElement>(null);
@@ -247,6 +253,10 @@ export default function AgenticIde({
   const hasDirtyTabs = useMemo(
     () => tabs.some((tab) => tab.content !== tab.savedContent),
     [tabs],
+  );
+  const openEditorResources = useMemo(
+    () => tabs.map((tab) => editorResourceKey(projectId, tab.path)),
+    [projectId, tabs],
   );
   const cursor = useMemo(
     () => lineAndColumn(activeTab?.content ?? "", selection.end),
@@ -480,6 +490,19 @@ export default function AgenticIde({
   }, [agentBusy, gitStaged, loadGit, loadTree, refreshCleanTabs]);
 
   useEffect(() => {
+    if (workspaceRevision === 0) return;
+    void loadTree();
+    void loadGit(gitStaged);
+    void refreshCleanTabs();
+  }, [
+    gitStaged,
+    loadGit,
+    loadTree,
+    refreshCleanTabs,
+    workspaceRevision,
+  ]);
+
+  useEffect(() => {
     const dismiss = () => setContextMenu(null);
     window.addEventListener("click", dismiss);
     return () => window.removeEventListener("click", dismiss);
@@ -549,13 +572,18 @@ export default function AgenticIde({
         target instanceof HTMLElement &&
         (target.matches("input, textarea, select") ||
           target.isContentEditable);
+      const insideEditor =
+        target instanceof Node &&
+        Boolean(editorHostRef.current?.contains(target));
       if (command && event.key.toLowerCase() === "s") {
-        if (editable && target !== editorRef.current) return;
+        // Monaco owns its hidden textarea and registers the same command.
+        // Other editable controls must retain their normal browser behavior.
+        if (editable || insideEditor) return;
         event.preventDefault();
         void saveActive();
         return;
       }
-      if (editable) return;
+      if (editable || insideEditor) return;
       if (command && event.key.toLowerCase() === "b") {
         event.preventDefault();
         setExplorerOpen((current) => !current);
@@ -769,21 +797,6 @@ export default function AgenticIde({
     );
   };
 
-  const onEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Tab") return;
-    event.preventDefault();
-    const field = event.currentTarget;
-    const start = field.selectionStart;
-    const end = field.selectionEnd;
-    const next = `${field.value.slice(0, start)}  ${field.value.slice(end)}`;
-    updateActiveContent(next);
-    window.requestAnimationFrame(() => {
-      field.selectionStart = start + 2;
-      field.selectionEnd = start + 2;
-      setSelection({ start: start + 2, end: start + 2 });
-    });
-  };
-
   const askKrater = () => {
     if (!activeTab) {
       setIdeError("Open a file before adding editor context to Krater Pro.");
@@ -915,11 +928,6 @@ export default function AgenticIde({
     setGitStaged(staged);
     void loadGit(staged);
   };
-
-  const lineNumbers = useMemo(() => {
-    const count = Math.max(1, (activeTab?.content.match(/\n/g)?.length ?? 0) + 1);
-    return Array.from({ length: count }, (_, index) => index + 1).join("\n");
-  }, [activeTab?.content]);
 
   return (
     <section
@@ -1190,42 +1198,37 @@ export default function AgenticIde({
                 </div>
               ) : (
                 <>
-                  <div className="ide-code-surface">
-                    <pre ref={gutterRef} className="ide-line-numbers" aria-hidden="true">
-                      {lineNumbers}
-                    </pre>
-                    <textarea
-                      ref={editorRef}
-                      value={activeTab.content}
-                      onChange={(event) => updateActiveContent(event.target.value)}
-                      onKeyDown={onEditorKeyDown}
-                      onSelect={(event) =>
-                        setSelection({
-                          start: event.currentTarget.selectionStart,
-                          end: event.currentTarget.selectionEnd,
-                        })
+                  <div ref={editorHostRef} className="ide-code-surface">
+                    <Suspense
+                      fallback={
+                        <div
+                          className="ide-editor-loading"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <span className="ide-spinner" />
+                          Loading Monaco editor…
+                        </div>
                       }
-                      onScroll={(event) => {
-                        if (gutterRef.current) {
-                          gutterRef.current.scrollTop = event.currentTarget.scrollTop;
-                        }
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        setSelection({
-                          start: event.currentTarget.selectionStart,
-                          end: event.currentTarget.selectionEnd,
-                        });
-                        setContextMenu({
-                          x: Math.min(event.clientX, window.innerWidth - 190),
-                          y: Math.min(event.clientY, window.innerHeight - 90),
-                        });
-                      }}
-                      aria-label={`Editor for ${activeTab.path}`}
-                      spellCheck={false}
-                      autoCapitalize="off"
-                      autoComplete="off"
-                    />
+                    >
+                      <MonacoCodeEditor
+                        resourceKey={editorResourceKey(projectId, activeTab.path)}
+                        openResourceKeys={openEditorResources}
+                        value={activeTab.content}
+                        language={monacoLanguageForPath(activeTab.path)}
+                        ariaLabel={`Editor for ${activeTab.path}`}
+                        onChange={updateActiveContent}
+                        onSelectionChange={setSelection}
+                        onSave={() => void saveActive()}
+                        onContextMenu={(menu) => {
+                          setSelection({ start: menu.start, end: menu.end });
+                          setContextMenu({
+                            x: Math.min(menu.x, window.innerWidth - 190),
+                            y: Math.min(menu.y, window.innerHeight - 90),
+                          });
+                        }}
+                      />
+                    </Suspense>
                   </div>
                   <footer className="ide-statusbar">
                     <span>{isDirty ? "● Modified" : "✓ Saved"}</span>

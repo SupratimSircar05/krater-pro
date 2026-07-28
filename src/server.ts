@@ -6,9 +6,14 @@ import {
 } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import express, { type Express, type Request, type Response } from "express";
 import { AgentSession } from "./agent.js";
+import {
+  calibrateReliabilityCandidate,
+  replayRecordedCausalTwin,
+  replayReliabilityEvaluation,
+} from "./advanced-adapters.js";
 import { browserAuthCapabilities } from "./browser-auth.js";
 import type { KraterConfig } from "./config.js";
 import {
@@ -18,9 +23,37 @@ import {
 } from "./model-selection.js";
 import { ProjectRegistry, type ProjectRecord } from "./projects.js";
 import { KraterProvider } from "./provider.js";
+import {
+  EvidenceTask,
+  cancelEvidenceTask,
+  evidencePublicationReadiness,
+  finalizeEvidencePublication,
+  listEvidenceTasks,
+  openEvidenceStore,
+  readEvidenceTask,
+  recordEvidenceRollback,
+  renderPassportMarkdown,
+} from "./evidence-runtime.js";
+import {
+  verifyChangePassport,
+  verifyEvidenceCapsule,
+} from "./proofgraph/index.js";
 import type { AvailableModel } from "./router.js";
 import { sanitizeTerminalText } from "./telemetry.js";
 import type { AgentEvent, ApprovalRequest } from "./types.js";
+import {
+  explainPolicyDecision,
+  simulatePolicy,
+  type PolicySimulationRequest,
+} from "./trust/index.js";
+import { VerifiedWorkCache } from "./verified-cache/index.js";
+import {
+  StagedTaskWorkspace,
+  discardStagedProofPatch,
+  loadProofPatchBinding,
+  publishBoundProofPatch,
+  rollbackBoundProofPatch,
+} from "./staging-workspace.js";
 import {
   Workspace,
   WorkspaceRevisionConflictError,
@@ -28,6 +61,11 @@ import {
 
 export interface ServerOptions {
   dev?: boolean;
+  /**
+   * Host-enforced Action/Abstention Gate. The Krater CLI enables it; direct
+   * embedders may opt in during the compatibility release.
+   */
+  evidenceMode?: boolean;
 }
 
 interface PendingApproval {
@@ -54,6 +92,8 @@ class BrowserSession {
   private readonly pending = new Map<string, PendingApproval>();
   private running = false;
   private lastActivity = Date.now();
+  private evidenceTask?: EvidenceTask;
+  private stagedWorkspace?: StagedTaskWorkspace;
 
   constructor(
     private readonly config: KraterConfig,
@@ -63,6 +103,7 @@ class BrowserSession {
     ) => Promise<AvailableModel[]>,
     readonly projectId: string,
     private readonly invalidateProjectCaches: (projectId: string) => void,
+    private readonly evidenceMode: boolean,
   ) {}
 
   get isRunning(): boolean {
@@ -82,6 +123,7 @@ class BrowserSession {
   }
 
   private emit(event: AgentEvent): void {
+    this.evidenceTask?.accept(event);
     this.sink?.(event);
   }
 
@@ -126,6 +168,9 @@ class BrowserSession {
       );
     }
     if (!this.agent) {
+      if (this.evidenceMode && !this.stagedWorkspace) {
+        throw new Error("Evidence-native session has no isolated staging workspace.");
+      }
       this.denyAll();
       this.agentKey = signature;
       this.agentModel = model;
@@ -136,7 +181,9 @@ class BrowserSession {
           model,
           maxOutputTokens: this.config.maxOutputTokens,
         }),
-        cwd: this.config.cwd,
+        cwd: this.stagedWorkspace?.stageRoot ?? this.config.cwd,
+        readOnlyDependencyRoots:
+          this.stagedWorkspace?.readOnlyDependencyRoots,
         model,
         onEvent: (event) => this.emit(event),
         onWorkspaceMutation: () =>
@@ -147,6 +194,7 @@ class BrowserSession {
         responseStyle: this.config.responseStyle,
         maxSteps: this.config.maxSteps,
         sessionTokenBudget: this.config.sessionTokenBudget,
+        evidenceMode: this.evidenceMode,
       });
     }
     return this.agent;
@@ -158,6 +206,7 @@ class BrowserSession {
     model: string,
     sink: (event: AgentEvent) => void,
     signal: AbortSignal,
+    assurance: "fast" | "standard" | "high" = "standard",
   ): Promise<void> {
     if (this.running) throw new Error("This session is already processing a message.");
     this.touch();
@@ -169,6 +218,7 @@ class BrowserSession {
     else signal.addEventListener("abort", forwardAbort, { once: true });
     this.activeController = controller;
     this.activeSignal = controller.signal;
+    let proofPatchPrepared = false;
     try {
       let resolvedModel = model;
       if (isAutomaticModel(model)) {
@@ -185,6 +235,22 @@ class BrowserSession {
             signal: controller.signal,
           });
           resolvedModel = selection.model;
+          if (this.evidenceMode) {
+            this.evidenceTask = await EvidenceTask.start({
+              cwd: this.config.cwd,
+              projectId: this.projectId,
+              request: message,
+              model: resolvedModel,
+              assurance,
+              maxTokens: this.config.sessionTokenBudget,
+              maxToolSteps: this.config.maxSteps,
+            });
+            this.emit({
+              type: "task",
+              id: this.evidenceTask.taskId,
+              state: this.evidenceTask.currentState,
+            });
+          }
           const decision = selection.decision!;
           this.emit({
             type: "route",
@@ -199,16 +265,113 @@ class BrowserSession {
           });
         }
       }
+      if (this.evidenceMode && !this.evidenceTask) {
+        this.evidenceTask = await EvidenceTask.start({
+          cwd: this.config.cwd,
+          projectId: this.projectId,
+          request: message,
+          model: resolvedModel,
+          assurance,
+          maxTokens: this.config.sessionTokenBudget,
+          maxToolSteps: this.config.maxSteps,
+        });
+        this.emit({
+          type: "task",
+          id: this.evidenceTask.taskId,
+          state: this.evidenceTask.currentState,
+        });
+      }
+      if (this.evidenceMode && !this.stagedWorkspace) {
+        this.stagedWorkspace = await StagedTaskWorkspace.create(
+          this.config.cwd,
+        );
+      }
       await this.ensureAgent(apiKey, resolvedModel).run(
         message,
         controller.signal,
       );
+      await this.evidenceTask?.flush();
+      let projection;
+      if (
+        this.evidenceTask &&
+        this.evidenceTask.actionGate?.shouldStageCode
+      ) {
+        if (!this.stagedWorkspace) {
+          throw new Error("The isolated staging workspace was lost.");
+        }
+        const prepared = await this.stagedWorkspace.prepareProofPatch(
+          this.evidenceTask.taskId,
+        );
+        proofPatchPrepared = true;
+        this.stagedWorkspace = undefined;
+        projection = await this.evidenceTask.finish({
+          baseWorkspaceDigest: prepared.baseWorkspaceDigest,
+          finalWorkspaceDigest: prepared.finalWorkspaceDigest,
+          additionalGaps: prepared.unsupportedPaths.map(
+            (path) =>
+              `ProofPatch cannot publish ${path} because its parent directory does not exist in the base workspace.`,
+          ),
+        });
+      } else if (this.evidenceTask && this.stagedWorkspace) {
+        const digest = this.stagedWorkspace.initialWorkspaceDigest;
+        await this.stagedWorkspace.discard();
+        this.stagedWorkspace = undefined;
+        projection = await this.evidenceTask.finish({
+          baseWorkspaceDigest: digest,
+          finalWorkspaceDigest: digest,
+        });
+      }
+      if (projection) {
+        this.sink?.({
+          type: "task",
+          id: projection.taskId,
+          state: projection.state,
+        });
+        this.sink?.({
+          type: "verdict",
+          taskId: projection.taskId,
+          state:
+            projection.state === "complete" ||
+            projection.state === "abstained" ||
+            projection.state === "blocked" ||
+            projection.state === "accepted_with_gaps"
+              ? projection.state
+              : "review",
+          evidenceGrade:
+            projection.passport?.weakestEvidenceGrade ?? "not_established",
+          gaps: projection.capsule?.gaps ?? [],
+        });
+      }
+    } catch (error) {
+      if (this.evidenceTask && !controller.signal.aborted) {
+        const projection = await this.evidenceTask.fail(
+          (error as Error).message || "Agent execution failed.",
+        );
+        this.sink?.({
+          type: "task",
+          id: projection.taskId,
+          state: projection.state,
+        });
+      } else if (this.evidenceTask && controller.signal.aborted) {
+        await this.evidenceTask.cancel("Task execution was cancelled.");
+      }
+      throw error;
     } finally {
       signal.removeEventListener("abort", forwardAbort);
       this.running = false;
       this.sink = undefined;
       this.activeSignal = undefined;
       this.activeController = undefined;
+      this.evidenceTask = undefined;
+      if (this.evidenceMode) {
+        if (this.stagedWorkspace && !proofPatchPrepared) {
+          void this.stagedWorkspace.discard();
+        }
+        this.stagedWorkspace = undefined;
+        this.agent = undefined;
+        this.agentKey = "";
+        this.agentModel = "";
+      }
       this.denyAll();
     }
   }
@@ -226,6 +389,13 @@ class BrowserSession {
 
   dispose(): void {
     this.activeController?.abort();
+    if (this.evidenceTask) {
+      void this.evidenceTask.cancel("Browser session was closed.");
+    }
+    if (this.stagedWorkspace) {
+      void this.stagedWorkspace.discard();
+      this.stagedWorkspace = undefined;
+    }
     this.denyAll();
     this.sink = undefined;
   }
@@ -349,6 +519,7 @@ export async function createApp(
   const sessions = new Map<string, BrowserSession>();
   let projectChanging = false;
   let activeWorkspaceOperations = 0;
+  let proofPatchMutationActive = false;
   const terminalControllers = new Set<AbortController>();
   const modelCache = new Map<
     string,
@@ -425,11 +596,56 @@ export async function createApp(
       sendError(response, 409, "Wait for the project change to finish.");
       return false;
     }
+    if (proofPatchMutationActive) {
+      sendError(
+        response,
+        409,
+        "Wait for the active ProofPatch lifecycle mutation to finish.",
+      );
+      return false;
+    }
     activeWorkspaceOperations += 1;
     return true;
   };
   const finishWorkspaceOperation = (): void => {
     activeWorkspaceOperations = Math.max(0, activeWorkspaceOperations - 1);
+  };
+  const beginProofPatchMutation = (response: Response): boolean => {
+    if (projectChanging) {
+      sendError(response, 409, "Wait for the project change to finish.");
+      return false;
+    }
+    if (proofPatchMutationActive) {
+      sendError(
+        response,
+        409,
+        "Another ProofPatch publish, rollback, or cancellation is already in progress.",
+      );
+      return false;
+    }
+    if (activeWorkspaceOperations > 0) {
+      sendError(
+        response,
+        409,
+        "Wait for active editor, Git, or terminal work before changing a ProofPatch.",
+      );
+      return false;
+    }
+    if (hasRunningSession()) {
+      sendError(
+        response,
+        409,
+        "Stop the active agent response before changing a ProofPatch.",
+      );
+      return false;
+    }
+    proofPatchMutationActive = true;
+    activeWorkspaceOperations += 1;
+    return true;
+  };
+  const finishProofPatchMutation = (): void => {
+    proofPatchMutationActive = false;
+    finishWorkspaceOperation();
   };
   const requireCurrentProject = (
     request: Request,
@@ -454,6 +670,30 @@ export async function createApp(
     }
     const current = projects.current();
     if (projectId !== current.id) {
+      sendError(
+        response,
+        409,
+        `This ${operation.toLowerCase()} request belongs to a different project. Reload the workspace.`,
+      );
+      return undefined;
+    }
+    return current;
+  };
+  const optionalCurrentProject = (
+    request: Request,
+    response: Response,
+    operation: string,
+  ): ProjectRecord | undefined => {
+    if (
+      request.query.projectId !== undefined &&
+      typeof request.query.projectId !== "string"
+    ) {
+      sendError(response, 400, `${operation} "projectId" must be a single value.`);
+      return undefined;
+    }
+    const requested = singleQuery(request, "projectId")?.trim();
+    const current = projects.current();
+    if (requested && requested !== current.id) {
       sendError(
         response,
         409,
@@ -949,6 +1189,468 @@ export async function createApp(
     }
   });
 
+  app.get("/api/v2/tasks", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      response.json({
+        tasks: await listEvidenceTasks(project.path, project.id),
+      });
+    } catch (error) {
+      sendError(response, 500, (error as Error).message);
+    }
+  });
+
+  app.get("/api/v2/tasks/:taskId/events", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    const rawAfter =
+      request.header("last-event-id") ?? singleQuery(request, "after") ?? "0";
+    if (!/^\d+$/.test(rawAfter)) {
+      sendError(response, 400, 'Task event "after" must be a non-negative integer.');
+      return;
+    }
+    try {
+      const store = await openEvidenceStore(project.path);
+      const replay = await store.replay();
+      if (replay.tailCorruption) {
+        sendError(
+          response,
+          409,
+          `ProofGraph tail is corrupt at line ${replay.tailCorruption.lineNumber}.`,
+        );
+        return;
+      }
+      const taskEvents = replay.events.filter(
+        (event) =>
+          event.taskId === request.params.taskId &&
+          event.sequence > Number(rawAfter),
+      );
+      if (
+        !replay.events.some((event) => event.taskId === request.params.taskId)
+      ) {
+        sendError(response, 404, "Evidence task not found.");
+        return;
+      }
+      response.status(200);
+      response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      response.setHeader("Cache-Control", "no-store, no-transform");
+      response.setHeader("Connection", "close");
+      for (const event of taskEvents) {
+        response.write(`id: ${event.sequence}\n`);
+        response.write(`event: ${event.kind}\n`);
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      response.end();
+    } catch (error) {
+      if (!response.headersSent) {
+        const code = (error as NodeJS.ErrnoException).code;
+        sendError(
+          response,
+          code === "ENOENT" ? 404 : 500,
+          code === "ENOENT" ? "Evidence task not found." : (error as Error).message,
+        );
+      } else {
+        response.end();
+      }
+    }
+  });
+
+  app.get("/api/v2/tasks/:taskId/passport", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    const format = singleQuery(request, "format") ?? "json";
+    if (format !== "json" && format !== "markdown") {
+      sendError(response, 400, 'Passport "format" must be "json" or "markdown".');
+      return;
+    }
+    try {
+      const store = await openEvidenceStore(project.path);
+      const projection = await store.task(request.params.taskId);
+      if (!projection.passport || !projection.capsule) {
+        sendError(response, 409, "This task does not have a generated passport yet.");
+        return;
+      }
+      if (format === "markdown") {
+        response.type("text/markdown; charset=utf-8");
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="krater-passport-${projection.taskId}.md"`,
+        );
+        response.send(renderPassportMarkdown(projection));
+        return;
+      }
+      response.json({
+        passport: projection.passport,
+        capsule: projection.capsule,
+        verification: {
+          passport: verifyChangePassport(
+            projection.passport,
+            projection.capsule,
+          ),
+          capsule: verifyEvidenceCapsule(projection.capsule),
+        },
+      });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      sendError(
+        response,
+        code === "ENOENT" || /does not exist/i.test((error as Error).message)
+          ? 404
+          : 500,
+        code === "ENOENT" ? "Evidence task not found." : (error as Error).message,
+      );
+    }
+  });
+
+  app.get("/api/v2/tasks/:taskId", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      const detail = await readEvidenceTask(
+        project.path,
+        project.id,
+        request.params.taskId,
+      );
+      let proofPatch:
+        | {
+            transactionId: string;
+            status: string;
+            changedPaths: string[];
+            unsupportedPaths: string[];
+            publishedAt?: string;
+            rolledBackAt?: string;
+          }
+        | undefined;
+      try {
+        const binding = await loadProofPatchBinding(
+          project.path,
+          request.params.taskId,
+        );
+        proofPatch = {
+          transactionId: binding.transactionId,
+          status: binding.status,
+          changedPaths: binding.changedPaths,
+          unsupportedPaths: binding.unsupportedPaths,
+          ...(binding.publishedAt
+            ? { publishedAt: binding.publishedAt }
+            : {}),
+          ...(binding.rolledBackAt
+            ? { rolledBackAt: binding.rolledBackAt }
+            : {}),
+        };
+      } catch (bindingError) {
+        if ((bindingError as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw bindingError;
+        }
+      }
+      response.json({
+        ...detail,
+        ...(proofPatch ? { proofPatch } : {}),
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found/i.test(message) ? 404 : 500,
+        message,
+      );
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/resume", async (request, response) => {
+    const project = projects.current();
+    try {
+      const detail = await readEvidenceTask(
+        project.path,
+        project.id,
+        request.params.taskId,
+      );
+      response.json({
+        ...detail,
+        resumable:
+          detail.task.state === "review" ||
+          detail.task.state === "blocked" ||
+          detail.task.state === "accepted_with_gaps",
+        note:
+          "Durable evidence is resumable. Raw model transcripts remain local and opt-in, so a new agent turn starts with the contract and recorded evidence.",
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found/i.test(message) ? 404 : 500,
+        message,
+      );
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/cancel", async (request, response) => {
+    const project = projects.current();
+    if (!beginProofPatchMutation(response)) return;
+    try {
+      const taskId = request.params.taskId;
+      const reason = request.body?.reason;
+      if (reason !== undefined && typeof reason !== "string") {
+        sendError(response, 400, '"reason" must be a string.');
+        return;
+      }
+      const detail = await readEvidenceTask(project.path, project.id, taskId);
+      let binding:
+        | Awaited<ReturnType<typeof loadProofPatchBinding>>
+        | undefined;
+      try {
+        binding = await loadProofPatchBinding(project.path, taskId);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (binding?.status === "published" || binding?.publishedAt) {
+        sendError(
+          response,
+          409,
+          `Task ${taskId} has a published ProofPatch and cannot be cancelled. Use POST /api/v2/tasks/${taskId}/rollback to undo its workspace changes.`,
+        );
+        return;
+      }
+      if (
+        detail.task.state !== "cancelled" &&
+        [
+          "complete",
+          "abstained",
+          "blocked",
+          "accepted_with_gaps",
+          "publication",
+        ].includes(detail.task.state)
+      ) {
+        sendError(
+          response,
+          409,
+          `Task is already ${detail.task.state} and cannot be cancelled.`,
+        );
+        return;
+      }
+      if (binding?.status === "staged") {
+        binding = await discardStagedProofPatch(project.path, taskId);
+      }
+      const projection = await cancelEvidenceTask(project.path, taskId, {
+        ...(reason?.trim() ? { reason } : {}),
+        ...(binding
+          ? {
+              discardedProofPatch: {
+                transactionId: binding.transactionId,
+                baseWorkspaceDigest: binding.baseWorkspaceDigest,
+                finalWorkspaceDigest: binding.finalWorkspaceDigest,
+                changedPaths: binding.changedPaths,
+              },
+            }
+          : {}),
+      });
+      invalidateWorkspaceSessions(project.id);
+      response.json({
+        task: await readEvidenceTask(project.path, project.id, taskId),
+        verdict: projection.state,
+        ...(binding
+          ? {
+              proofPatch: {
+                transactionId: binding.transactionId,
+                status: binding.status,
+                changedPaths: binding.changedPaths,
+                rolledBackAt: binding.rolledBackAt,
+              },
+            }
+          : {}),
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /published|publication|already|cannot be cancelled|not staged/i.test(
+                message,
+              )
+            ? 409
+            : 500,
+        message,
+      );
+    } finally {
+      finishProofPatchMutation();
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/publish", async (request, response) => {
+    const project = projects.current();
+    if (!beginProofPatchMutation(response)) return;
+    try {
+      const taskId = request.params.taskId;
+      const acceptGaps = request.body?.acceptGaps ?? false;
+      if (typeof acceptGaps !== "boolean") {
+        sendError(response, 400, '"acceptGaps" must be a boolean.');
+        return;
+      }
+      const readiness = await evidencePublicationReadiness(
+        project.path,
+        taskId,
+      );
+      if (!readiness.canPublish) {
+        sendError(
+          response,
+          409,
+          `Only reviewed tasks can be published; current state is ${readiness.state}.`,
+        );
+        return;
+      }
+      if (readiness.requiresGapAcceptance && !acceptGaps) {
+        response.status(409).json({
+          error: {
+            message: `Publication is blocked by ${readiness.gaps.length} evidence gap(s).`,
+            gaps: readiness.gaps,
+          },
+        });
+        return;
+      }
+      let binding = await loadProofPatchBinding(project.path, taskId);
+      if (binding.status === "staged") {
+        binding = (await publishBoundProofPatch(project.path, taskId)).binding;
+      } else if (binding.status !== "published") {
+        sendError(
+          response,
+          409,
+          `ProofPatch transaction is ${binding.status}, not publishable.`,
+        );
+        return;
+      }
+      const projection = await finalizeEvidencePublication(
+        project.path,
+        taskId,
+        {
+          acceptGaps,
+          baseWorkspaceDigest: binding.baseWorkspaceDigest,
+          finalWorkspaceDigest: binding.finalWorkspaceDigest,
+          transactionId: binding.transactionId,
+        },
+      );
+      invalidateWorkspaceSessions(project.id);
+      response.json({
+        task: await readEvidenceTask(project.path, project.id, taskId),
+        proofPatch: {
+          transactionId: binding.transactionId,
+          status: binding.status,
+          changedPaths: binding.changedPaths,
+          publishedAt: binding.publishedAt,
+        },
+        verdict: projection.state,
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /blocked|only reviewed|not publishable|conflict|cannot publish/i.test(
+                message,
+              )
+            ? 409
+            : 500,
+        message,
+      );
+    } finally {
+      finishProofPatchMutation();
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/rollback", async (request, response) => {
+    const project = projects.current();
+    if (!beginProofPatchMutation(response)) return;
+    try {
+      const taskId = request.params.taskId;
+      await readEvidenceTask(project.path, project.id, taskId);
+      const before = await loadProofPatchBinding(project.path, taskId);
+      const binding = await rollbackBoundProofPatch(project.path, taskId);
+      const projection = await recordEvidenceRollback(project.path, taskId, {
+        transactionId: binding.transactionId,
+        wasPublished: before.status === "published",
+        baseWorkspaceDigest: binding.baseWorkspaceDigest,
+        finalWorkspaceDigest: binding.finalWorkspaceDigest,
+      });
+      invalidateWorkspaceSessions(project.id);
+      response.json({
+        proofPatch: {
+          transactionId: binding.transactionId,
+          status: binding.status,
+          changedPaths: binding.changedPaths,
+          rolledBackAt: binding.rolledBackAt,
+        },
+        task: await readEvidenceTask(project.path, project.id, taskId),
+        verdict: projection.state,
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /conflict|cannot|not staged|not published/i.test(message)
+            ? 409
+            : 500,
+        message,
+      );
+    } finally {
+      finishProofPatchMutation();
+    }
+  });
+
+  app.post("/api/v2/policy/simulate", (request, response) => {
+    try {
+      const decision = simulatePolicy(
+        request.body as PolicySimulationRequest,
+      );
+      response.json({
+        decision,
+        explanation: explainPolicyDecision(decision),
+      });
+    } catch (error) {
+      sendError(response, 400, (error as Error).message);
+    }
+  });
+
+  app.post("/api/v2/debug/causal", async (request, response) => {
+    try {
+      response.json(await replayRecordedCausalTwin(request.body));
+    } catch (error) {
+      sendError(response, 400, (error as Error).message);
+    }
+  });
+
+  app.post("/api/v2/lab/replay", (request, response) => {
+    try {
+      response.json(replayReliabilityEvaluation(request.body));
+    } catch (error) {
+      sendError(response, 400, (error as Error).message);
+    }
+  });
+
+  app.post("/api/v2/lab/calibrate", (request, response) => {
+    try {
+      response.json(calibrateReliabilityCandidate(request.body));
+    } catch (error) {
+      sendError(response, 400, (error as Error).message);
+    }
+  });
+
+  app.get("/api/v2/cache/stats", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Cache");
+    if (!project) return;
+    try {
+      const cache = new VerifiedWorkCache(
+        join(project.path, ".krater", "cache"),
+      );
+      response.json(await cache.stats());
+    } catch (error) {
+      sendError(response, 500, (error as Error).message);
+    }
+  });
+
   app.post("/api/sessions", (request, response) => {
     if (projectChanging) {
       sendError(response, 409, "Wait for the project change to finish.");
@@ -997,6 +1699,7 @@ export async function createApp(
       async (apiKey, signal) => (await loadModels(apiKey, signal)).models,
       currentProject.id,
       invalidateWorkspaceSessions,
+      options.evidenceMode ?? false,
     );
     sessions.set(session.id, session);
     response.status(201).json({ id: session.id });
@@ -1052,8 +1755,20 @@ export async function createApp(
       typeof request.body?.model === "string" && request.body.model.trim()
         ? request.body.model.trim()
         : config.model;
+    const assurance =
+      request.body?.assurance === undefined
+        ? "standard"
+        : request.body.assurance;
     if (!message) {
       sendError(response, 400, "Message cannot be empty.");
+      return;
+    }
+    if (!["fast", "standard", "high"].includes(assurance)) {
+      sendError(
+        response,
+        400,
+        'Message "assurance" must be "fast", "standard", or "high".',
+      );
       return;
     }
     if (!apiKey) {
@@ -1087,6 +1802,7 @@ export async function createApp(
           writeEvent(response, event);
         },
         abort.signal,
+        assurance as "fast" | "standard" | "high",
       );
     } catch (error) {
       if (!abort.signal.aborted && !emittedError) {

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import AgenticIde from "./AgenticIde";
+import EvidenceCenter from "./EvidenceCenter";
 import { apiFetch } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import kraterProMark from "./assets/krater-pro-mark.svg";
@@ -444,8 +445,11 @@ export default function App() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<"ide" | "chat">("ide");
+  const [workspaceView, setWorkspaceView] = useState<
+    "ide" | "chat" | "evidence"
+  >("ide");
   const [ideDirty, setIdeDirty] = useState(false);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [offline, setOffline] = useState(false);
   const [credentialValidated, setCredentialValidated] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1350,6 +1354,14 @@ export default function App() {
               >
                 Chat
               </button>
+              <button
+                className={workspaceView === "evidence" ? "is-active" : ""}
+                type="button"
+                aria-pressed={workspaceView === "evidence"}
+                onClick={() => setWorkspaceView("evidence")}
+              >
+                Evidence
+              </button>
             </div>
 
             <label className="project-picker">
@@ -1451,6 +1463,7 @@ export default function App() {
               }
               assistant={workspaceView === "ide" ? chatWorkspace : null}
               agentBusy={streaming}
+              workspaceRevision={workspaceRevision}
               onDirtyChange={setIdeDirty}
               onAskKrater={(prompt) => {
                 setDraft(prompt);
@@ -1463,6 +1476,19 @@ export default function App() {
             hidden={workspaceView !== "chat"}
           >
             {workspaceView === "chat" ? chatWorkspace : null}
+          </div>
+          <div
+            className="workspace-view-stage__view"
+            hidden={workspaceView !== "evidence"}
+          >
+            {workspaceView === "evidence" ? (
+              <EvidenceCenter
+                projectId={currentProjectId}
+                onWorkspaceMutation={() =>
+                  setWorkspaceRevision((current) => current + 1)
+                }
+              />
+            ) : null}
           </div>
         </div>
       </main>

@@ -17,6 +17,11 @@ flowchart LR
     Agent --> Tools["Tool dispatcher"]
     Tools --> Workspace["Workspace boundary"]
     Tools --> Skills["SkillRegistry"]
+    Agent --> Gate["Action/Abstention Gate"]
+    Gate --> Stage["StagedTaskWorkspace"]
+    Stage --> Patch["ProofPatch journal"]
+    Agent --> Proof["ProofGraph"]
+    Patch --> Proof
     IDEWorkspace --> Workspace
     Agent --> Efficiency["Context, cache, usage"]
     Bench["Custom + official benchmark adapters"] --> Agent
@@ -24,11 +29,13 @@ flowchart LR
 
 ## Shared engine
 
-`src/agent.ts` owns the bounded provider/tool loop, conversation history,
+`src/agent.ts` owns the bounded provider/tool loop, task-local message history,
 approval requests, read-cache invalidation, usage totals, and stream events.
-The CLI and every browser session instantiate this same class. IDE and Chat
-views render the same browser session; changing the view does not create a
-second conversation or agent.
+The CLI and browser transport instantiate this same class. IDE and Chat render
+the same visible client transcript and browser session; changing views does
+not duplicate an active agent. In evidence mode, the server deliberately
+disposes the task agent after each completed prompt, so the next prompt starts
+a fresh durable task instead of inheriting hidden model context.
 
 ## Provider
 
@@ -45,9 +52,10 @@ candidate meeting the target quality. `src/model-selection.ts` enforces the
 boundary between automatic and explicit selection, including a visible Kimi K3
 fallback when live metadata is unavailable. Explicit IDs bypass catalog loading.
 
-CLI conversations route lazily on their first prompt. Browser sessions route
-their first automatic message and emit an SSE audit event. In both cases the
-resolved model is fixed for the conversation.
+Evidence-mode CLI and browser prompts route at the start of each task; browser
+tasks emit an SSE audit event. The resolved model is fixed for that task.
+Compatibility embedders that disable evidence mode may retain a browser agent
+across turns.
 
 ## Workspace and tools
 
@@ -56,6 +64,20 @@ and real paths. It implements file reads/searches/edits, project mapping, Git
 reads, and bounded child commands. `src/tools.ts` supplies stable JSON schemas,
 classifies mutations, validates arguments, and converts results into model
 messages.
+
+In evidence-enabled CLI and browser tasks, `src/staging-workspace.ts` first
+copies the bounded project into private `.krater/staging/` state. The
+`AgentSession` binds its workspace tools and command working directory to that
+copy. The host rejects publishable file tools until `record_action_gate` cites
+successful discovery/reproduction calls from the current turn. A completed
+staged task becomes a durable `ProofPatch` preview and remains in review until
+the user separately publishes it.
+
+`src/proofgraph/` appends task contracts, state, actions, evidence, claims,
+capsules, and passports to a hash chain. `src/evidence-runtime.ts` projects
+those events into the CLI and `/api/v2` task views. See
+[evidence-native.md](evidence-native.md) for implemented and library-only
+boundaries.
 
 ## Skills and efficiency
 
@@ -104,8 +126,9 @@ checks prevent a request created for one root from being applied to another.
 Editor revisions implement optimistic concurrency. `Workspace` serializes
 writes per destination, compares the saved byte digest, and publishes through
 its atomic-write path. A stale save returns a conflict rather than overwriting
-an agent, terminal, or external edit. After an agent turn, the client refreshes
-the tree, Git state, and only tabs without unsaved local changes.
+an agent, terminal, or external edit. After explicit ProofPatch publication,
+the client refreshes the tree, Git state, and only tabs without unsaved local
+changes.
 
 The user-entered terminal is not routed through model approval because pressing
 Run is the explicit human execution request. On macOS, `Workspace` uses

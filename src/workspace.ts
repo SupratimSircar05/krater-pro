@@ -71,6 +71,14 @@ export interface WorkspaceTree {
   truncated: boolean;
 }
 
+export interface WorkspaceOptions {
+  /**
+   * Host-selected dependency/toolchain roots that sandboxed commands may read
+   * but never mutate. These paths are not exposed through file tools.
+   */
+  readOnlyDependencyRoots?: readonly string[];
+}
+
 export interface WorkspaceDocument {
   path: string;
   content: string;
@@ -347,9 +355,24 @@ function caseInsensitiveRegularExpressionLiteral(value: string): string {
 
 export class Workspace {
   readonly root: string;
+  private readonly readOnlyDependencyRoots: string[];
 
-  constructor(root: string) {
+  constructor(root: string, options: WorkspaceOptions = {}) {
     this.root = realpathSync(resolve(root));
+    this.readOnlyDependencyRoots = [
+      ...new Set(
+        (options.readOnlyDependencyRoots ?? []).map((path) =>
+          realpathSync(resolve(path)),
+        ),
+      ),
+    ].filter((path) => path !== this.root && !within(this.root, path));
+  }
+
+  hasVerifiedCommandContainment(): boolean {
+    return (
+      process.platform === "darwin" &&
+      existsSync("/usr/bin/sandbox-exec")
+    );
   }
 
   private lexicalPath(input = "."): string {
@@ -1502,6 +1525,7 @@ export class Workspace {
       : [];
     const allowedReadRoots = [
       this.root,
+      ...this.readOnlyDependencyRoots,
       temporaryDirectory,
       realpathSync(temporaryDirectory),
       "/System",
@@ -1573,7 +1597,7 @@ export class Workspace {
       `(allow file-write* (subpath ${sandboxLiteral(this.root)}) ` +
         `(subpath ${sandboxLiteral(temporaryDirectory)}) ` +
         '(literal "/dev/null"))',
-      "(allow network*)",
+      "(deny network*)",
       ...deniedFilters.map((filter) => `(deny file-read* ${filter})`),
       ...deniedFilters.map((filter) => `(deny file-write* ${filter})`),
     ].join(" ");

@@ -81,7 +81,7 @@ async function startIdeServer(options) {
         host,
         port,
       });
-      return startServer(config);
+      return startServer(config, { evidenceMode: true });
     },
   });
 }

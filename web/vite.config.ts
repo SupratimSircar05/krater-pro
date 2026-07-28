@@ -18,5 +18,20 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      // Monaco's editor core is intentionally a separately loaded feature
+      // chunk. It is not part of the initial application payload.
+      chunkSizeWarningLimit: 4_100,
+      rollupOptions: {
+        output: {
+          // Monaco remains behind AgenticIde's React.lazy boundary. Giving its
+          // runtime a stable chunk prevents routine UI edits from invalidating
+          // the large, locally bundled editor payload.
+          manualChunks: {
+            "monaco-editor": ["monaco-editor"],
+          },
+        },
+      },
+    },
   };
 });

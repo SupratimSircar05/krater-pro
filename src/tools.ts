@@ -11,6 +11,45 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "record_action_gate",
+      description:
+        "Record the evidence-backed Action/Abstention Gate after bounded discovery and before any publishable file edit. Evidence references must be successful tool-call IDs from this task. A no-change decision is a valid outcome.",
+      parameters: {
+        type: "object",
+        properties: {
+          outcome: {
+            type: "string",
+            enum: [
+              "change_required",
+              "partial_fix_requires_change",
+              "configuration_documentation_or_user_action",
+              "already_satisfied_no_change",
+              "cannot_establish_safely",
+            ],
+          },
+          reasons: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 8,
+          },
+          evidenceRefs: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 16,
+            description:
+              "Successful discovery/reproduction tool-call IDs that support this classification.",
+          },
+        },
+        required: ["outcome", "reasons", "evidenceRefs"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "workspace_map",
       description:
         "Return a compact, high-signal map of the repository: project manifests, dominant file types, and top-level structure. Prefer this as the first repository inspection.",
@@ -182,6 +221,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 export const MUTATING_TOOLS = new Set(["write_file", "replace_in_file", "run_command"]);
+export const PUBLISHABLE_EDIT_TOOLS = new Set(["write_file", "replace_in_file"]);
 
 function stringArg(args: JsonObject, name: string, required = true): string {
   const value = args[name];

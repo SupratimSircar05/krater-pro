@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "./agent.js";
 import { ProviderCompletionError } from "./types.js";
+import { Workspace } from "./workspace.js";
 import type {
   AgentEvent,
   AssistantTurn,
@@ -329,6 +330,42 @@ describe("AgentSession tool loop", () => {
     );
   });
 
+  it("does not auto-approve evidence-mode commands without native containment", async () => {
+    const cwd = await temporaryDirectory();
+    const containment = vi
+      .spyOn(Workspace.prototype, "hasVerifiedCommandContainment")
+      .mockReturnValue(false);
+    const provider = new FakeProvider([
+      toolTurn("uncontained", "run_command", {
+        command: 'node -e "require(\\"node:fs\\").writeFileSync(\\"escaped.txt\\", \\"unsafe\\")"',
+      }),
+      finalTurn(),
+    ]);
+    const requestApproval = vi.fn(async () => false);
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      autoApprove: true,
+      requestApproval,
+    });
+
+    await agent.run("Run an uncontained command");
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: expect.stringContaining(
+          "Secure native command containment is unavailable",
+        ),
+      }),
+    );
+    await expect(stat(join(cwd, "escaped.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    containment.mockRestore();
+  });
+
   it("stops a repeated tool loop at maxSteps and remains reusable afterwards", async () => {
     const cwd = await temporaryDirectory();
     const provider = new FakeProvider([
@@ -589,5 +626,90 @@ describe("AgentSession tool loop", () => {
       /ran out of scripted turns/,
     );
     expect(agent.history).toEqual(completeHistory);
+  });
+
+  it("enforces an evidence-backed Action Gate before publishable edits", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, "note.txt"), "before\n");
+    const provider = new FakeProvider([
+      toolTurn("read-1", "read_file", { path: "note.txt" }),
+      toolTurn("gate-1", "record_action_gate", {
+        outcome: "change_required",
+        reasons: ["The requested content is absent."],
+        evidenceRefs: ["read-1"],
+      }),
+      toolTurn("write-1", "write_file", {
+        path: "note.txt",
+        content: "after\n",
+      }),
+      finalTurn(),
+    ]);
+    const events: AgentEvent[] = [];
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      autoApprove: true,
+      onEvent: (event) => events.push(event),
+    });
+
+    await agent.run("Change the note");
+
+    expect(await readFile(join(cwd, "note.txt"), "utf8")).toBe("after\n");
+    expect(provider.calls[0][0].content).toContain(
+      "copy its exact JSON-quoted evidenceRef value",
+    );
+    expect(provider.calls[1].at(-1)).toEqual({
+      role: "tool",
+      tool_call_id: "read-1",
+      content: expect.stringMatching(
+        /^\[Krater host evidence metadata\]\nevidenceRef: "read-1"\nstatus: succeeded\n\[\/Krater host evidence metadata\]/,
+      ),
+    });
+    expect(events).toContainEqual({
+      type: "action_gate",
+      outcome: "change_required",
+      shouldStageCode: true,
+      reasons: ["The requested content is absent."],
+      evidenceRefs: ["read-1"],
+    });
+  });
+
+  it("rejects edits before the gate and rejects invented evidence references", async () => {
+    const cwd = await temporaryDirectory();
+    const provider = new FakeProvider([
+      toolTurn("early-write", "write_file", {
+        path: "unsafe.txt",
+        content: "must not exist",
+      }),
+      toolTurn("bad-gate", "record_action_gate", {
+        outcome: "change_required",
+        reasons: ["Assumed without discovery."],
+        evidenceRefs: ["invented-result"],
+      }),
+      finalTurn(),
+    ]);
+    const events: AgentEvent[] = [];
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      autoApprove: true,
+      onEvent: (event) => events.push(event),
+    });
+
+    await agent.run("Write without evidence");
+
+    await expect(stat(join(cwd, "unsafe.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const failures = events.filter(
+      (event): event is Extract<AgentEvent, { type: "tool_result" }> =>
+        event.type === "tool_result" && !event.ok,
+    );
+    expect(failures[0]?.output).toMatch(/Gate not established/);
+    expect(failures[1]?.output).toMatch(/Unknown or failed: invented-result/);
   });
 });

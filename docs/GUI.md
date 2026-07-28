@@ -1,8 +1,8 @@
 # GUI guide
 
 Krater Pro’s GUI is a local React/Vite client backed by the same agent engine as
-the CLI. It opens as an integrated agentic IDE and also provides a full-width
-Chat view.
+the CLI. It opens as an integrated agentic IDE and also provides full-width
+Chat and Evidence views.
 
 ## Start
 
@@ -25,27 +25,52 @@ npm run dev:web
    or enter a request directly in the agent composer.
 4. Watch streamed text, routing evidence, and tool cards beside the editor.
 5. Expand a tool card to inspect exact arguments and output.
-6. Allow or deny model-proposed edits/commands.
-7. Inspect the refreshed file tree, clean tabs, Git status/diff, and token
-   metrics after the turn.
+6. Allow or deny model-proposed edits/commands. In an evidence-enabled web
+   session these actions affect an isolated staging copy, not the selected
+   project.
+7. Open **Evidence**, inspect the patch evidence and gaps, then explicitly
+   publish or discard the reviewed ProofPatch.
+8. Inspect the project, Git status/diff, passport, and token metrics after
+   publication.
 
-For an automatic conversation, the first assistant card includes the selected
-model, cost tier, confidence, task complexity, risk, catalog source, and concise
+For an automatic task, the first assistant card includes the selected model,
+cost tier, confidence, task complexity, risk, catalog source, and concise
 routing reasons. The resolved model stays fixed for that task.
 
 The responsive sidebar becomes a drawer on narrow screens. Keyboard focus
 returns to the composer after settings close, and reduced-motion preferences
 disable nonessential animation.
 
-## IDE and Chat views
+## IDE, Chat, and Evidence views
 
-The IDE/Chat switch changes layout, not agent identity. Both views retain the
-same in-memory conversation and selected model:
+The workspace-view switch changes layout. IDE and Chat retain the same visible
+transcript and model preference:
 
 - **IDE** combines Explorer, a conflict-aware tabbed text editor, bounded
-  workspace terminal, read-only source-control view, and the complete agent
-  conversation.
-- **Chat** gives the same conversation the full content width.
+  workspace terminal, read-only source-control view, and the complete visible
+  task transcript.
+- **Chat** gives that transcript the full content width.
+- **Evidence** lists durable project tasks and renders outcome contracts,
+  intent, claims, evidence grades, gaps, passport digests, and export controls.
+
+In evidence-enabled web sessions, each submitted prompt creates an independent
+durable task and a fresh bounded model/tool loop. Prior cards remain visible in
+the client, but they are not silently replayed as model context. Automatic
+routing therefore runs per task; an exact model preference remains a hard
+override.
+
+An agent task that produces a patch remains `review` until publication. The
+Evidence view offers:
+
+- **Publish patch** for a reviewed transaction;
+- an explicit “accept all documented gaps” checkbox when non-publication gaps
+  remain;
+- **Discard patch** for a staged transaction; and
+- **Roll back** for a published transaction, with concurrent-edit protection.
+
+The Evidence view refreshes ProofGraph data after these actions and signals the
+IDE to reload its tree, Git state, and clean tabs. Dirty tabs remain protected
+by the editor's existing conflict flow.
 
 **Ask Krater** adds the current file path and either the selected code or a
 bounded current-file excerpt to the composer for review. It does not submit the
@@ -109,8 +134,17 @@ session; inference still requires an API key issued by Krater.
 | `POST /api/ide/terminal` | Run one bounded, project-bound user command |
 | `GET /api/auth/capabilities` | Supported browser-auth handoff and OAuth status |
 | `GET /api/models` | Authenticated model list, cached for five minutes |
-| `POST /api/sessions` | Create an in-memory conversation |
-| `DELETE /api/sessions/:id` | Dispose a conversation and pending approvals |
+| `GET /api/v2/tasks` | List durable ProofGraph tasks for the current project |
+| `GET /api/v2/tasks/:taskId` | Read contract, intent, actions, evidence, claims, gaps, and digests |
+| `GET /api/v2/tasks/:taskId/events` | Replay stored task events after an SSE event ID, then close |
+| `GET /api/v2/tasks/:taskId/passport` | Return verified JSON or download Markdown with `?format=` |
+| `POST /api/v2/tasks/:taskId/resume` | Inspect resumable evidence state without recreating a transcript |
+| `POST /api/v2/tasks/:taskId/publish` | Publish reviewed ProofPatch; `{ "acceptGaps": true }` explicitly accepts gaps |
+| `POST /api/v2/tasks/:taskId/rollback` | Discard or restore an attached ProofPatch |
+| `POST /api/v2/policy/simulate` | Simulate one labeled context flow |
+| `GET /api/v2/cache/stats` | Read persistent verified-cache statistics |
+| `POST /api/sessions` | Create an in-memory browser transport session |
+| `DELETE /api/sessions/:id` | Dispose a browser session and pending approvals |
 | `POST /api/sessions/:id/messages` | Stream one turn as server-sent events |
 | `POST /api/sessions/:id/approvals/:approvalId` | Resolve one pending action |
 
@@ -122,11 +156,12 @@ workspace.
 
 ## Stream events
 
-The server emits `route`, `text`, `tool`, `approval`, `tool_result`, `usage`,
-`done`, and `error`. `route` is emitted once before the first automatic model
-turn and contains the auditable selection summary. A tool result can include
-`cached: true`. Usage includes per-request tokens plus cumulative session totals
-and provider-reported cached tokens.
+The server emits `route`, `task`, `action_gate`, `text`, `tool`, `approval`,
+`tool_result`, `usage`, `verdict`, `done`, and `error`. `route` is
+emitted before an automatic model turn and contains the auditable selection
+summary. `task`, `action_gate`, and `verdict` describe the evidence-native
+lifecycle. A tool result can include `cached: true`. Usage includes per-request
+tokens plus cumulative session totals and provider-reported cached tokens.
 
 If the client disconnects while an approval is pending, the abort signal denies
 and removes that approval instead of leaving the agent suspended.
