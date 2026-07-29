@@ -1,7 +1,7 @@
 # Desktop applications
 
 Krater Pro 0.1.0 ships the same local agentic IDE as native, self-contained
-applications for macOS, Windows, and Linux. The desktop shell starts the
+applications for macOS and Linux. The desktop shell starts the
 production Krater Pro server on `127.0.0.1`, chooses an available port, and
 closes that server when the app exits. On each start, the main process opens a
 one-time local bootstrap URL. The renderer removes its fragment, exchanges that
@@ -19,7 +19,6 @@ GitHub Release assets are built natively on GitHub-hosted runners:
 | --- | --- |
 | macOS Apple silicon | `Krater-Pro-0.1.0-arm64.dmg` and `.zip` |
 | macOS Intel | `Krater-Pro-0.1.0-x64.dmg` and `.zip` |
-| Windows x64 | NSIS setup and portable `.exe` |
 | Linux x64 | `.AppImage` and Debian `.deb` |
 
 Every stable release also includes SPDX dependency SBOMs, a source-bound release
@@ -38,12 +37,6 @@ gh attestation verify Krater-Pro-0.1.0-arm64.dmg \
   --repo SupratimSircar05/krater-pro
 ```
 
-On Windows PowerShell, compare the value for the downloaded file:
-
-```powershell
-Get-FileHash .\Krater-Pro-Setup-0.1.0-x64.exe -Algorithm SHA256
-```
-
 ## Install
 
 ### macOS
@@ -55,13 +48,6 @@ The 0.1.0 community build is unsigned and not notarized. macOS may block the
 first launch. If the checksum matches this repository's GitHub Release, use
 Finder's **Open** action or the app entry under **System Settings → Privacy &
 Security** to approve it. Do not disable Gatekeeper globally.
-
-### Windows
-
-Use the NSIS setup for a normal per-user installation, or the portable
-executable without installing. The 0.1.0 community build is unsigned, so
-Microsoft Defender SmartScreen may show an unknown-publisher warning. Proceed
-only after verifying the release checksum and repository source.
 
 ### Linux
 
@@ -117,8 +103,7 @@ open -a "Krater Pro" --args \
 krater-pro --krater-workspace /absolute/path/to/project --krater-port 4317
 ```
 
-Windows accepts the same two options on `KraterPro.exe`. The corresponding
-environment variables are `KRATER_DESKTOP_WORKSPACE` and
+The corresponding environment variables are `KRATER_DESKTOP_WORKSPACE` and
 `KRATER_DESKTOP_PORT`. The host is always fixed to `127.0.0.1`; a desktop
 option cannot expose it to the network. Without a selected port, the launcher
 chooses an available ephemeral port and retries a bind race safely.
@@ -133,18 +118,15 @@ For attended terminal or explicitly approved commands, destructive-data and
 protected-secret checks are regex guardrails for common spellings only. They do
 not parse every shell form and can be bypassed by alternate tools, aliases,
 interpreters, encodings, or constructed commands. Timeout, cancellation, and
-shutdown request best-effort termination of the initial POSIX process group or
-the Windows process tree through `taskkill /T /F`. A descendant that calls
-`setsid`, detaches, re-parents, or delegates work elsewhere can escape and
-survive.
+shutdown request best-effort termination of the initial POSIX process group. A
+descendant that calls `setsid`, detaches, re-parents, or delegates work
+elsewhere can escape and survive.
 
 Strict unattended model commands run only when a native adapter verifies every
 requested sandbox and resource control; otherwise they fail closed and never
 fall back to the attended runner. The verified adapter is currently
-macOS-only. The Windows restricted-token/Job Object native supervisor is not
-yet complete, and no verified Linux supervisor ships in this release, so
-unattended execution fails closed on Windows and Linux. Windows attended
-commands use `taskkill`; they are not supervised by a Job Object.
+macOS-only. No verified Linux supervisor ships in this release, so unattended
+execution fails closed on Linux.
 
 ## Build locally
 
@@ -161,7 +143,6 @@ Build installers for the current platform:
 
 ```sh
 npm run desktop:dist:mac -- --arm64
-npm run desktop:dist:win -- --x64
 npm run desktop:dist:linux -- --x64
 ```
 
@@ -173,9 +154,9 @@ Outputs go to `release/`.
 
 [`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-release.yml)
 runs the full source gate, creates the CLI archive twice and compares its bytes,
-builds on native macOS ARM64, macOS Intel, Windows x64, and Linux x64 runners,
-launches the renderer from the distributed macOS ZIP, Windows portable
-executable, and Linux AppImage, verifies a fresh-window bootstrap, produces
+builds on native macOS ARM64, macOS Intel, and Linux x64 runners, launches the
+renderer from the distributed macOS ZIP and Linux AppImage, verifies a
+fresh-window bootstrap, produces
 normalized SPDX dependency SBOMs, attests artifacts, signs the release receipt,
 publishes a matching GitHub Release, and opens a Homebrew tap update PR.
 
@@ -198,16 +179,14 @@ and these secrets:
 | --- | --- |
 | macOS Developer ID | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD` |
 | Apple notarization | `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` |
-| Windows Authenticode | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` |
 | Detached receipt signature | `RELEASE_GPG_PRIVATE_KEY_BASE64`, `RELEASE_GPG_KEY_ID`, `RELEASE_GPG_PASSPHRASE` |
 | Homebrew tap PR | `HOMEBREW_TAP_TOKEN` |
 
 Stable packaging refuses to fall back to ad-hoc signing. It verifies macOS
-codesign, Gatekeeper assessment, and notarization staples; verifies every
-Windows executable's Authenticode status; and verifies detached signatures
-immediately after creating them. The Apple key and imported signing material
-exist only on the protected runner and are removed after use. Krater API keys
-are neither required nor available in release jobs.
+codesign, Gatekeeper assessment, and notarization staples, and verifies detached
+signatures immediately after creating them. The Apple key and imported signing
+material exist only on the protected runner and are removed after use. Krater
+API keys are neither required nor available in release jobs.
 
 An unsigned local or manually dispatched macOS candidate remains ad-hoc signed
 after Electron fuses are applied so Apple silicon validates executable pages.

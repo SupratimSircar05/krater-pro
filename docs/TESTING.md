@@ -62,9 +62,9 @@ result in a temporary directory, run `npm ci --omit=dev --ignore-scripts`, and
 exercise `node dist/cli.js --version` before a release.
 
 Workflow and Ruby syntax validation are necessary but not sufficient. Stable
-acceptance requires the protected GitHub workflow to run on all four native
-runner targets with real publisher credentials. Never infer Windows, Linux, or
-Intel macOS launch success from a local Apple-silicon build.
+acceptance requires the protected GitHub workflow to run on all three supported
+native runner targets with the required publisher credentials. Never infer
+Linux or Intel macOS launch success from a local Apple-silicon build.
 
 ## Built CLI acceptance
 
@@ -186,11 +186,10 @@ coverage for the exact common spellings in their fixtures, not a complete shell
 policy.
 
 Attended cancellation acceptance should confirm best-effort signaling of the
-initial POSIX process group and best-effort Windows `taskkill /T /F` behavior.
-It must also record the gap: a `setsid`/detached/re-parented descendant can
-escape, and Windows has no Job Object lifetime enforcement in this release.
-Tests that terminate an ordinary child tree must not be generalized into a
-guarantee that no descendant survives.
+initial POSIX process group. It must also record the gap: a
+`setsid`/detached/re-parented descendant can escape. Tests that terminate an
+ordinary child tree must not be generalized into a guarantee that no
+descendant survives.
 
 Separate unattended acceptance must prove the native probe, protected-path
 deny overrides, network/fork denial, hard non-raiseable CPU/address-space
@@ -199,9 +198,8 @@ an adapter or required capability is unavailable. Strict unattended execution
 must never fall back to the attended runner. On a platform without the verified
 facility, the record must state that only the process, environment, command,
 timeout, parent-check, and workspace controls were exercised; it must not call
-the terminal OS-sandboxed. The Windows restricted-token/Job Object native
-supervisor is not yet complete, so Windows unattended acceptance is a
-fail-closed test, not an execution-success test.
+the terminal OS-sandboxed. Linux unattended acceptance is a fail-closed test,
+not an execution-success test.
 
 ## Benchmark policy
 

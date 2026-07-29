@@ -39,10 +39,6 @@ The recommended persistence backend is selected by the host:
 - Linux: Secret Service through `secret-tool`; the value is supplied on
   standard input. Setup fails closed if the binary or session service is
   unavailable.
-- Windows: a CurrentUser DPAPI-encrypted binary value in the current user's
-  fixed Krater Pro registry key. PowerShell reads the plaintext from standard
-  input; neither the plaintext nor a workspace pathname is part of the script
-  arguments.
 
 The account name is a one-way digest of the normalized selected workspace path.
 Credential lookup derives that account and host backend directly; it does not
@@ -52,20 +48,6 @@ files through workspace pathnames. If secure storage is unavailable or
 declined, setup explains that `.env` is plaintext and asks separately before
 writing an owner-only file. `--env-fallback` is the explicit non-default choice
 for that fallback.
-
-### Upgrade note for legacy Windows blobs
-
-macOS Keychain and Linux Secret Service entries remain compatible for the same
-normalized workspace path because they already use the deterministic account
-identity. Older Windows versions stored a CurrentUser DPAPI blob in
-`.krater/credentials/api-key.dpapi`. Krater Pro intentionally does not
-auto-import that file: opening it by workspace pathname would reintroduce the
-ancestor swap race this design removes. Run `krater setup` again to store the
-credential in the fixed current-user registry key.
-
-Legacy marker and DPAPI files remain untouched. After the new setup succeeds
-and the credential is verified, review and remove those legacy files manually
-if desired.
 
 To rotate a credential, run `krater setup --replace`. The existing value stays
 active until the replacement passes model discovery and the selected backend

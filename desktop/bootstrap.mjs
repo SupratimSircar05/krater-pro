@@ -1,6 +1,11 @@
 const COMMAND_GATE_FLAG = "--krater-internal-command-gate";
 
-if (process.argv.includes(COMMAND_GATE_FLAG)) {
+if (process.platform === "win32") {
+  process.stderr.write(
+    "Krater Pro desktop supports macOS and Linux only; Windows support has been removed.\n",
+  );
+  process.exit(1);
+} else if (process.argv.includes(COMMAND_GATE_FLAG)) {
   const { assertTrustedCommandGateParent } = await import(
     "./command-gate-parent.mjs"
   );

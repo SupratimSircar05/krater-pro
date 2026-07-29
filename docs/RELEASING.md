@@ -24,19 +24,17 @@ is a reviewed supply-chain change, not an automatic floating upgrade.
 
 Create a `production-release` environment with required reviewers. Store:
 
-| Name | Purpose |
-| --- | --- |
-| `MAC_CSC_LINK` | Base64 Developer ID Application certificate archive |
-| `MAC_CSC_KEY_PASSWORD` | Certificate archive password |
-| `APPLE_API_KEY_P8_BASE64` | Base64 App Store Connect API private key |
-| `APPLE_API_KEY_ID` | App Store Connect key ID |
-| `APPLE_API_ISSUER` | App Store Connect issuer ID |
-| `WIN_CSC_LINK` | Base64 Windows Authenticode certificate archive |
-| `WIN_CSC_KEY_PASSWORD` | Windows certificate password |
-| `RELEASE_GPG_PRIVATE_KEY_BASE64` | Base64 detached-signing private key |
-| `RELEASE_GPG_KEY_ID` | Exact signing-key fingerprint or long key ID |
-| `RELEASE_GPG_PASSPHRASE` | Detached-signing key passphrase |
-| `HOMEBREW_TAP_TOKEN` | Repository-scoped tap-maintenance token |
+| Name                             | Purpose                                             |
+| -------------------------------- | --------------------------------------------------- |
+| `MAC_CSC_LINK`                   | Base64 Developer ID Application certificate archive |
+| `MAC_CSC_KEY_PASSWORD`           | Certificate archive password                        |
+| `APPLE_API_KEY_P8_BASE64`        | Base64 App Store Connect API private key            |
+| `APPLE_API_KEY_ID`               | App Store Connect key ID                            |
+| `APPLE_API_ISSUER`               | App Store Connect issuer ID                         |
+| `RELEASE_GPG_PRIVATE_KEY_BASE64` | Base64 detached-signing private key                 |
+| `RELEASE_GPG_KEY_ID`             | Exact signing-key fingerprint or long key ID        |
+| `RELEASE_GPG_PASSPHRASE`         | Detached-signing key passphrase                     |
+| `HOMEBREW_TAP_TOKEN`             | Repository-scoped tap-maintenance token             |
 
 The Homebrew token should be restricted to
 `SupratimSircar05/homebrew-tap` contents and pull requests. Do not reuse a
@@ -52,14 +50,14 @@ Run **Verified native release** with `workflow_dispatch`. This path:
 
 1. runs source, test, benchmark-fixture, type, build, desktop, and cloud gates;
 2. creates the CLI archive twice and requires byte equality;
-3. builds on macOS ARM64, macOS Intel, Windows x64, and Linux x64;
+3. builds on macOS ARM64, macOS Intel, and Linux x64;
 4. launches each unpacked packaged application and waits for a mounted renderer;
 5. emits normalized SPDX dependency SBOMs;
 6. creates checksums and a source-bound release manifest; and
 7. uploads Actions artifacts without a GitHub Release or tap mutation.
 
-Candidate macOS apps are ad-hoc signed for bundle integrity. Candidate Windows
-and Linux packages are unsigned. They are test artifacts, not public releases.
+Candidate macOS apps are ad-hoc signed for bundle integrity. Candidate Linux
+packages are unsigned. They are test artifacts, not public releases.
 
 ## Stable tag
 
@@ -124,8 +122,6 @@ Platform checks:
 - macOS ARM64 and Intel: `codesign --verify --deep --strict`, Gatekeeper
   assessment, notarization staple, and an authenticated launch from the
   extracted release ZIP.
-- Windows x64: Authenticode `Valid` for the installer, portable wrapper, and
-  shipped inner executable, plus an authenticated portable launch.
 - Linux x64: checksum/attestation/signature verification, DEB metadata, and an
   authenticated AppImage launch under the supported Chromium sandbox.
 
@@ -162,11 +158,11 @@ and updates the formula bottle block only after `bottle-publication` approval.
 
 Automation cannot supply:
 
-- Apple and Windows publisher identities or notarization authority;
+- Apple publisher identity and notarization authority;
 - the detached-signing identity and its independently published public key;
-- Windows and Linux hardware/user acceptance beyond hosted-runner smoke;
+- Linux hardware/user acceptance beyond hosted-runner smoke;
 - Homebrew tap repository/environment/token setup;
-- accessibility review with VoiceOver, NVDA, and Orca users;
+- accessibility review with VoiceOver and Orca users;
 - official external benchmark scores and required large Docker capacity; or
 - final human review of release notes, legal claims, and launch readiness.
 

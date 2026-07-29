@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "vitest";
-import {
-  createChecksums,
-  isReleaseArtifact,
-} from "../scripts/checksums.mjs";
+import { createChecksums, isReleaseArtifact } from "../scripts/checksums.mjs";
 import { expectedTag } from "../scripts/verify-release-tag.mjs";
 
 const repositoryRoot = resolve(
@@ -26,8 +24,6 @@ test("desktop release config covers every requested native format", async () => 
     "version}-${arch}",
     "dmg",
     "zip",
-    "nsis",
-    "portable",
     "AppImage",
     "deb",
     "asar: true",
@@ -43,6 +39,9 @@ test("desktop release config covers every requested native format", async () => 
     "syncDesktopName: true",
   ]) {
     assert.ok(config.includes(required), `missing desktop config: ${required}`);
+  }
+  for (const removed of ["\nwin:", "\nnsis:", "\nportable:", "icon.ico"]) {
+    assert.ok(!config.includes(removed), `obsolete Windows target: ${removed}`);
   }
 
   const buildScript = await readFile(
@@ -63,9 +62,34 @@ test("desktop release config covers every requested native format", async () => 
       `candidate builds must discard ${notaryVariable}`,
     );
   }
-  assert.match(buildScript, /builderArguments\.push\("--config\.mac\.identity=-"\)/);
+  assert.match(
+    buildScript,
+    /builderArguments\.push\("--config\.mac\.identity=-"\)/,
+  );
   assert.match(buildScript, /KRATER_RELEASE_MODE === "stable"/);
   assert.match(buildScript, /"--config\.mac\.notarize=true"/);
+  assert.match(buildScript, /Windows packaging has been removed/);
+  for (const alias of [
+    "-w",
+    "-wm",
+    "--win",
+    "--win=portable",
+    "--windows=nsis",
+  ]) {
+    const result = spawnSync(
+      process.execPath,
+      [join(repositoryRoot, "desktop", "scripts", "build.mjs"), alias],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0, `${alias} must fail closed`);
+    assert.match(result.stderr, /Windows packaging has been removed/);
+  }
+
+  const packageManifest = JSON.parse(
+    await readFile(join(repositoryRoot, "package.json"), "utf8"),
+  );
+  assert.deepEqual(packageManifest.os, ["darwin", "linux"]);
+  assert.equal(packageManifest.scripts["desktop:dist:win"], undefined);
 
   const afterPack = await readFile(
     join(repositoryRoot, "desktop", "scripts", "after-pack.mjs"),
@@ -78,10 +102,13 @@ test("desktop release config covers every requested native format", async () => 
     "utf8",
   );
   assert.match(bootstrap, /assertTrustedCommandGateParent/);
-  assert.match(
-    bootstrap,
-    /command gate refused an untrusted parent process/,
-  );
+  assert.match(bootstrap, /command gate refused an untrusted parent process/);
+  assert.match(bootstrap, /process\.platform === "win32"/);
+  assert.match(bootstrap, /Windows support has been removed/);
+
+  const cli = await readFile(join(repositoryRoot, "src", "cli.ts"), "utf8");
+  assert.match(cli, /process\.platform === "win32"/);
+  assert.match(cli, /Windows support has been removed/);
 
   for (const entitlementFile of [
     "entitlements.mac.plist",
@@ -112,7 +139,10 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
     main,
     /if \(quitting \|\| details\.reason === "clean-exit"\) return/,
   );
-  assert.match(main, /app\.on\("before-quit", \(event\) => \{\s+quitting = true/);
+  assert.match(
+    main,
+    /app\.on\("before-quit", \(event\) => \{\s+quitting = true/,
+  );
   assert.match(
     main,
     /closeLocalServer\(\)\.finally\(\(\) => \{[\s\S]*app\.exit\(0\)/,
@@ -130,14 +160,8 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
     main,
     /shouldQuitWhenAllWindowsClosed\(process\.platform, smokeTestActive\)/,
   );
-  assert.match(
-    main,
-    /if \(!smokeTestActive\) \{\s+dialog\.showErrorBox/,
-  );
-  assert.match(
-    main,
-    /app\.on\("activate", \(\) => \{\s+reopenMainWindow\(\)/,
-  );
+  assert.match(main, /if \(!smokeTestActive\) \{\s+dialog\.showErrorBox/);
+  assert.match(main, /app\.on\("activate", \(\) => \{\s+reopenMainWindow\(\)/);
 });
 
 test("write-capable release automation pins actions and isolates permission", async () => {
@@ -148,10 +172,7 @@ test("write-capable release automation pins actions and isolates permission", as
     )
   ).replaceAll("\r\n", "\n");
   assert.match(workflow, /permissions:\n  contents: read/);
-  assert.match(
-    workflow,
-    /publish:[\s\S]*permissions:\n      contents: write/,
-  );
+  assert.match(workflow, /publish:[\s\S]*permissions:\n      contents: write/);
   assert.match(
     workflow,
     /- name: Select ephemeral Apple key path\n\s+if: github\.event_name == 'push' && matrix\.platform == 'mac'/,
@@ -164,13 +185,14 @@ test("write-capable release automation pins actions and isolates permission", as
   );
   assert.equal(/uses:\s+[^@\s]+@v\d/.test(workflow), false);
   assert.doesNotMatch(workflow, /macos-14/);
-  assert.ok(
-    (workflow.match(/persist-credentials: false/g) ?? []).length >= 5,
+  assert.doesNotMatch(
+    workflow,
+    /windows-2022|desktop:dist:win|WIN_CSC|Authenticode|\.exe|DPAPI|krater-interactive/i,
   );
+  assert.ok((workflow.match(/persist-credentials: false/g) ?? []).length >= 5);
   for (const required of [
     "os: macos-15\n",
     "macos-15-intel",
-    "windows-2022",
     "ubuntu-22.04",
     "node-version: 22.23.1",
     "NPM_VERSION: 11.16.0",
@@ -181,8 +203,7 @@ test("write-capable release automation pins actions and isolates permission", as
     "smoke-built-desktop.mjs",
     "smoke-workspace-command.mjs",
     "src/command-gate.test.ts",
-    '"release" "win-unpacked"',
-    "Test-Path -LiteralPath $innerExecutable -PathType Leaf",
+    "src/credential-store.launch.test.ts",
     "validate-release-environment.mjs",
     "create-release-manifest.mjs",
     "sign-release-artifacts.mjs",
@@ -199,33 +220,41 @@ test("write-capable release automation pins actions and isolates permission", as
   );
 });
 
-test("pull-request CI exercises macOS and Windows command boundaries", async () => {
+test("pull-request CI exercises macOS and Linux command boundaries", async () => {
   const workflow = await readFile(
     join(repositoryRoot, ".github", "workflows", "ci.yml"),
     "utf8",
   );
   assert.doesNotMatch(workflow, /macos-14/);
+  assert.doesNotMatch(
+    workflow,
+    /windows-2022|credential-store\.windows|windows-system-executable/i,
+  );
   for (const required of [
     "native-boundary:",
     "os: macos-15\n",
-    "windows-2022",
+    "ubuntu-22.04",
+    "platform: linux",
+    "xvfb-run -a npm run desktop:start -- --krater-smoke-test",
     "NODE_OPTIONS: --max-old-space-size=6144",
     'npm install --global "npm@${{ env.NPM_VERSION }}"',
     "npm run build",
     "src/command-gate.test.ts",
+    "src/credential-store.launch.test.ts",
     "src/workspace.command-security.test.ts",
     "desktop/tests/command-gate-parent.test.mjs",
     "smoke-workspace-command.mjs",
     "npm run desktop:start -- --krater-smoke-test",
     "KRATER_DESKTOP_WORKSPACE",
   ]) {
-    assert.ok(workflow.includes(required), `missing PR boundary gate: ${required}`);
+    assert.ok(
+      workflow.includes(required),
+      `missing PR boundary gate: ${required}`,
+    );
   }
   assert.ok(
     workflow.indexOf("npm run build") <
-      workflow.indexOf(
-        "npm test -- --testTimeout=120000 --hookTimeout=30000",
-      ),
+      workflow.indexOf("npm test -- --testTimeout=120000 --hookTimeout=30000"),
     "the production shell must be built before server tests execute",
   );
 });
@@ -247,6 +276,6 @@ test("checksums cover distributables and ignore build metadata", async () => {
     "Krater-Pro-0.1.0-x64.AppImage",
   ]);
   assert.equal(result.output.trim().split("\n").length, 2);
-  assert.equal(isReleaseArtifact("Krater-Pro.exe"), true);
+  assert.equal(isReleaseArtifact("Krater-Pro.exe"), false);
   assert.equal(isReleaseArtifact("latest.yml"), false);
 });

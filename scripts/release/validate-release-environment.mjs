@@ -12,7 +12,6 @@ export const stableRequirements = {
     "APPLE_API_KEY_ID",
     "APPLE_API_ISSUER",
   ],
-  win: ["CSC_LINK", "CSC_KEY_PASSWORD"],
   assemble: [
     "KRATER_RELEASE_GPG_KEY_ID",
     "KRATER_RELEASE_GPG_PASSPHRASE",

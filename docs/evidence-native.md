@@ -486,7 +486,7 @@ excluding workspace digest before and after the run, and bounds output and
 wall time. The process receives only declared non-sensitive environment
 values, read-only workspace access, and no network. Unattended execution
 requires a verified native adapter; the current production adapter is macOS
-Seatbelt plus host-owned process limits, while Windows and Linux fail closed.
+Seatbelt plus host-owned process limits, while Linux fails closed.
 This is caller-supplied invocation replay with controlled alternate inputs—not
 runtime instrumentation, value injection, branch override, or function
 stubbing. A causal label remains limited to a deterministic, predicted outcome
@@ -615,8 +615,8 @@ not evidence of a completed product feature:
   Seatbelt file/network/fork denial and hard CPU/address-space limits.
   Unattended runtime commands bind the staged root, protected-path denies,
   deny-all networking, one process, output, and wall time. Exact network
-  allowlists and subprocess trees are unsupported. Linux and Windows expose
-  unavailable contracts and fail closed for unattended execution; explicitly
+  allowlists and subprocess trees are unsupported. Linux exposes an unavailable
+  contract and fails closed for unattended execution; explicitly
   approved attended commands remain a separately labeled compatibility path.
 - `src/intelligence/jury.ts`: trigger, independence, cost, evidence-floor, and
   dissent decisions. It does not spawn agents or sealed verifier workspaces.
@@ -648,13 +648,14 @@ foundation:
 - Policy labels are not propagated through every prompt/tool/cache/export flow.
 - External pushes, deployments, migrations, and API mutations do not have a
   complete structured side-effect escrow.
-- Cross-platform native filesystem/network/process containment is not shipped.
+- Supported-platform native filesystem/network/process containment is not
+  shipped.
 - Verified Work Cache is not populated or consumed by normal agent execution.
 - Jury and Mastery Mode are not exposed through product workflows. Merge
   forecasting is limited to a non-persisted caller-supplied descriptor API; it
   does not inspect or combine real branches. Causal Twin has recorded replay
   plus a narrow direct-process macOS live slice; it has no runtime
-  instrumentation, arbitrary value injection, Linux/Windows live adapter, or
+  instrumentation, arbitrary value injection, Linux live adapter, or
   dedicated UI. Reliability Lab remains a caller-recorded artifact adapter
   without scheduling or configuration promotion.
 - Passports are digest-verified but not SSH/GPG-signed.

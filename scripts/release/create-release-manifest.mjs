@@ -1,26 +1,15 @@
 #!/usr/bin/env node
 
-import {
-  mkdir,
-  readdir,
-  readFile,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import {
-  assertSemver,
-  digestFile,
-  stableJson,
-} from "./release-utils.mjs";
+import { assertSemver, digestFile, stableJson } from "./release-utils.mjs";
 
 const artifactSuffixes = [
   ".AppImage",
   ".deb",
   ".dmg",
-  ".exe",
   ".spdx.json",
   ".tgz",
   ".zip",
@@ -32,6 +21,7 @@ export function isManifestArtifact(name) {
     !name.endsWith(".asc")
   );
 }
+
 function parseArguments(args) {
   const parsed = { directory: "release-assets" };
   for (let index = 0; index < args.length; index += 1) {
@@ -40,6 +30,7 @@ function parseArguments(args) {
       ![
         "--directory",
         "--version",
+        "--mode",
         "--repository",
         "--commit",
         "--ref",
@@ -53,9 +44,9 @@ function parseArguments(args) {
       throw new Error(`${option} requires a value.`);
     }
     index += 1;
-    parsed[option.slice(2).replace(/-([a-z])/g, (_, letter) =>
-      letter.toUpperCase(),
-    )] = value;
+    parsed[
+      option.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())
+    ] = value;
   }
   return parsed;
 }
@@ -63,21 +54,30 @@ function parseArguments(args) {
 export async function createReleaseManifest({
   directory,
   version,
+  mode,
   repository,
   commit,
   ref,
   runUrl,
 }) {
   assertSemver(version);
+  if (!["candidate", "stable"].includes(mode)) {
+    throw new Error('Release mode must be "candidate" or "stable".');
+  }
+  if (mode === "stable" && ref !== `refs/tags/v${version}`) {
+    throw new Error("Stable release provenance must use the exact version tag.");
+  }
   if (!/^[a-f0-9]{40}$/i.test(commit ?? "")) {
     throw new Error("Release provenance requires a full 40-character commit.");
   }
   if (!/^https:\/\/github\.com\/[^/]+\/[^/]+$/u.test(repository ?? "")) {
     throw new Error("Release repository must be a credential-free GitHub URL.");
   }
-  if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+$/u.test(
-    runUrl ?? "",
-  )) {
+  if (
+    !/^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+$/u.test(
+      runUrl ?? "",
+    )
+  ) {
     throw new Error("Release run URL must identify a GitHub Actions run.");
   }
   const absoluteDirectory = resolve(directory);
@@ -90,7 +90,6 @@ export async function createReleaseManifest({
   if (names.length === 0) {
     throw new Error("No release artifacts were found.");
   }
-
   const artifacts = [];
   for (const name of names) {
     const path = join(absoluteDirectory, name);
@@ -105,12 +104,12 @@ export async function createReleaseManifest({
     schemaVersion: 1,
     product: "Krater Pro",
     version,
+    releaseMode: mode,
     source: { repository, commit: commit.toLowerCase(), ref },
     builder: {
       id: "https://github.com/actions/runner",
       run: runUrl,
-      workflow:
-        `${repository}/blob/${commit}/.github/workflows/desktop-release.yml`,
+      workflow: `${repository}/blob/${commit}/.github/workflows/desktop-release.yml`,
     },
     artifacts,
     statement:
@@ -129,8 +128,7 @@ export async function createReleaseManifest({
       sha256: await digestFile(manifestPath),
     },
   ].sort((left, right) => left.name.localeCompare(right.name));
-  const checksumText =
-    `${allChecksums.map(({ name, sha256 }) => `${sha256}  ${name}`).join("\n")}\n`;
+  const checksumText = `${allChecksums.map(({ name, sha256 }) => `${sha256}  ${name}`).join("\n")}\n`;
   const checksumPath = join(absoluteDirectory, "SHA256SUMS.txt");
   await writeFile(checksumPath, checksumText, {
     encoding: "utf8",

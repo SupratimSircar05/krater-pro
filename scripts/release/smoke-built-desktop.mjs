@@ -33,7 +33,7 @@ export function smokeCommand(platform, executable) {
       arguments: ["-a", executable, "--krater-smoke-test"],
     };
   }
-  if (platform === "mac" || platform === "win") {
+  if (platform === "mac") {
     return { command: executable, arguments: ["--krater-smoke-test"] };
   }
   throw new Error(`Unsupported desktop smoke platform: ${platform}`);
@@ -56,7 +56,6 @@ export function validSmokeProof(proof, platform) {
   const expectedPlatform = {
     linux: "linux",
     mac: "darwin",
-    win: "win32",
   }[platform];
   return (
     proof?.schemaVersion === 1 &&
@@ -178,14 +177,6 @@ async function findUnpackedExecutable(releaseRoot, platform) {
         ),
     );
   }
-  if (platform === "win") {
-    return findRecursively(
-      releaseRoot,
-      (path, entry) =>
-        entry.isFile() &&
-        /win-unpacked[\\/]KraterPro\.exe$/iu.test(path),
-    );
-  }
   if (platform === "linux") {
     return findRecursively(
       releaseRoot,
@@ -229,15 +220,6 @@ async function extractMacZip(releaseRoot) {
   }
 }
 
-async function findWindowsPortable(releaseRoot) {
-  return findRecursively(
-    releaseRoot,
-    (path, entry) =>
-      entry.isFile() &&
-      /^Krater-Pro-Portable-.+\.exe$/iu.test(basename(path)),
-  );
-}
-
 async function findLinuxAppImage(releaseRoot) {
   return findRecursively(
     releaseRoot,
@@ -264,25 +246,6 @@ export async function resolveSmokeArtifacts({
       boundaryExecutable: extraction.executable,
       launchExecutable: extraction.executable,
       extraction,
-    };
-  }
-  if (platform === "win") {
-    const [boundaryExecutable, launchExecutable] = await Promise.all([
-      findUnpackedExecutable(absoluteRoot, platform),
-      findWindowsPortable(absoluteRoot),
-    ]);
-    if (!boundaryExecutable) {
-      throw new Error("No unpacked Windows executable was found for boundary probes.");
-    }
-    if (!launchExecutable) {
-      throw new Error("No packaged Windows portable executable was found.");
-    }
-    return {
-      absoluteRoot,
-      artifactPath: launchExecutable,
-      boundaryExecutable,
-      launchExecutable,
-      extraction: undefined,
     };
   }
   if (platform === "linux") {
@@ -342,7 +305,7 @@ export async function smokeBuiltDesktop({
       {
         cwd: absoluteRoot,
         encoding: "utf8",
-        timeout: platform === "win" ? 120_000 : 90_000,
+        timeout: 90_000,
         maxBuffer: 5 * 1024 * 1024,
         windowsHide: true,
         env: environment,

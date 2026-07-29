@@ -3,7 +3,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const releaseExtensions = [".AppImage", ".deb", ".dmg", ".exe", ".zip"];
+const releaseExtensions = [".AppImage", ".deb", ".dmg", ".zip"];
 
 export function isReleaseArtifact(name) {
   return releaseExtensions.some((extension) => name.endsWith(extension));

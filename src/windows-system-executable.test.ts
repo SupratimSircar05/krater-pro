@@ -2,25 +2,18 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { windowsSystemExecutable } from "./windows-system-executable.js";
 
-const objectManagerSystem32 =
-  String.raw`\\?\GLOBALROOT\SystemRoot\System32`;
+const objectManagerSystem32 = String.raw`\\?\GLOBALROOT\SystemRoot\System32`;
 
 describe("Windows system executable resolution", () => {
   it.each([
     ["cmd.exe", "cmd.exe"],
-    [
-      "powershell.exe",
-      String.raw`WindowsPowerShell\v1.0\powershell.exe`,
-    ],
     ["taskkill.exe", "taskkill.exe"],
   ] as const)(
     "resolves %s to a spawn-compatible path on a non-C system drive",
     (name, relativeExecutable) => {
       const resolvedSystem32 = String.raw`D:\Windows\System32`;
-      const objectManagerExecutable =
-        `${objectManagerSystem32}\\${relativeExecutable}`;
-      const resolvedExecutable =
-        `${resolvedSystem32}\\${relativeExecutable}`;
+      const objectManagerExecutable = `${objectManagerSystem32}\\${relativeExecutable}`;
+      const resolvedExecutable = `${resolvedSystem32}\\${relativeExecutable}`;
       const realpath = vi.fn((path: string) => {
         if (path === objectManagerSystem32) return resolvedSystem32;
         if (path === objectManagerExecutable) {

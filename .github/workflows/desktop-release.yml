@@ -61,7 +61,6 @@ jobs:
     env:
       HAS_MAC_SIGNING: ${{ secrets.MAC_CSC_LINK != '' && secrets.MAC_CSC_KEY_PASSWORD != '' }}
       HAS_APPLE_NOTARY: ${{ secrets.APPLE_API_KEY_P8_BASE64 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
-      HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
       HAS_DETACHED_SIGNING: ${{ secrets.RELEASE_GPG_PRIVATE_KEY_BASE64 != '' && secrets.RELEASE_GPG_KEY_ID != '' && secrets.RELEASE_GPG_PASSPHRASE != '' }}
       HAS_TAP_MAINTENANCE: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
@@ -71,7 +70,6 @@ jobs:
           for capability in \
             HAS_MAC_SIGNING \
             HAS_APPLE_NOTARY \
-            HAS_WINDOWS_SIGNING \
             HAS_DETACHED_SIGNING \
             HAS_TAP_MAINTENANCE
           do
@@ -165,17 +163,6 @@ jobs:
               release/*.dmg
               release/*.zip
               release/*.spdx.json
-          - label: Windows x64
-            os: windows-2022
-            platform: win
-            script: desktop:dist:win
-            args: --x64
-            artifact: krater-pro-windows-x64
-            sbom: krater-pro-desktop-windows-x64.spdx.json
-            subjects: release/*.exe
-            paths: |
-              release/*.exe
-              release/*.spdx.json
           - label: Linux x64
             os: ubuntu-22.04
             platform: linux
@@ -200,10 +187,10 @@ jobs:
     env:
       KRATER_RELEASE_MODE: ${{ github.event_name == 'push' && 'stable' || 'candidate' }}
       NODE_OPTIONS: --max-old-space-size=6144
-      CSC_LINK: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.MAC_CSC_LINK || github.event_name == 'push' && matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
-      CSC_KEY_PASSWORD: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || github.event_name == 'push' && matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
-      APPLE_API_KEY_ID: ${{ github.event_name == 'push' && secrets.APPLE_API_KEY_ID || '' }}
-      APPLE_API_ISSUER: ${{ github.event_name == 'push' && secrets.APPLE_API_ISSUER || '' }}
+      CSC_LINK: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+      CSC_KEY_PASSWORD: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+      APPLE_API_KEY_ID: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+      APPLE_API_ISSUER: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
         with:
@@ -214,13 +201,12 @@ jobs:
           cache: npm
       - run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - run: npm ci
-      - name: Exercise platform command-gate tests
+      - name: Exercise supported-platform command and credential boundaries
         run: >-
           npm test --
           src/command-gate.test.ts
           src/credential-store.test.ts
-          src/credential-store.windows-launch.test.ts
-          src/windows-system-executable.test.ts
+          src/credential-store.launch.test.ts
           src/workspace.command-security.test.ts
           desktop/tests/command-gate-parent.test.mjs
           --testTimeout=20000
@@ -239,7 +225,7 @@ jobs:
         run: |
           node -e 'require("fs").writeFileSync(process.env.APPLE_API_KEY, Buffer.from(process.env.APPLE_API_KEY_P8_BASE64, "base64"), { mode: 0o600 })'
       - name: Validate platform release environment
-        if: github.event_name == 'push' && matrix.platform != 'linux'
+        if: github.event_name == 'push' && matrix.platform == 'mac'
         run: node scripts/release/validate-release-environment.mjs --platform ${{ matrix.platform }} --stable
       - name: Install Linux launch-smoke display
         if: matrix.platform == 'linux'
@@ -263,27 +249,6 @@ jobs:
           for dmg in release/*.dmg; do
             xcrun stapler validate "$dmg"
           done
-      - name: Verify Windows Authenticode signatures
-        if: github.event_name == 'push' && matrix.platform == 'win'
-        shell: pwsh
-        run: |
-          $releaseExecutables = @(Get-ChildItem release -File -Filter *.exe)
-          if ($releaseExecutables.Count -eq 0) {
-            throw "No Windows release executables were produced."
-          }
-          $innerExecutable = Join-Path (Join-Path "release" "win-unpacked") "KraterPro.exe"
-          if (-not (Test-Path -LiteralPath $innerExecutable -PathType Leaf)) {
-            throw "The shipped inner Windows executable was not produced: $innerExecutable"
-          }
-          $executablesToVerify = @($releaseExecutables) + @(
-            Get-Item -LiteralPath $innerExecutable
-          )
-          $executablesToVerify | ForEach-Object {
-            $signature = Get-AuthenticodeSignature $_.FullName
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for $($_.Name): $($signature.Status)"
-            }
-          }
       - name: Remove ephemeral notarization material
         if: always() && matrix.platform == 'mac'
         shell: bash
@@ -335,6 +300,7 @@ jobs:
           node scripts/release/create-release-manifest.mjs
           --directory release-assets
           --version "${{ needs.validate.outputs.version }}"
+          --mode "${{ github.event_name == 'push' && 'stable' || 'candidate' }}"
       - name: Import detached-signing key without persisting it
         if: github.event_name == 'push'
         shell: bash

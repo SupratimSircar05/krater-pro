@@ -40,9 +40,6 @@ let smokeTestActive = false;
 
 app.setName(APP_NAME);
 app.enableSandbox();
-if (process.platform === "win32") {
-  app.setAppUserModelId("com.supratimsircar.kraterpro");
-}
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {

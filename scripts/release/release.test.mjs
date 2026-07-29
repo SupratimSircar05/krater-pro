@@ -1,10 +1,4 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,19 +6,12 @@ import {
   releasePackageManifest,
   releaseShrinkwrap,
 } from "./build-cli-artifact.mjs";
-import {
-  addElectronPackage,
-  npmInvocation,
-} from "./create-sbom.mjs";
+import { addElectronPackage, npmInvocation } from "./create-sbom.mjs";
 import {
   createReleaseManifest,
   isManifestArtifact,
 } from "./create-release-manifest.mjs";
-import {
-  normalizeSpdx,
-  sha256,
-  stableJson,
-} from "./release-utils.mjs";
+import { normalizeSpdx, sha256, stableJson } from "./release-utils.mjs";
 import { signingPlan } from "./sign-release-artifacts.mjs";
 import {
   resolveSmokeArtifacts,
@@ -83,10 +70,7 @@ describe("release automation", () => {
         creators: ["Tool: npm/11"],
       },
       documentNamespace: "urn:uuid:random",
-      packages: [
-        { SPDXID: "SPDXRef-z" },
-        { SPDXID: "SPDXRef-a" },
-      ],
+      packages: [{ SPDXID: "SPDXRef-z" }, { SPDXID: "SPDXRef-a" }],
       relationships: [],
     };
     const first = normalizeSpdx(document, {
@@ -131,29 +115,8 @@ describe("release automation", () => {
     );
   });
 
-  it("runs npm command shims through cmd.exe on Windows", () => {
-    expect(
-      npmInvocation(["ci", "--omit=dev"], {
-        platform: "win32",
-        environment: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
-      }),
-    ).toEqual({
-      executable: "C:\\Windows\\System32\\cmd.exe",
-      arguments: [
-        "/d",
-        "/s",
-        "/c",
-        "npm.cmd",
-        "ci",
-        "--omit=dev",
-      ],
-    });
-    expect(
-      npmInvocation(["sbom"], {
-        platform: "linux",
-        environment: {},
-      }),
-    ).toEqual({
+  it("uses the supported POSIX npm executable for SBOM generation", () => {
+    expect(npmInvocation(["sbom"])).toEqual({
       executable: "npm",
       arguments: ["sbom"],
     });
@@ -161,34 +124,86 @@ describe("release automation", () => {
 
   it("creates sorted checksums and source-bound release metadata", async () => {
     const directory = await mkdtemp(join(tmpdir(), "krater-release-manifest-"));
-    await writeFile(join(directory, "z.zip"), "zip");
-    await writeFile(join(directory, "a.tgz"), "cli");
-    await writeFile(join(directory, "ignored.txt"), "ignore");
-    const result = await createReleaseManifest({
-      directory,
-      version: "0.1.0",
-      repository: "https://github.com/SupratimSircar05/krater-pro",
-      commit: "a".repeat(40),
-      ref: "refs/tags/v0.1.0",
-      runUrl:
-        "https://github.com/SupratimSircar05/krater-pro/actions/runs/123",
-    });
-    const checksums = await readFile(result.checksumPath, "utf8");
-    const lines = checksums.trim().split("\n");
-    expect(lines.map((line) => line.slice(66))).toEqual([
-      "a.tgz",
-      "krater-pro-0.1.0.release-manifest.json",
-      "z.zip",
-    ]);
-    const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
-    expect(manifest.source.commit).toBe("a".repeat(40));
-    expect(manifest.artifacts).toHaveLength(2);
-    expect(lines[0]).toBe(`${sha256("cli")}  a.tgz`);
+    try {
+      await writeFile(join(directory, "z.zip"), "zip");
+      await writeFile(join(directory, "a.tgz"), "cli");
+      await writeFile(join(directory, "ignored.txt"), "ignore");
+      const result = await createReleaseManifest({
+        directory,
+        version: "0.1.0",
+        mode: "stable",
+        repository: "https://github.com/SupratimSircar05/krater-pro",
+        commit: "a".repeat(40),
+        ref: "refs/tags/v0.1.0",
+        runUrl:
+          "https://github.com/SupratimSircar05/krater-pro/actions/runs/123",
+      });
+      const checksums = await readFile(result.checksumPath, "utf8");
+      const lines = checksums.trim().split("\n");
+      expect(lines.map((line) => line.slice(66))).toEqual([
+        "a.tgz",
+        "krater-pro-0.1.0.release-manifest.json",
+        "z.zip",
+      ]);
+      const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+      expect(manifest.source.commit).toBe("a".repeat(40));
+      expect(manifest.releaseMode).toBe("stable");
+      expect(manifest.artifacts).toHaveLength(2);
+      expect(lines[0]).toBe(`${sha256("cli")}  a.tgz`);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects stable release provenance from a non-version ref", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "krater-release-ref-"));
+    try {
+      await writeFile(join(directory, "a.tgz"), "cli");
+      await expect(
+        createReleaseManifest({
+          directory,
+          version: "0.1.0",
+          mode: "stable",
+          repository: "https://github.com/SupratimSircar05/krater-pro",
+          commit: "a".repeat(40),
+          ref: "refs/heads/main",
+          runUrl:
+            "https://github.com/SupratimSircar05/krater-pro/actions/runs/123",
+        }),
+      ).rejects.toThrow(/exact version tag/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a manual tag dispatch explicitly nonpublishing", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "krater-release-candidate-"),
+    );
+    try {
+      await writeFile(join(directory, "a.tgz"), "cli");
+      const result = await createReleaseManifest({
+        directory,
+        version: "0.1.0",
+        mode: "candidate",
+        repository: "https://github.com/SupratimSircar05/krater-pro",
+        commit: "a".repeat(40),
+        ref: "refs/tags/v0.1.0",
+        runUrl:
+          "https://github.com/SupratimSircar05/krater-pro/actions/runs/123",
+      });
+      const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+      expect(manifest.releaseMode).toBe("candidate");
+      expect(manifest.artifacts).toHaveLength(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("recognizes only intentional release artifact suffixes", () => {
     expect(isManifestArtifact("krater-pro-cli-0.1.0.tgz")).toBe(true);
     expect(isManifestArtifact("Krater-Pro-0.1.0-x64.AppImage")).toBe(true);
+    expect(isManifestArtifact("Krater-Pro-0.1.0-x64.exe")).toBe(false);
     expect(isManifestArtifact("builder-debug.yml")).toBe(false);
     expect(isManifestArtifact("SHA256SUMS.txt.asc")).toBe(false);
   });
@@ -261,65 +276,11 @@ describe("release automation", () => {
       KRATER_DESKTOP_WORKSPACE: "/tmp/krater",
       SOURCE_DATE_EPOCH: "0",
     });
-    expect(
-      smokeEnvironment({
-        platform: "win",
-        workspace: "C:\\Temp\\krater",
-        environment: {},
-      }),
-    ).not.toHaveProperty("APPIMAGE_EXTRACT_AND_RUN");
-    expect(
-      validSmokeProof(
-        {
-          architecture: "x64",
-          commandGate: true,
-          platform: "win32",
-          renderer: true,
-          reopened: true,
-          schemaVersion: 1,
-        },
-        "win",
-      ),
-    ).toBe(true);
-    expect(
-      validSmokeProof(
-        {
-          architecture: "x64",
-          commandGate: true,
-          platform: "win32",
-          renderer: true,
-          reopened: false,
-          schemaVersion: 1,
-        },
-        "win",
-      ),
-    ).toBe(false);
   });
 
-  it("launches distributed macOS ZIP, Windows portable, and Linux AppImage artifacts", async () => {
+  it("launches distributed macOS ZIP and Linux AppImage artifacts", async () => {
     const releaseRoot = await mkdtemp(join(tmpdir(), "krater-native-smoke-"));
     try {
-      const unpackedWindows = join(
-        releaseRoot,
-        "win-unpacked",
-        "KraterPro.exe",
-      );
-      const portableWindows = join(
-        releaseRoot,
-        "Krater-Pro-Portable-0.1.0-x64.exe",
-      );
-      await mkdir(join(releaseRoot, "win-unpacked"), { recursive: true });
-      await writeFile(unpackedWindows, "unpacked");
-      await writeFile(portableWindows, "portable");
-
-      await expect(
-        resolveSmokeArtifacts({ platform: "win", releaseRoot }),
-      ).resolves.toMatchObject({
-        artifactPath: portableWindows,
-        boundaryExecutable: unpackedWindows,
-        launchExecutable: portableWindows,
-      });
-
       const macArchive = join(releaseRoot, "Krater-Pro-0.1.0-arm64.zip");
       const extractedMac = join(
         releaseRoot,
@@ -350,15 +311,8 @@ describe("release automation", () => {
       });
       expect(extractedFrom).toBe(releaseRoot);
 
-      const unpackedLinux = join(
-        releaseRoot,
-        "linux-unpacked",
-        "krater-pro",
-      );
-      const appImage = join(
-        releaseRoot,
-        "Krater-Pro-0.1.0-x64.AppImage",
-      );
+      const unpackedLinux = join(releaseRoot, "linux-unpacked", "krater-pro");
+      const appImage = join(releaseRoot, "Krater-Pro-0.1.0-x64.AppImage");
       await mkdir(join(releaseRoot, "linux-unpacked"), { recursive: true });
       await writeFile(unpackedLinux, "unpacked");
       await writeFile(appImage, "appimage");

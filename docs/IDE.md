@@ -118,11 +118,9 @@ Every command:
 
 The regex checks are advisory defense-in-depth, not a shell parser or complete
 command policy. Alternate tools, aliases, interpreters, encodings, and
-constructed commands can evade them. On POSIX, cancellation targets the
-initial process group. On Windows, it uses `taskkill /T /F` for the initial
-process tree and falls back to the direct child. A descendant that invokes
-`setsid`, detaches, re-parents, or delegates work to another service can escape
-and survive cancellation.
+constructed commands can evade them. Cancellation targets the initial POSIX
+process group. A descendant that invokes `setsid`, detaches, re-parents, or
+delegates work to another service can escape and survive cancellation.
 
 The IDE terminal is an attended user action. On macOS, when
 `/usr/bin/sandbox-exec` is available, Krater Pro additionally runs it in the
@@ -143,11 +141,8 @@ Run button is the user's explicit request to execute that command. Commands
 proposed by the model continue through the normal Allow/Deny workflow. A model
 command covered only by unattended policy runs only after a native adapter
 verifies every requested containment control; otherwise it fails closed and
-never falls back to this attended path. The Windows restricted-token/Job Object
-native supervisor is not yet complete, and no verified Linux supervisor ships
-in this release. Windows and Linux unattended model commands therefore fail
-closed. Windows attended commands use `taskkill`, not Job Object lifetime
-enforcement.
+never falls back to this attended path. No verified Linux supervisor ships in
+this release, so Linux unattended model commands fail closed.
 
 ## Source control
 

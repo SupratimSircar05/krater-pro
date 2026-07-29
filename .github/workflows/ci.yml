@@ -53,8 +53,10 @@ jobs:
         include:
           - label: macOS
             os: macos-15
-          - label: Windows
-            os: windows-2022
+            platform: mac
+          - label: Linux
+            os: ubuntu-22.04
+            platform: linux
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -69,22 +71,33 @@ jobs:
         run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - run: npm ci
       - run: npm run build
-      - name: Exercise platform command-gate tests
+      - name: Exercise supported-platform command and credential boundaries
         run: >-
           npm test --
           src/command-gate.test.ts
           src/credential-store.test.ts
-          src/credential-store.windows-launch.test.ts
-          src/windows-system-executable.test.ts
+          src/credential-store.launch.test.ts
           src/workspace.command-security.test.ts
           desktop/tests/command-gate-parent.test.mjs
           --testTimeout=20000
       - name: Exercise the built workspace command boundary
         run: node scripts/release/smoke-workspace-command.mjs
-      - name: Launch source Electron, renderer, and fresh-window bootstrap
+      - name: Install Linux launch-smoke display
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - name: Launch source Electron on macOS
+        if: matrix.platform == 'mac'
         env:
           KRATER_API_KEY: ""
           KRATER_DESKTOP_WORKSPACE: ${{ runner.temp }}/krater-pro-native-smoke
         run: |
           node -e "require('node:fs').mkdirSync(process.env.KRATER_DESKTOP_WORKSPACE, { recursive: true })"
           npm run desktop:start -- --krater-smoke-test
+      - name: Launch source Electron on Linux
+        if: matrix.platform == 'linux'
+        env:
+          KRATER_API_KEY: ""
+          KRATER_DESKTOP_WORKSPACE: ${{ runner.temp }}/krater-pro-native-smoke
+        run: |
+          node -e "require('node:fs').mkdirSync(process.env.KRATER_DESKTOP_WORKSPACE, { recursive: true })"
+          xvfb-run -a npm run desktop:start -- --krater-smoke-test

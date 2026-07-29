@@ -152,8 +152,8 @@ credential paths; its response identifies this as an attended compatibility
 profile. Unattended model commands take a different path through the exported
 host-native adapter and `SandboxSupervisor`. The current macOS adapter verifies
 Seatbelt denial and kernel limits, denies network and forks, and binds protected
-path exclusions into the request. Linux and Windows retain explicit
-unavailable contracts, so unattended execution fails closed there.
+path exclusions into the request. Linux retains an explicit unavailable
+contract, so unattended execution fails closed there.
 
 ## Benchmarks
 

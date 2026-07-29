@@ -1,16 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
-import { windowsSystemExecutable } from "./windows-system-executable.js";
+import { dirname, resolve } from "node:path";
 
 const KEYCHAIN_SERVICE = "com.supratimsircar.kraterpro.api-key";
 const SECRET_SERVICE_APPLICATION = "krater-pro";
-const DPAPI_REGISTRY_PATH = String.raw`Software\KraterPro\Credentials`;
-const WINDOWS_DPAPI_POWERSHELL =
-  String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`;
+const DEFAULT_SECRET_COMMAND_TIMEOUT_MS = 15_000;
 
-export type CredentialBackend =
-  "macos_keychain" | "linux_secret_service" | "windows_dpapi";
+export type CredentialBackend = "macos_keychain" | "linux_secret_service";
 
 export interface CredentialStoreStatus {
   available: boolean;
@@ -27,6 +23,7 @@ export interface CredentialStoreResult {
 export interface CommandResult {
   ok: boolean;
   stdout: string;
+  failure?: "timeout" | "spawn_error" | "invalid_stdio" | "nonzero_exit";
 }
 
 export type SecretCommandRunner = (
@@ -58,26 +55,11 @@ function workspaceAccount(cwd: string): string {
 function safeEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const name of [
-    "PATH",
-    "PATHEXT",
-    "SystemRoot",
-    "COMSPEC",
     "LANG",
     "LC_ALL",
     "TMPDIR",
     "TEMP",
     "TMP",
-    // CurrentUser DPAPI locates its master-key material through the loaded
-    // Windows profile. Preserve only the non-secret identity/location values
-    // required by that OS service; executable selection remains fixed and
-    // independent of all of them.
-    "USERPROFILE",
-    "HOMEDRIVE",
-    "HOMEPATH",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "USERNAME",
-    "USERDOMAIN",
     "DBUS_SESSION_BUS_ADDRESS",
     "XDG_RUNTIME_DIR",
   ]) {
@@ -86,53 +68,110 @@ function safeEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-function spawnCompatibleSecretExecutable(executable: string): string {
-  return process.platform === "win32" &&
-    executable === WINDOWS_DPAPI_POWERSHELL
-    ? windowsSystemExecutable("powershell.exe")
-    : executable;
+function secretCommandLaunch(executable: string): {
+  executable: string;
+  cwd: string;
+} {
+  return {
+    executable,
+    // All credential helpers are compile-time absolute paths. A trusted cwd
+    // prevents assembly/module resolution from searching the user workspace.
+    cwd: dirname(executable),
+  };
 }
 
 const defaultRunner: SecretCommandRunner = (executable, args, stdin) =>
   new Promise((resolveRun) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(spawnCompatibleSecretExecutable(executable), [...args], {
+      const launch = secretCommandLaunch(executable);
+      child = spawn(launch.executable, [...args], {
+        cwd: launch.cwd,
         env: safeEnvironment(),
         shell: false,
         windowsHide: true,
         stdio: ["pipe", "pipe", "ignore"],
       });
     } catch {
-      resolveRun({ ok: false, stdout: "" });
+      resolveRun({ ok: false, stdout: "", failure: "spawn_error" });
       return;
     }
     if (!child.stdin || !child.stdout) {
-      child.kill();
-      resolveRun({ ok: false, stdout: "" });
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The launch is already unusable; preserve the fail-closed result.
+      }
+      resolveRun({ ok: false, stdout: "", failure: "invalid_stdio" });
       return;
     }
     let stdout = "";
     let settled = false;
+    let timedOut = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let terminationTimeout: ReturnType<typeof setTimeout> | undefined;
     const finish = (result: CommandResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
+      if (terminationTimeout) clearTimeout(terminationTimeout);
       resolveRun(result);
     };
-    const timeout = setTimeout(() => {
-      child.kill();
-      finish({ ok: false, stdout: "" });
-    }, 15_000);
+    const forceTerminate = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The helper may already have exited between events.
+      }
+    };
+    timeout = setTimeout(() => {
+      timedOut = true;
+      terminationTimeout = setTimeout(
+        () => {
+          forceTerminate();
+          finish({ ok: false, stdout: "", failure: "timeout" });
+        },
+        1_000,
+      );
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        forceTerminate();
+        finish({ ok: false, stdout: "", failure: "timeout" });
+      }
+    }, DEFAULT_SECRET_COMMAND_TIMEOUT_MS);
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       if (stdout.length < 4_096) {
         stdout += chunk.slice(0, 4_096 - stdout.length);
       }
     });
-    child.once("error", () => finish({ ok: false, stdout: "" }));
+    const streamFailure = () => {
+      forceTerminate();
+      finish({
+        ok: false,
+        stdout: "",
+        failure: timedOut ? "timeout" : "nonzero_exit",
+      });
+    };
+    child.stdin.once("error", streamFailure);
+    child.stdout.once("error", streamFailure);
+    child.once("error", () => {
+      forceTerminate();
+      finish({
+        ok: false,
+        stdout: "",
+        failure: timedOut ? "timeout" : "spawn_error",
+      });
+    });
     child.once("close", (code) =>
-      finish({ ok: code === 0, stdout: stdout.slice(0, 4_096) }),
+      timedOut
+        ? finish({ ok: false, stdout: "", failure: "timeout" })
+        : finish({
+            ok: code === 0,
+            stdout: stdout.slice(0, 4_096),
+            ...(code === 0 ? {} : { failure: "nonzero_exit" as const }),
+          }),
     );
     if (stdin !== undefined) child.stdin.end(stdin);
     else child.stdin.end();
@@ -140,28 +179,38 @@ const defaultRunner: SecretCommandRunner = (executable, args, stdin) =>
 
 const defaultReader: SecretCommandReader = (executable, args) => {
   try {
-    const result = spawnSync(
-      spawnCompatibleSecretExecutable(executable),
-      [...args],
-      {
-        env: safeEnvironment(),
-        shell: false,
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "ignore"],
-        encoding: "utf8",
-        timeout: 15_000,
-        maxBuffer: 64 * 1024,
-      },
-    );
+    const launch = secretCommandLaunch(executable);
+    const result = spawnSync(launch.executable, [...args], {
+      cwd: launch.cwd,
+      env: safeEnvironment(),
+      shell: false,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+      timeout: DEFAULT_SECRET_COMMAND_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
+    });
+    const failure =
+      result.status === 0 && !result.error
+        ? undefined
+        : result.error &&
+            "code" in result.error &&
+            result.error.code === "ETIMEDOUT"
+          ? ("timeout" as const)
+          : result.error
+            ? ("spawn_error" as const)
+            : ("nonzero_exit" as const);
     return {
       ok: result.status === 0 && !result.error,
       stdout:
         typeof result.stdout === "string"
           ? result.stdout.slice(0, 64 * 1024)
           : "",
+      ...(failure ? { failure } : {}),
     };
   } catch {
-    return { ok: false, stdout: "" };
+    return { ok: false, stdout: "", failure: "spawn_error" };
   }
 };
 
@@ -170,7 +219,6 @@ function backendForPlatform(
 ): CredentialBackend | undefined {
   if (platform === "darwin") return "macos_keychain";
   if (platform === "linux") return "linux_secret_service";
-  if (platform === "win32") return "windows_dpapi";
   return undefined;
 }
 
@@ -183,16 +231,6 @@ function backendExecutable(backend: CredentialBackend): {
       return { executable: "/usr/bin/security", probeArgs: ["help"] };
     case "linux_secret_service":
       return { executable: "/usr/bin/secret-tool", probeArgs: ["--help"] };
-    case "windows_dpapi":
-      return {
-        executable: WINDOWS_DPAPI_POWERSHELL,
-        probeArgs: [
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          encodedPowerShellCommand(DPAPI_PROBE_SCRIPT),
-        ],
-      };
   }
 }
 
@@ -229,9 +267,7 @@ export async function inspectCredentialStore(
     reason:
       backend === "macos_keychain"
         ? "macOS Keychain is available."
-        : backend === "linux_secret_service"
-          ? "Linux Secret Service is available."
-          : "Windows DPAPI is available.",
+        : "Linux Secret Service is available.",
   };
 }
 
@@ -241,51 +277,35 @@ function cleanRetrievedSecret(value: string): string | undefined {
   return secret;
 }
 
-function encodedPowerShellCommand(script: string): string {
-  return Buffer.from(script, "utf16le").toString("base64");
-}
-
-const DPAPI_PROBE_SCRIPT = [
-  "Add-Type -AssemblyName System.Security",
-  "$plain = [byte[]](75, 82, 65, 84, 69, 82)",
-  "$protected = $null",
-  "$roundtrip = $null",
-  "try { $protected = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser); $roundtrip = [Security.Cryptography.ProtectedData]::Unprotect($protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser); if ($roundtrip.Length -ne $plain.Length) { exit 3 }; for ($index = 0; $index -lt $plain.Length; $index += 1) { if ($roundtrip[$index] -ne $plain[$index]) { exit 3 } } } finally { [Array]::Clear($plain, 0, $plain.Length); if ($null -ne $protected) { [Array]::Clear($protected, 0, $protected.Length) }; if ($null -ne $roundtrip) { [Array]::Clear($roundtrip, 0, $roundtrip.Length) } }",
-].join("; ");
-
-function powerShellAccountLiteral(account: string): string {
-  if (!/^workspace-[a-f0-9]{24}$/.test(account)) {
-    throw new Error("Credential account identity is invalid.");
+function credentialReadCommand(
+  backend: CredentialBackend,
+  account: string,
+): { executable: string; args: readonly string[] } {
+  switch (backend) {
+    case "macos_keychain":
+      return {
+        executable: backendExecutable(backend).executable,
+        args: [
+          "find-generic-password",
+          "-a",
+          account,
+          "-s",
+          KEYCHAIN_SERVICE,
+          "-w",
+        ],
+      };
+    case "linux_secret_service":
+      return {
+        executable: backendExecutable(backend).executable,
+        args: [
+          "lookup",
+          "application",
+          SECRET_SERVICE_APPLICATION,
+          "account",
+          account,
+        ],
+      };
   }
-  return `'${account}'`;
-}
-
-function dpapiReadScript(account: string): string {
-  return [
-    "Add-Type -AssemblyName System.Security",
-    `$keyPath = '${DPAPI_REGISTRY_PATH}'`,
-    `$name = ${powerShellAccountLiteral(account)}`,
-    "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($keyPath, $false)",
-    "if ($null -eq $key) { exit 2 }",
-    "try { $protected = $key.GetValue($name, $null) } finally { $key.Dispose() }",
-    "if (-not ($protected -is [byte[]]) -or $protected.Length -eq 0) { exit 2 }",
-    "$plain = $null",
-    "try { $plain = [Security.Cryptography.ProtectedData]::Unprotect($protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Out.Write([Text.Encoding]::UTF8.GetString($plain)) } finally { if ($null -ne $plain) { [Array]::Clear($plain, 0, $plain.Length) }; [Array]::Clear($protected, 0, $protected.Length) }",
-  ].join("; ");
-}
-
-function dpapiWriteScript(account: string): string {
-  return [
-    "Add-Type -AssemblyName System.Security",
-    `$keyPath = '${DPAPI_REGISTRY_PATH}'`,
-    `$name = ${powerShellAccountLiteral(account)}`,
-    "$plainText = [Console]::In.ReadToEnd()",
-    "$plain = [Text.Encoding]::UTF8.GetBytes($plainText)",
-    "$plainText = $null",
-    "$protected = $null",
-    "$key = $null",
-    "try { $protected = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser); $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyPath, $true); if ($null -eq $key) { throw 'Credential registry key is unavailable.' }; $key.SetValue($name, $protected, [Microsoft.Win32.RegistryValueKind]::Binary) } finally { if ($null -ne $key) { $key.Dispose() }; [Array]::Clear($plain, 0, $plain.Length); if ($null -ne $protected) { [Array]::Clear($protected, 0, $protected.Length) } }",
-  ].join("; ");
 }
 
 export function readStoredCredentialSync(
@@ -294,38 +314,9 @@ export function readStoredCredentialSync(
 ): string | undefined {
   const backend = backendForPlatform(options.platform ?? process.platform);
   if (!backend) return undefined;
-  const account = workspaceAccount(cwd);
+  const command = credentialReadCommand(backend, workspaceAccount(cwd));
   const reader = options.reader ?? defaultReader;
-  let result: CommandResult;
-  switch (backend) {
-    case "macos_keychain":
-      result = reader(backendExecutable(backend).executable, [
-        "find-generic-password",
-        "-a",
-        account,
-        "-s",
-        KEYCHAIN_SERVICE,
-        "-w",
-      ]);
-      break;
-    case "linux_secret_service":
-      result = reader(backendExecutable(backend).executable, [
-        "lookup",
-        "application",
-        SECRET_SERVICE_APPLICATION,
-        "account",
-        account,
-      ]);
-      break;
-    case "windows_dpapi":
-      result = reader(backendExecutable(backend).executable, [
-        "-NoProfile",
-        "-NonInteractive",
-        "-EncodedCommand",
-        encodedPowerShellCommand(dpapiReadScript(account)),
-      ]);
-      break;
-  }
+  const result = reader(command.executable, command.args);
   return result.ok ? cleanRetrievedSecret(result.stdout) : undefined;
 }
 
@@ -390,25 +381,16 @@ export async function storeCredential(
         stdin: secret,
       };
       break;
-    case "windows_dpapi":
-      command = {
-        executable: backendExecutable(status.backend).executable,
-        args: [
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          encodedPowerShellCommand(dpapiWriteScript(account)),
-        ],
-        stdin: secret,
-      };
-      break;
   }
   const stored = await runner(command.executable, command.args, command.stdin);
   if (!stored.ok) {
     return {
       stored: false,
       backend: status.backend,
-      reason: "The operating-system credential backend rejected the write.",
+      reason:
+        stored.failure === "timeout"
+          ? "The operating-system credential backend timed out. Krater could not confirm storage and will not fall back to plaintext automatically."
+          : "The operating-system credential backend rejected the write.",
     };
   }
   return {

@@ -20,11 +20,22 @@ const cliPath = resolve(
   "cli.js",
 );
 const forwarded = process.argv.slice(2);
+const requestsWindows = forwarded.some(
+  (argument) =>
+    argument.startsWith("-w") ||
+    argument === "--win" ||
+    argument.startsWith("--win=") ||
+    argument === "--windows" ||
+    argument.startsWith("--windows="),
+);
+if (!["darwin", "linux"].includes(process.platform) || requestsWindows) {
+  throw new Error(
+    "Krater Pro desktop builds support macOS and Linux only; Windows packaging has been removed.",
+  );
+}
 const targetsMac =
   forwarded.includes("--mac") ||
-  (!forwarded.includes("--win") &&
-    !forwarded.includes("--linux") &&
-    process.platform === "darwin");
+  (!forwarded.includes("--linux") && process.platform === "darwin");
 const environment = { ...process.env };
 // GitHub expressions materialize unavailable secrets as empty strings. An
 // empty CSC_LINK is not equivalent to an unset value in electron-builder: it
@@ -46,13 +57,6 @@ if (!stableRelease || !targetsMac) {
 if (stableRelease && targetsMac) {
   validateReleaseEnvironment({
     platform: "mac",
-    stable: true,
-    environment,
-  });
-}
-if (stableRelease && forwarded.includes("--win")) {
-  validateReleaseEnvironment({
-    platform: "win",
     stable: true,
     environment,
   });

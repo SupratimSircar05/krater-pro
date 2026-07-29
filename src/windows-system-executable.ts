@@ -6,7 +6,6 @@ const WINDOWS_OBJECT_MANAGER_SYSTEM32 =
 
 export type WindowsSystemExecutableName =
   | "cmd.exe"
-  | "powershell.exe"
   | "taskkill.exe";
 
 export interface WindowsSystemExecutableOptions {
@@ -19,21 +18,11 @@ function objectManagerExecutablePath(
   switch (name) {
     case "cmd.exe":
       return String.raw`\\?\GLOBALROOT\SystemRoot\System32\cmd.exe`;
-    case "powershell.exe":
-      return String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`;
     case "taskkill.exe":
       return String.raw`\\?\GLOBALROOT\SystemRoot\System32\taskkill.exe`;
     default:
       throw new Error("The Windows system executable is not allowlisted.");
   }
-}
-
-function executablePathParts(
-  name: WindowsSystemExecutableName,
-): readonly string[] {
-  return name === "powershell.exe"
-    ? ["WindowsPowerShell", "v1.0", name]
-    : [name];
 }
 
 function normalizedDrivePath(path: string): string {
@@ -69,7 +58,7 @@ export function windowsSystemExecutable(
   );
   const expected = win32.join(
     systemDirectory,
-    ...executablePathParts(name),
+    name,
   );
   if (executable.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(

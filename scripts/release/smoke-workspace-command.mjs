@@ -10,10 +10,7 @@ const root = await mkdtemp(join(tmpdir(), "krater-command-smoke-"));
 try {
   const workspace = new Workspace(root);
   const unicodeProof = "Krater_ಕನ್ನಡ_Résumé";
-  const command =
-    process.platform === "win32"
-      ? `set /p "KRATER_READ="\r\necho SHOULD_RUN\r\necho ${unicodeProof}`
-      : `read KRATER_READ\ncat\ncat <&3 2>/dev/null || :\necho SHOULD_RUN\necho ${unicodeProof}`;
+  const command = `read KRATER_READ\ncat\ncat <&3 2>/dev/null || :\necho SHOULD_RUN\necho ${unicodeProof}`;
   const result = await workspace.runCommand(
     command,
     30_000,
