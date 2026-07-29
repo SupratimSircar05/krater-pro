@@ -175,7 +175,12 @@ function backendExecutable(backend: CredentialBackend): {
     case "windows_dpapi":
       return {
         executable: WINDOWS_DPAPI_POWERSHELL,
-        probeArgs: ["-NoProfile", "-NonInteractive", "-Command", "exit 0"],
+        probeArgs: [
+          "-NoProfile",
+          "-NonInteractive",
+          "-EncodedCommand",
+          encodedPowerShellCommand(DPAPI_PROBE_SCRIPT),
+        ],
       };
   }
 }
@@ -229,6 +234,14 @@ function encodedPowerShellCommand(script: string): string {
   return Buffer.from(script, "utf16le").toString("base64");
 }
 
+const DPAPI_PROBE_SCRIPT = [
+  "Add-Type -AssemblyName System.Security",
+  "$plain = [byte[]](75, 82, 65, 84, 69, 82)",
+  "$protected = $null",
+  "$roundtrip = $null",
+  "try { $protected = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser); $roundtrip = [Security.Cryptography.ProtectedData]::Unprotect($protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser); if ($roundtrip.Length -ne $plain.Length) { exit 3 }; for ($index = 0; $index -lt $plain.Length; $index += 1) { if ($roundtrip[$index] -ne $plain[$index]) { exit 3 } } } finally { [Array]::Clear($plain, 0, $plain.Length); if ($null -ne $protected) { [Array]::Clear($protected, 0, $protected.Length) }; if ($null -ne $roundtrip) { [Array]::Clear($roundtrip, 0, $roundtrip.Length) } }",
+].join("; ");
+
 function powerShellAccountLiteral(account: string): string {
   if (!/^workspace-[a-f0-9]{24}$/.test(account)) {
     throw new Error("Credential account identity is invalid.");
@@ -238,6 +251,7 @@ function powerShellAccountLiteral(account: string): string {
 
 function dpapiReadScript(account: string): string {
   return [
+    "Add-Type -AssemblyName System.Security",
     `$keyPath = '${DPAPI_REGISTRY_PATH}'`,
     `$name = ${powerShellAccountLiteral(account)}`,
     "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($keyPath, $false)",
@@ -251,6 +265,7 @@ function dpapiReadScript(account: string): string {
 
 function dpapiWriteScript(account: string): string {
   return [
+    "Add-Type -AssemblyName System.Security",
     `$keyPath = '${DPAPI_REGISTRY_PATH}'`,
     `$name = ${powerShellAccountLiteral(account)}`,
     "$plainText = [Console]::In.ReadToEnd()",

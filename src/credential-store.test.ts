@@ -61,6 +61,25 @@ afterEach(async () => {
 });
 
 describe("credential store", () => {
+  it("probes DPAPI protection and recovery instead of only launching PowerShell", async () => {
+    let probeArgs: readonly string[] = [];
+    const runner: SecretCommandRunner = async (_executable, args) => {
+      probeArgs = args;
+      return { ok: true, stdout: "" };
+    };
+
+    await expect(
+      inspectCredentialStore({ platform: "win32", runner }),
+    ).resolves.toMatchObject({
+      available: true,
+      backend: "windows_dpapi",
+    });
+    const probeScript = decodedPowerShellCommand(probeArgs);
+    expect(probeScript).toContain("Add-Type -AssemblyName System.Security");
+    expect(probeScript).toContain("ProtectedData]::Protect");
+    expect(probeScript).toContain("ProtectedData]::Unprotect");
+  });
+
   it.runIf(process.platform === "win32")(
     "probes the live Windows DPAPI backend through canonical PowerShell",
     async () => {
@@ -277,6 +296,7 @@ describe("credential store", () => {
     );
     expect(backendArgs).toContain("-EncodedCommand");
     const backendScript = decodedPowerShellCommand(backendArgs ?? []);
+    expect(backendScript).toContain("Add-Type -AssemblyName System.Security");
     expect(backendScript).toContain(expectedWorkspaceAccount(cwd));
     expect(backendScript).toContain("[Microsoft.Win32.Registry]::CurrentUser");
     expect(backendScript).not.toMatch(
@@ -349,6 +369,7 @@ describe("credential store", () => {
     expect(reader).toHaveBeenCalledOnce();
     expect(backendArgs).toContain("-EncodedCommand");
     const backendScript = decodedPowerShellCommand(backendArgs ?? []);
+    expect(backendScript).toContain("Add-Type -AssemblyName System.Security");
     expect(backendScript).toContain(expectedWorkspaceAccount(cwd));
     expect(backendScript).toContain("[Microsoft.Win32.Registry]::CurrentUser");
     expect(backendScript).not.toMatch(
