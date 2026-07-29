@@ -24,7 +24,7 @@ jobs:
     outputs:
       version: ${{ steps.manifest.outputs.version }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5.0.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -94,7 +94,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5.0.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -192,7 +192,7 @@ jobs:
       APPLE_API_KEY_ID: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
       APPLE_API_ISSUER: ${{ github.event_name == 'push' && matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5.0.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -288,7 +288,7 @@ jobs:
       KRATER_RELEASE_GPG_KEY_ID: ${{ github.event_name == 'push' && secrets.RELEASE_GPG_KEY_ID || '' }}
       KRATER_RELEASE_GPG_PASSPHRASE: ${{ github.event_name == 'push' && secrets.RELEASE_GPG_PASSPHRASE || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5.0.0
         with:
           persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
@@ -373,11 +373,11 @@ jobs:
       GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
       TAP_REPOSITORY: SupratimSircar05/homebrew-tap
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5.0.0
         with:
           persist-credentials: false
           path: krater-pro
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5.0.0
         with:
           repository: SupratimSircar05/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
