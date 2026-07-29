@@ -49,6 +49,7 @@
     "UPSTREAM_REFERENCE.md"
   ],
   "scripts": {
+    "postinstall": "node scripts/patch-monaco-dompurify.mjs",
     "build": "npm run build --workspace web && tsc -p tsconfig.server.json",
     "build:server": "tsc -p tsconfig.server.json",
     "prepack": "npm run build",
