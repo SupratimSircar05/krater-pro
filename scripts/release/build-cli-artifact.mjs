@@ -179,6 +179,20 @@ export async function buildCliArtifact({
       ],
       { cwd: stagingRoot },
     );
+    // The source lockfile contains workspaces used to build the web bundle.
+    // The published CLI manifest deliberately has no workspaces and includes
+    // the already-built assets, so remove those now-extraneous packages before
+    // generating the production-only SBOM.
+    await runNpm(
+      [
+        "prune",
+        "--omit=dev",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+      ],
+      { cwd: stagingRoot },
+    );
     const { stdout: rawSbom } = await runNpm(
       ["sbom", "--omit=dev", "--sbom-format=spdx"],
       { cwd: stagingRoot },
