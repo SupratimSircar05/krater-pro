@@ -22,6 +22,34 @@ async function temporaryDirectory(): Promise<string> {
   return path;
 }
 
+async function withCaseInsensitiveEnvironment(
+  replacement: Readonly<Record<string, string>>,
+  action: () => Promise<void>,
+): Promise<void> {
+  const replacedNames = new Set(
+    Object.keys(replacement).map((name) => name.toUpperCase()),
+  );
+  const previousEntries = Object.entries(process.env).filter(([name]) =>
+    replacedNames.has(name.toUpperCase()),
+  );
+  const clearReplacedNames = () => {
+    for (const name of Object.keys(process.env)) {
+      if (replacedNames.has(name.toUpperCase())) delete process.env[name];
+    }
+  };
+
+  clearReplacedNames();
+  try {
+    Object.assign(process.env, replacement);
+    await action();
+  } finally {
+    clearReplacedNames();
+    for (const [name, value] of previousEntries) {
+      process.env[name] = value;
+    }
+  }
+}
+
 beforeEach(() => {
   spawnMock.mockClear();
 });
@@ -264,85 +292,78 @@ describe("command launch boundary", () => {
 
   it("forwards a validated Windows command environment outside the C drive", async () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    const previousComSpec = process.env.ComSpec;
-    const previousPath = process.env.Path;
-    const previousUpperPath = process.env.PATH;
-    process.env.ComSpec = String.raw`D:\Windows\System32\cmd.exe`;
-    process.env.Path = String.raw`D:\Tools;D:\Windows\System32`;
-    delete process.env.PATH;
-    const workspace = new Workspace(await temporaryDirectory());
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-      stdio: Array<
-        | null
-        | {
-            on: ReturnType<typeof vi.fn>;
-            end: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
-          }
-      >;
-      pid: undefined;
-      kill: ReturnType<typeof vi.fn>;
-    };
-    const configInput = {
-      on: vi.fn(),
-      end: vi.fn(),
-      destroy: vi.fn(),
-    };
-    const commandInput = {
-      on: vi.fn(),
-      end: vi.fn(),
-      destroy: vi.fn(),
-    };
-    const controlInput = {
-      on: vi.fn(),
-      end: vi.fn(),
-      destroy: vi.fn(),
-    };
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stdio = [
-      null,
-      null,
-      null,
-      configInput,
-      commandInput,
-      controlInput,
-    ];
-    child.pid = undefined;
-    child.kill = vi.fn();
-    spawnMock.mockImplementationOnce(() => {
-      queueMicrotask(() => child.emit("close", 0, null));
-      return child;
-    });
+    await withCaseInsensitiveEnvironment(
+      {
+        ComSpec: String.raw`D:\Windows\System32\cmd.exe`,
+        Path: String.raw`D:\Tools;D:\Windows\System32`,
+      },
+      async () => {
+        const workspace = new Workspace(await temporaryDirectory());
+        const child = new EventEmitter() as EventEmitter & {
+          stdout: EventEmitter;
+          stderr: EventEmitter;
+          stdio: Array<
+            | null
+            | {
+                on: ReturnType<typeof vi.fn>;
+                end: ReturnType<typeof vi.fn>;
+                destroy: ReturnType<typeof vi.fn>;
+              }
+          >;
+          pid: undefined;
+          kill: ReturnType<typeof vi.fn>;
+        };
+        const configInput = {
+          on: vi.fn(),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+        const commandInput = {
+          on: vi.fn(),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+        const controlInput = {
+          on: vi.fn(),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.stdio = [
+          null,
+          null,
+          null,
+          configInput,
+          commandInput,
+          controlInput,
+        ];
+        child.pid = undefined;
+        child.kill = vi.fn();
+        spawnMock.mockImplementationOnce(() => {
+          queueMicrotask(() => child.emit("close", 0, null));
+          return child;
+        });
 
-    try {
-      await workspace.runCommand("echo portable");
-      expect(spawnMock.mock.calls[0]?.[0]).toBe(process.execPath);
-      const spawnedEnvironment =
-        spawnMock.mock.calls[0]?.[2].env as NodeJS.ProcessEnv;
-      const windowsEnvironmentValue = (name: string) =>
-        Object.entries(spawnedEnvironment).find(
-          ([candidate]) => candidate.toUpperCase() === name.toUpperCase(),
-        )?.[1];
-      expect(windowsEnvironmentValue("Path")).toBe(
-        String.raw`D:\Tools;D:\Windows\System32`,
-      );
-      expect(windowsEnvironmentValue("ComSpec")).toBe(
-        String.raw`D:\Windows\System32\cmd.exe`,
-      );
-      expect(JSON.parse(configInput.end.mock.calls[0]![0])).toMatchObject({
-        mode: "shell-windows",
-      });
-    } finally {
-      if (previousComSpec === undefined) delete process.env.ComSpec;
-      else process.env.ComSpec = previousComSpec;
-      if (previousPath === undefined) delete process.env.Path;
-      else process.env.Path = previousPath;
-      if (previousUpperPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousUpperPath;
-    }
+        await workspace.runCommand("echo portable");
+        expect(spawnMock.mock.calls[0]?.[0]).toBe(process.execPath);
+        const spawnedEnvironment =
+          spawnMock.mock.calls[0]?.[2].env as NodeJS.ProcessEnv;
+        const windowsEnvironmentValue = (name: string) =>
+          Object.entries(spawnedEnvironment).find(
+            ([candidate]) => candidate.toUpperCase() === name.toUpperCase(),
+          )?.[1];
+        expect(windowsEnvironmentValue("Path")).toBe(
+          String.raw`D:\Tools;D:\Windows\System32`,
+        );
+        expect(windowsEnvironmentValue("ComSpec")).toBe(
+          String.raw`D:\Windows\System32\cmd.exe`,
+        );
+        expect(JSON.parse(configInput.end.mock.calls[0]![0])).toMatchObject({
+          mode: "shell-windows",
+        });
+      },
+    );
   });
 
   it("closes the cancellation descriptor after a gate spawn error", async () => {

@@ -530,8 +530,9 @@ absolute executable outside the writable workspace, records its filesystem
 identity and SHA-256 digest, and revalidates both immediately before each Git
 operation and inside the isolated command gate. Command scripts travel over a
 private descriptor rather than process arguments or user stdin. Windows system
-commands use fixed `GLOBALROOT` executables so a modified drive or `ComSpec`
-cannot select an attacker-controlled shell.
+commands resolve a compile-time `GLOBALROOT` allowlist to canonical,
+spawn-compatible System32 paths, so a modified drive, `PATH`, `SystemRoot`, or
+`ComSpec` cannot select an attacker-controlled shell.
 
 Credential setup writes directly to macOS Keychain, Linux Secret Service, or a
 Windows DPAPI ciphertext stored under Krater's fixed per-user registry key.
