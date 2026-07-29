@@ -132,6 +132,10 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
   );
   assert.match(
     main,
+    /if \(!smokeTestActive\) \{\s+dialog\.showErrorBox/,
+  );
+  assert.match(
+    main,
     /app\.on\("activate", \(\) => \{\s+reopenMainWindow\(\)/,
   );
 });

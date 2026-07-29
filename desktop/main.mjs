@@ -471,7 +471,11 @@ app.whenReady().then(launch).catch((error) => {
   const message =
     error instanceof Error ? error.message : "Unknown desktop startup failure.";
   process.stderr.write(`Krater Pro desktop startup failed: ${message}\n`);
-  dialog.showErrorBox("Krater Pro could not start", message);
+  // A modal error box can wait forever on an unattended Windows/Linux runner.
+  // Explicit smoke mode reports through stderr and exits deterministically.
+  if (!smokeTestActive) {
+    dialog.showErrorBox("Krater Pro could not start", message);
+  }
   app.exit(1);
 });
 
