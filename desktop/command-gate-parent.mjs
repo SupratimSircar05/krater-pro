@@ -6,14 +6,58 @@ import {
 import { win32 } from "node:path";
 
 const PARENT_LOOKUP_TIMEOUT_MS = 2_000;
-const WINDOWS_POWERSHELL =
+const WINDOWS_OBJECT_MANAGER_SYSTEM32 =
+  String.raw`\\?\GLOBALROOT\SystemRoot\System32`;
+const WINDOWS_OBJECT_MANAGER_POWERSHELL =
   String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`;
+const WINDOWS_POWERSHELL_PARTS = [
+  "WindowsPowerShell",
+  "v1.0",
+  "powershell.exe",
+];
+
+function normalizedWindowsDrivePath(path) {
+  if (
+    typeof path !== "string" ||
+    path.length === 0 ||
+    path.length > 32_767 ||
+    /[\u0000-\u001f\u007f]/u.test(path)
+  ) {
+    throw new Error("The Windows parent-query executable path was invalid.");
+  }
+  const normalized = win32.normalize(path);
+  if (!/^[a-z]:\\/iu.test(normalized) || !win32.isAbsolute(normalized)) {
+    throw new Error(
+      "The Windows parent-query executable did not resolve to a drive path.",
+    );
+  }
+  return normalized;
+}
+
+export function windowsPowerShellExecutable(
+  resolveFinalPath = realpathSync.native,
+) {
+  const systemDirectory = normalizedWindowsDrivePath(
+    resolveFinalPath(WINDOWS_OBJECT_MANAGER_SYSTEM32),
+  );
+  const executable = normalizedWindowsDrivePath(
+    resolveFinalPath(WINDOWS_OBJECT_MANAGER_POWERSHELL),
+  );
+  const expected = win32.join(systemDirectory, ...WINDOWS_POWERSHELL_PARTS);
+  if (executable.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error(
+      "The Windows parent-query executable resolved outside System32.",
+    );
+  }
+  return executable;
+}
 
 function parentExecutablePath({
   platform,
   parentPid,
   execute = execFileSync,
   readLink = readlinkSync,
+  resolveWindowsFinalPath,
 }) {
   if (!Number.isSafeInteger(parentPid) || parentPid <= 1) {
     throw new Error("The command gate parent process was unavailable.");
@@ -34,13 +78,14 @@ function parentExecutablePath({
     ).trim();
   }
   if (platform === "win32") {
+    const powerShell = windowsPowerShellExecutable(resolveWindowsFinalPath);
     const script =
       `$process = [System.Diagnostics.Process]::GetProcessById(${parentPid}); ` +
       "$path = $process.MainModule.FileName; $process.Dispose(); " +
       "if ([string]::IsNullOrWhiteSpace($path)) { exit 3 }; " +
       "[Console]::Out.Write($path)";
     return execute(
-      WINDOWS_POWERSHELL,
+      powerShell,
       [
         "-NoLogo",
         "-NoProfile",
@@ -92,12 +137,14 @@ export function assertTrustedCommandGateParent({
   execute,
   readLink,
   resolveRealPath,
+  resolveWindowsFinalPath,
 } = {}) {
   const parentExecutable = parentExecutablePath({
     platform,
     parentPid,
     ...(execute ? { execute } : {}),
     ...(readLink ? { readLink } : {}),
+    ...(resolveWindowsFinalPath ? { resolveWindowsFinalPath } : {}),
   });
   if (
     currentParentPid() !== parentPid ||

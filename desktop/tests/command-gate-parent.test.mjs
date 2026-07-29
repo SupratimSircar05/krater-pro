@@ -1,8 +1,39 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { assertTrustedCommandGateParent } from "../command-gate-parent.mjs";
+import {
+  assertTrustedCommandGateParent,
+  windowsPowerShellExecutable,
+} from "../command-gate-parent.mjs";
 
 const identity = (value) => value;
+const objectManagerSystem32 =
+  String.raw`\\?\GLOBALROOT\SystemRoot\System32`;
+const objectManagerPowerShell =
+  String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`;
+const resolvedSystem32 = String.raw`D:\Windows\System32`;
+const resolvedPowerShell =
+  String.raw`D:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`;
+const resolveWindowsFinalPath = (path) => {
+  if (path === objectManagerSystem32) return resolvedSystem32;
+  if (path === objectManagerPowerShell) return resolvedPowerShell;
+  throw new Error(`Unexpected Windows final-path input: ${path}`);
+};
+
+test("resolves the fixed Windows parent-query executable to a spawn path", () => {
+  assert.equal(
+    windowsPowerShellExecutable(resolveWindowsFinalPath),
+    resolvedPowerShell,
+  );
+  assert.throws(
+    () =>
+      windowsPowerShellExecutable((path) =>
+        path === objectManagerSystem32
+          ? resolvedSystem32
+          : String.raw`D:\Attacker\powershell.exe`,
+      ),
+    /outside System32/,
+  );
+});
 
 test("accepts a live Linux parent using the same canonical executable", () => {
   assert.doesNotThrow(() =>
@@ -48,11 +79,9 @@ test("accepts a case-insensitive Windows parent using the same executable", () =
         COR_ENABLE_PROFILING: "1",
         COR_PROFILER_PATH: String.raw`C:\Attacker\profiler.dll`,
       },
+      resolveWindowsFinalPath,
       execute: (executable, args, options) => {
-        assert.equal(
-          executable,
-          String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`,
-        );
+        assert.equal(executable, resolvedPowerShell);
         assert.ok(
           args.at(-1).includes(
             "[System.Diagnostics.Process]::GetProcessById(44)",
