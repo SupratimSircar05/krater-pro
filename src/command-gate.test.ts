@@ -181,6 +181,13 @@ async function waitForFile(path: string): Promise<void> {
   throw new Error(`Timed out waiting for ${path}.`);
 }
 
+async function expectNoKraterCommandDirectory(path: string): Promise<void> {
+  const leftovers = (await readdir(path)).filter((entry) =>
+    entry.startsWith("krater-pro-terminal-"),
+  );
+  expect(leftovers).toEqual([]);
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryPaths.splice(0).map((path) =>
@@ -387,7 +394,9 @@ describe("command gate runtime", () => {
       expect(result).toMatchObject({ code: 0, signal: null, stderr: "" });
       expect(stdout).toContain("SHOULD_RUN");
       expect(stdout).toContain(unicodeProof);
-      expect(await readdir(privateTemp)).toEqual([]);
+      // The TypeScript test loader may own a sibling `tsx-*` cache here.
+      // Assert only the command gate's private script directory is gone.
+      await expectNoKraterCommandDirectory(privateTemp);
     },
     10_000,
   );
@@ -420,7 +429,7 @@ describe("command gate runtime", () => {
       gate.control.end("cancel");
       await within(gate.completed, 8_000);
 
-      expect(await readdir(privateTemp)).toEqual([]);
+      await expectNoKraterCommandDirectory(privateTemp);
     },
     15_000,
   );
