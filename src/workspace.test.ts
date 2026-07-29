@@ -664,6 +664,102 @@ describe("Workspace command execution", () => {
     });
   });
 
+  it.runIf(process.platform !== "win32")(
+    "executes pre-gate discovery as an exact binary with read-only workspace authority",
+    async () => {
+      const root = await temporaryDirectory();
+      const run = vi.fn<NativeSandboxAdapter["run"]>(async () => ({
+        exitCode: 0,
+        terminationReason: "exit",
+        output: [{ stream: "stdout", data: "source.txt:1:needle value\n" }],
+        resourceUsage: { peakProcessCount: 1 },
+      }));
+      const workspace = new Workspace(root, {
+        nativeSandboxAdapter: verifiedTestAdapter(run),
+      });
+
+      const result = await workspace.runCommand(
+        "grep -n 'needle value' source.txt",
+        5_000,
+        undefined,
+        {
+          authorization: "approved_attended",
+          workspaceAccess: "read_only",
+        },
+      );
+
+      expect(result).toMatchObject({
+        exitCode: 0,
+        execution: {
+          authorization: "approved_attended",
+          containment: "verified_native",
+          effectiveProcessLimit: 1,
+        },
+      });
+      expect(run).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: expect.objectContaining({
+            executable: "/usr/bin/grep",
+            arguments: ["-n", "needle value", "source.txt"],
+          }),
+          network: expect.objectContaining({ policy: "deny" }),
+          limits: expect.objectContaining({ processCount: 1 }),
+          resources: expect.arrayContaining([
+            expect.objectContaining({
+              access: "read",
+              paths: [workspace.root],
+            }),
+          ]),
+        }),
+      );
+      expect(
+        run.mock.calls[0]?.[0].resources.some(
+          (resource) =>
+            resource.access === "read_write" &&
+            resource.paths.includes(workspace.root),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("blocks shell redirection before invoking a read-only sandbox adapter", async () => {
+    const root = await temporaryDirectory();
+    const run = vi.fn<NativeSandboxAdapter["run"]>();
+    const workspace = new Workspace(root, {
+      nativeSandboxAdapter: verifiedTestAdapter(run),
+    });
+
+    await expect(
+      workspace.runCommand(
+        "printf pre-gate > escaped.txt",
+        5_000,
+        undefined,
+        {
+          authorization: "approved_attended",
+          workspaceAccess: "read_only",
+        },
+      ),
+    ).rejects.toThrow(/Pre-gate command blocked \[shell_syntax\]/);
+    expect(run).not.toHaveBeenCalled();
+    await expect(stat(join(root, "escaped.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("fails closed when pre-gate read-only containment is unavailable", async () => {
+    const root = await temporaryDirectory();
+    const workspace = new Workspace(root, { nativeSandboxAdapter: null });
+
+    await expect(
+      workspace.runCommand("pwd", 5_000, undefined, {
+        authorization: "approved_attended",
+        workspaceAccess: "read_only",
+      }),
+    ).rejects.toThrow(
+      /Pre-gate read-only command refused by native containment/,
+    );
+  });
+
   it("binds unattended execution to staged resources, denies secrets/network, and labels the receipt", async () => {
     const root = await temporaryDirectory();
     await writeFile(join(root, ".env"), "HOST_ONLY=value\n");

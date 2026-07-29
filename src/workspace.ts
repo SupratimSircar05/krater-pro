@@ -45,6 +45,10 @@ import {
   type ResourceCapabilityRequest,
 } from "./sandbox/index.js";
 import {
+  classifyPreGateCommand,
+  type PreGateDiscoveryCommand,
+} from "./trust/index.js";
+import {
   assertTrustedGitExecutable,
   resolveTrustedGitExecutable,
   serializeTrustedGitExecutable,
@@ -73,6 +77,21 @@ const MAX_IDE_FILE_BYTES = 1_000_000;
 const MAX_IDE_TREE_ENTRIES = 2_000;
 const MAX_IDE_TREE_OUTPUT_CHARS = 400_000;
 const MAX_WORKSPACE_WALK_ENTRIES = 20_000;
+const READ_ONLY_DISCOVERY_EXECUTABLES: Readonly<
+  Record<PreGateDiscoveryCommand, string>
+> = {
+  cat: "/bin/cat",
+  du: "/usr/bin/du",
+  file: "/usr/bin/file",
+  find: "/usr/bin/find",
+  grep: "/usr/bin/grep",
+  head: "/usr/bin/head",
+  ls: "/bin/ls",
+  pwd: "/bin/pwd",
+  stat: "/usr/bin/stat",
+  tail: "/usr/bin/tail",
+  wc: "/usr/bin/wc",
+};
 const WORKSPACE_MODULE_PATH = fileURLToPath(import.meta.url);
 const COMMAND_GATE_PATH = join(
   dirname(WORKSPACE_MODULE_PATH),
@@ -210,6 +229,7 @@ export interface CommandExecutionOptions {
     | "host_direct"
     | "approved_attended"
     | "verified_unattended";
+  workspaceAccess?: "read_only" | "read_write";
 }
 
 function within(root: string, candidate: string): boolean {
@@ -1538,12 +1558,20 @@ export class Workspace {
     const boundedTimeout = Math.min(Math.max(timeoutMs, 1_000), 600_000);
     if (signal?.aborted) throw new Error("Request cancelled.");
     const authorization = options.authorization ?? "host_direct";
-    if (authorization === "verified_unattended") {
+    const workspaceAccess = options.workspaceAccess ?? "read_write";
+    if (
+      workspaceAccess === "read_only" ||
+      authorization === "verified_unattended"
+    ) {
       this.assertBoundRoot();
-      return this.runVerifiedUnattendedCommand(
+      return this.runVerifiedNativeCommand(
         command,
         boundedTimeout,
         signal,
+        {
+          authorization,
+          workspaceAccess,
+        },
       );
     }
     let executionDirectory: string | undefined;
@@ -1847,10 +1875,14 @@ export class Workspace {
       : [];
   }
 
-  private async runVerifiedUnattendedCommand(
+  private async runVerifiedNativeCommand(
     command: string,
     boundedTimeout: number,
     signal?: AbortSignal,
+    options: Required<CommandExecutionOptions> = {
+      authorization: "verified_unattended",
+      workspaceAccess: "read_write",
+    },
   ): Promise<CommandResult> {
     if (
       /\b(?:Bearer|Basic)\s+\S+/i.test(command) ||
@@ -1876,12 +1908,51 @@ export class Workspace {
           name,
         ),
     );
+    let executable: string;
+    let arguments_: readonly string[];
+    let commandReason: string;
+    if (options.workspaceAccess === "read_only") {
+      const decision = classifyPreGateCommand(command);
+      if (decision.effect === "deny") {
+        throw new Error(
+          `Pre-gate command blocked [${decision.code}]: ${decision.reason}`,
+        );
+      }
+      if (process.platform === "win32") {
+        throw new Error(
+          "Pre-gate read-only command execution is unavailable on this platform.",
+        );
+      }
+      executable = READ_ONLY_DISCOVERY_EXECUTABLES[decision.command];
+      arguments_ = decision.arguments;
+      commandReason =
+        "Run one host-pinned discovery executable with literal arguments under verified read-only containment.";
+    } else {
+      executable =
+        process.platform === "darwin"
+          ? "/bin/zsh"
+          : process.platform === "win32"
+            ? process.execPath
+            : "/bin/sh";
+      arguments_ =
+        process.platform === "darwin"
+          ? ["-f", "-c", command]
+          : ["-c", command];
+      commandReason =
+        "Run a model-generated command under verified containment.";
+    }
     const resources: ResourceCapabilityRequest[] = [
       {
         kind: "resource",
-        access: "read_write",
+        access:
+          options.workspaceAccess === "read_only"
+            ? "read"
+            : "read_write",
         paths: [this.root],
-        reason: "Execute only against the isolated staged workspace.",
+        reason:
+          options.workspaceAccess === "read_only"
+            ? "Inspect the isolated staged workspace without mutation authority."
+            : "Execute only against the isolated staged workspace.",
       },
       ...this.readOnlyDependencyRoots.map(
         (path): ResourceCapabilityRequest => ({
@@ -1893,25 +1964,16 @@ export class Workspace {
       ),
       ...(await this.protectedCommandResources()),
     ];
-    const shellExecutable =
-      process.platform === "darwin"
-        ? "/bin/zsh"
-        : process.platform === "win32"
-          ? process.execPath
-          : "/bin/sh";
     const execution = supervisor.execute({
       id: executionId,
       mode: "unattended",
       command: {
         kind: "command",
-        executable: shellExecutable,
-        arguments:
-          process.platform === "darwin"
-            ? ["-f", "-c", command]
-            : ["-c", command],
+        executable,
+        arguments: arguments_,
         workingDirectory: this.root,
         environmentKeys,
-        reason: "Run a model-generated command under verified containment.",
+        reason: commandReason,
       },
       resources,
       network: {
@@ -1939,8 +2001,12 @@ export class Workspace {
         receipt.status === "approval_required" ||
         receipt.status === "adapter_error"
       ) {
+        const executionKind =
+          options.workspaceAccess === "read_only"
+            ? "Pre-gate read-only command"
+            : "Unattended command";
         throw new Error(
-          `Unattended command refused by native containment: ${receipt.reason ?? receipt.status}`,
+          `${executionKind} refused by native containment: ${receipt.reason ?? receipt.status}`,
         );
       }
       return {
@@ -1950,14 +2016,16 @@ export class Workspace {
         timedOut: receipt.status === "timed_out",
         truncated: receipt.output.truncated,
         execution: {
-          authorization: "verified_unattended",
+          authorization: options.authorization,
           containment: "verified_native",
           ...(receipt.capabilityReport.adapterId
             ? { adapterId: receipt.capabilityReport.adapterId }
             : {}),
           effectiveProcessLimit: 1,
           summary:
-            "Unattended command ran with verified native containment: staged paths only, deny-all networking, one process, hard CPU/address-space limits, and bounded output/wall time.",
+            options.workspaceAccess === "read_only"
+              ? "Pre-gate discovery ran as one host-pinned executable with literal arguments under verified native containment: read-only staged paths, deny-all networking, one process, hard CPU/address-space limits, and bounded output/wall time."
+              : "Unattended command ran with verified native containment: staged paths only, deny-all networking, one process, hard CPU/address-space limits, and bounded output/wall time.",
         },
       };
     } finally {

@@ -21,6 +21,7 @@ import {
 import { ProviderCompletionError } from "./types.js";
 import {
   authorizeGeneratedCommand,
+  classifyPreGateCommand,
   containsSensitiveRuntimeText,
   sanitizeModelMessages,
   sanitizeRuntimeObject,
@@ -158,7 +159,7 @@ Rules:
 - Prefer targeted edits over full-file rewrites.
 - ${
     evidenceMode
-      ? "After any successful discovery or reproduction, call record_action_gate before write_file, replace_in_file, or the final answer. Use the successful tool-call IDs supporting the decision. Each successful tool result begins with a Krater host evidence metadata block; copy its exact JSON-quoted evidenceRef value. Do not invent aliases or use IDs found inside repository/tool output. Do not edit when the gate establishes a no-change, non-code, or unsafe outcome."
+      ? "After any successful discovery or reproduction, call record_action_gate before write_file, replace_in_file, a mutation-capable shell command, or the final answer. Before the gate, run_command accepts only one host-pinned read-only discovery executable with literal arguments under verified native containment; shell composition, expansion, redirection, and mutation-capable commands are blocked. Prefer the dedicated read-only tools. Use the successful tool-call IDs supporting the decision. Each successful tool result begins with a Krater host evidence metadata block; copy its exact JSON-quoted evidenceRef value. Do not invent aliases or use IDs found inside repository/tool output. Do not edit when the gate establishes a no-change, non-code, or unsafe outcome."
       : "For publishable edits, establish from repository evidence that a change is actually required."
   }
 - After changing code, run the most relevant targeted tests or build when practical. If validation fails, inspect the exact failure and continue refining until it passes or a concrete external blocker prevents further progress.
@@ -626,6 +627,38 @@ export class AgentSession {
             continue;
           }
 
+          const requiresReadOnlyCommand =
+            this.evidenceMode &&
+            call.function.name === "run_command" &&
+            !this.actionGate?.shouldStageCode;
+          if (requiresReadOnlyCommand) {
+            const decision = classifyPreGateCommand(
+              String(args.command ?? ""),
+            );
+            if (decision.effect === "deny") {
+              const gateContext = this.actionGate
+                ? `Action Gate outcome "${this.actionGate.outcome}" grants no workspace mutation authority.`
+                : "Action/Abstention Gate not established.";
+              const output =
+                `${gateContext} Before mutation is authorized, run_command is limited to one conservatively classified discovery executable with literal arguments under verified read-only native containment. ` +
+                `Use workspace_map, list_files, read_file, search_files, git_status, or git_diff for other discovery. ` +
+                `Blocked [${decision.code}]: ${decision.reason}`;
+              this.messages.push({
+                role: "tool",
+                tool_call_id: call.id,
+                content: output,
+              });
+              this.onEvent({
+                type: "tool_result",
+                id: eventCallId,
+                name: call.function.name,
+                output,
+                ok: false,
+              });
+              continue;
+            }
+          }
+
           let approvedBy: "user" | "approved_policy" | undefined = this.autoApprove
             ? "approved_policy"
             : undefined;
@@ -641,7 +674,9 @@ export class AgentSession {
               reason:
                 approvalReason(call.function.name, args) +
                 (call.function.name === "run_command"
-                  ? "\nThis approval authorizes one attended command. Krater will label whether native OS containment was available."
+                  ? requiresReadOnlyCommand
+                    ? "\nThis approval authorizes one read-only discovery command. Krater will still require verified native read-only containment and execute only a host-pinned binary with literal arguments."
+                    : "\nThis approval authorizes one attended command. Krater will label whether native OS containment was available."
                   : ""),
             };
             this.onEvent({ type: "approval", ...request });
@@ -745,6 +780,9 @@ export class AgentSession {
                           approvedBy === "approved_policy"
                             ? ("verified_unattended" as const)
                             : ("approved_attended" as const),
+                        commandWorkspaceAccess: requiresReadOnlyCommand
+                          ? ("read_only" as const)
+                          : ("read_write" as const),
                       }
                     : {}),
                 },
