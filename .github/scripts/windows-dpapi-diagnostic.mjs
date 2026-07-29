@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 if (process.platform !== "win32") {
   throw new Error("This diagnostic is Windows-only.");
@@ -24,9 +24,23 @@ const args = [
   Buffer.from(script, "utf16le").toString("base64"),
 ];
 
+const systemDirectory = realpathSync.native(
+  String.raw`\\?\GLOBALROOT\SystemRoot\System32`,
+);
+const commandProcessor = realpathSync.native(
+  String.raw`\\?\GLOBALROOT\SystemRoot\System32\cmd.exe`,
+);
+const systemRoot = dirname(systemDirectory);
+const auditedEnvironment = {
+  SystemRoot: systemRoot,
+  WINDIR: systemRoot,
+  ComSpec: commandProcessor,
+  PSModulePath: join(dirname(executable), "Modules"),
+};
+
 for (const [label, environment] of [
+  ["audited", auditedEnvironment],
   ["inherited", process.env],
-  ["empty", {}],
 ]) {
   const startedAt = Date.now();
   const result = spawnSync(executable, args, {

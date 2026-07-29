@@ -87,11 +87,19 @@ import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 describe("Windows credential executable launch", () => {
   it.runIf(process.platform === "win32")(
-    "uses canonical PowerShell, a trusted cwd, and no caller environment",
+    "uses canonical PowerShell and only audited runtime paths",
     async () => {
       observedLaunches.asynchronous.length = 0;
       observedLaunches.synchronous.length = 0;
       const expected = windowsSystemExecutable("powershell.exe");
+      const expectedCommandProcessor = windowsSystemExecutable("cmd.exe");
+      const expectedSystemRoot = win32.dirname(
+        win32.dirname(expectedCommandProcessor),
+      );
+      const expectedModulePath = win32.join(
+        win32.dirname(expected),
+        "Modules",
+      );
       const previous = new Map(
         [
           "KRATER_API_KEY",
@@ -100,6 +108,7 @@ describe("Windows credential executable launch", () => {
           "SystemRoot",
           "WINDIR",
           "ComSpec",
+          "PSModulePath",
           "USERPROFILE",
           "APPDATA",
           "LOCALAPPDATA",
@@ -111,6 +120,7 @@ describe("Windows credential executable launch", () => {
       process.env.SystemRoot = String.raw`C:\attacker-controlled`;
       process.env.WINDIR = String.raw`C:\attacker-controlled`;
       process.env.ComSpec = String.raw`C:\attacker-controlled\cmd.exe`;
+      process.env.PSModulePath = String.raw`C:\attacker-controlled\modules`;
       process.env.USERPROFILE = String.raw`C:\Users\krater-ci`;
       process.env.APPDATA = String.raw`C:\Users\krater-ci\AppData\Roaming`;
       process.env.LOCALAPPDATA = String.raw`C:\Users\krater-ci\AppData\Local`;
@@ -140,7 +150,12 @@ describe("Windows credential executable launch", () => {
           expect(launch?.options.env).not.toHaveProperty("KRATER_API_KEY");
           expect(launch?.options.env).not.toHaveProperty("GITHUB_TOKEN");
           expect(launch?.options.env).not.toHaveProperty("PATH");
-          expect(launch?.options.env).toEqual({});
+          expect(launch?.options.env).toEqual({
+            SystemRoot: expectedSystemRoot,
+            WINDIR: expectedSystemRoot,
+            ComSpec: expectedCommandProcessor,
+            PSModulePath: expectedModulePath,
+          });
         }
       } finally {
         for (const [name, value] of previous) {
