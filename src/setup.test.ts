@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import {
   mkdtemp,
   readFile,
+  realpath,
   rm,
   stat,
   symlink,
@@ -11,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadConfig } from "./config.js";
 import {
   SETUP_REQUIRED_EXIT_CODE,
   isSetupRequiredError,
@@ -358,6 +360,53 @@ describe("setupWorkspace", () => {
       code: "ENOENT",
     });
   });
+
+  it("persists the selected trust dial only after credential validation", async () => {
+    const cwd = await temporaryDirectory();
+    const credentialValue = ["setup", "preferences", "verified"].join("-");
+
+    const result = await setupWorkspace({
+      overrides: { cwd },
+      environment: {},
+      credential: credentialValue,
+      validateCredential: true,
+      persistence: "none",
+      defaultAssurance: "high",
+      validator: async () => ({ verified: true, modelCount: 4 }),
+    });
+
+    expect(result.preferences).toMatchObject({
+      defaultAssurance: "high",
+      source: "workspace_preferences",
+      persisted: true,
+    });
+    expect(loadConfig({ cwd }, {})).toMatchObject({
+      defaultAssurance: "high",
+      defaultAssuranceSource: "workspace_preferences",
+    });
+    expect(
+      await readFile(join(cwd, ".krater", "preferences.json"), "utf8"),
+    ).not.toContain(credentialValue);
+  });
+
+  it("does not persist trust preferences when credential validation fails", async () => {
+    const cwd = await temporaryDirectory();
+
+    const result = await setupWorkspace({
+      overrides: { cwd },
+      environment: {},
+      credential: "setup-preferences-rejected",
+      validateCredential: true,
+      persistence: "none",
+      defaultAssurance: "fast",
+      validator: async () => ({ verified: false, modelCount: 0 }),
+    });
+
+    expect(result.status).toBe("verification_failed");
+    await expect(
+      readFile(join(cwd, ".krater", "preferences.json"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
 
 describe("setup CLI", () => {
@@ -376,6 +425,38 @@ describe("setup CLI", () => {
     await expect(readFile(join(cwd, ".env"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("selects an explicit existing initial project without mutating it", async () => {
+    const launch = await temporaryDirectory();
+    const project = await temporaryDirectory();
+
+    const result = await runCli([
+      "--cwd",
+      launch,
+      "--json",
+      "setup",
+      "--project",
+      project,
+      "--default-assurance",
+      "high",
+    ]);
+
+    expect(result.code).toBe(SETUP_REQUIRED_EXIT_CODE);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      cwd: await realpath(project),
+      project: {
+        path: await realpath(project),
+        selected: true,
+      },
+      preferences: {
+        defaultAssurance: "high",
+        persisted: false,
+      },
+    });
+    await expect(
+      readFile(join(project, ".krater", "preferences.json"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("returns setup_required before creating task state when a key is missing", async () => {

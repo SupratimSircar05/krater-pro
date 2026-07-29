@@ -12,6 +12,7 @@ export interface ToolExecutionOptions {
     | "host_direct"
     | "approved_attended"
     | "verified_unattended";
+  commandWorkspaceAccess?: "read_only" | "read_write";
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -382,6 +383,8 @@ export async function executeTool(
           {
             authorization:
               options.commandAuthorization ?? "host_direct",
+            workspaceAccess:
+              options.commandWorkspaceAccess ?? "read_write",
           },
         );
         const pieces = [

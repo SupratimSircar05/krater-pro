@@ -8,6 +8,8 @@ krater \- evidence-native coding agent powered by the Krater API
 .B krater setup
 [\fIOPTIONS\fR]
 .br
+.B krater setup --project \fIPATH\fR --default-assurance fast|standard|high
+.br
 .B krater doctor
 [\fB--json\fR] [\fB--live\fR]
 .SH DESCRIPTION
@@ -17,7 +19,10 @@ local. Krater inference requires network access and a Krater-issued credential.
 .SH FIRST RUN
 Run \fBkrater setup\fR in the project you want to use. The interactive setup
 accepts the credential without terminal echo and prefers the operating-system
-credential store. Run \fBkrater doctor\fR to validate local readiness.
+credential store. \fB--project\fR selects an existing initial project.
+\fB--default-assurance\fR stores the non-secret trust dial in protected
+project-local state only after credential validation. Run \fBkrater doctor\fR
+to validate local readiness.
 .SH COMMON COMMANDS
 .TP
 .B krater setup

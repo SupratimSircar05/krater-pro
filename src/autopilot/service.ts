@@ -31,6 +31,11 @@ export type ProofObligationInput = Omit<ProofObligation, "schemaVersion">;
 export interface TaskPlanRevisionInput {
   id: string;
   taskId: string;
+  /**
+   * Optional optimistic-concurrency guard for host APIs. When supplied, the
+   * revision is rejected unless it still extends this exact durable plan.
+   */
+  expectedPreviousPlanDigest?: TaskPlan["digest"];
   status: TaskPlan["status"];
   objective: string;
   contractDigest?: TaskPlan["contractDigest"];
@@ -91,6 +96,14 @@ export class VerifiedAutopilotService {
   async revisePlan(input: TaskPlanRevisionInput): Promise<TaskPlan> {
     const projection = await this.#store.task(input.taskId);
     const previous = projection.autopilot.currentPlan;
+    if (
+      input.expectedPreviousPlanDigest !== undefined &&
+      previous?.digest !== input.expectedPreviousPlanDigest
+    ) {
+      throw new Error(
+        "The task plan changed after it was opened. Reload before revising it.",
+      );
+    }
     const revisedAt = input.revisedAt ?? this.#now().toISOString();
     const plan = createTaskPlan({
       schemaVersion: AUTOPILOT_SCHEMA_VERSION,

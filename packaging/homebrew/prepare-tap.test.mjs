@@ -88,6 +88,11 @@ describe("Homebrew tap preparation", () => {
     expect(workflow).toContain("macos-26");
     expect(workflow).toContain("ubuntu-latest");
     expect(workflow).toContain("brew test-bot --only-formulae");
+    expect(workflow).toContain("Detect a staged CLI formula");
+    expect(workflow).toContain("Detect a staged desktop cask");
+    expect(workflow).toContain(
+      "steps.package.outputs.present == 'true'",
+    );
     expect(workflow).toContain(
       "--root-url=https://ghcr.io/v2/supratimsircar05/tap",
     );
@@ -100,5 +105,7 @@ describe("Homebrew tap preparation", () => {
       }
     }
     expect(workflow).not.toMatch(/password|api[_-]?key/iu);
+    expect(readme).toContain("Linux, and WSL 2");
+    expect(readme).toContain("signed WinGet package");
   });
 });

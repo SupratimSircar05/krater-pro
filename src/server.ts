@@ -17,6 +17,7 @@ import {
   type AgentContinuitySnapshot,
 } from "./agent.js";
 import {
+  evaluateProofLease,
   VerifiedAutopilotService,
   type PlanStepInput,
   type ProofObligationInput,
@@ -55,7 +56,11 @@ import {
   renderPassportMarkdown,
 } from "./evidence-runtime.js";
 import {
+  canonicalStringify,
   isSha256Digest,
+  sha256Digest,
+  type TaskContract,
+  type TaskInterpretation,
   verifyChangePassport,
   verifyEvidenceCapsule,
 } from "./proofgraph/index.js";
@@ -151,6 +156,9 @@ const MAX_MERGE_TOUCHES_PER_KIND = 256;
 const MAX_MERGE_TOTAL_TOUCHES = 4_096;
 const MAX_SEMANTIC_IDENTIFIER_BYTES = 256;
 const MAX_SEMANTIC_VALUE_BYTES = 512;
+const MAX_CLARIFICATION_ANSWER_BYTES = 4_096;
+const PLAN_APPROVAL_TOKEN_TTL_MS = 5 * 60 * 1_000;
+const MAX_PLAN_APPROVAL_TOKENS = 256;
 const MERGE_FORECAST_LIMITATIONS = [
   "Forecasts only the caller-supplied semantic descriptors.",
   "Does not inspect Git branches, diffs, source files, schemas, or runtime state.",
@@ -822,6 +830,119 @@ function strictRequestObject(
   return object;
 }
 
+function boundedRequestText(
+  value: unknown,
+  label: string,
+  maximumBytes: number,
+): string {
+  const text = requestExactString(value, label);
+  if (Buffer.byteLength(text, "utf8") > maximumBytes) {
+    throw new Error(`${label} must be at most ${maximumBytes} UTF-8 bytes.`);
+  }
+  return text;
+}
+
+function compatibilityId(prefix: string, ...parts: string[]): string {
+  const hash = createHash("sha256");
+  for (const part of parts) hash.update(part).update("\0");
+  return `${prefix}:${hash.digest("hex").slice(0, 24)}`;
+}
+
+function selectedInterpretation(
+  contract: TaskContract,
+  answer: string,
+): TaskInterpretation {
+  const numeric = /^[1-9][0-9]*$/.test(answer) ? Number(answer) : undefined;
+  const existing =
+    contract.interpretations.find(
+      (interpretation) =>
+        interpretation.id === answer ||
+        interpretation.description.toLowerCase() === answer.toLowerCase(),
+    ) ??
+    (numeric === undefined ? undefined : contract.interpretations[numeric - 1]);
+  return (
+    existing ?? {
+      id: compatibilityId(
+        "interpretation",
+        contract.taskId,
+        "user-clarification",
+        answer,
+      ),
+      description: answer,
+      selected: true,
+    }
+  );
+}
+
+function planStepsForRevision(plan: TaskPlan): PlanStepInput[] {
+  return plan.steps.map(({ schemaVersion: _schemaVersion, ...step }) => step);
+}
+
+function planObligationsForRevision(
+  plan: TaskPlan,
+  previousContractDigest?: string,
+  nextContractDigest?: `sha256:${string}`,
+): ProofObligationInput[] {
+  return plan.proofObligations.map(
+    ({ schemaVersion: _schemaVersion, ...obligation }) => ({
+      ...obligation,
+      scopeDigests: obligation.scopeDigests.map((digest) =>
+        previousContractDigest &&
+        nextContractDigest &&
+        digest === previousContractDigest
+          ? nextContractDigest
+          : digest,
+      ),
+    }),
+  );
+}
+
+async function approveExactTaskPlan(
+  projectPath: string,
+  taskId: string,
+  expectedPlanDigest: `sha256:${string}`,
+  reason?: string,
+): Promise<{ plan: TaskPlan; idempotent: boolean }> {
+  const store = await openEvidenceStore(projectPath);
+  const projection = await store.task(taskId);
+  const current = projection.autopilot.currentPlan;
+  if (!current) {
+    throw new Error("This task has no executable plan.");
+  }
+  if (expectedPlanDigest !== current.digest) {
+    throw new Error(
+      "The task plan changed after it was opened. Reload before approving it.",
+    );
+  }
+  if (current.status === "approved") {
+    return { plan: current, idempotent: true };
+  }
+  if (
+    current.status === "closed" ||
+    current.status === "completed" ||
+    current.status === "cancelled"
+  ) {
+    throw new Error(`A ${current.status} task plan cannot be approved.`);
+  }
+  const plan = await new VerifiedAutopilotService(store).revisePlan({
+    id: current.id,
+    taskId,
+    expectedPreviousPlanDigest: current.digest,
+    status: "approved",
+    objective: current.objective,
+    ...(current.contractDigest
+      ? { contractDigest: current.contractDigest }
+      : {}),
+    steps: planStepsForRevision(current),
+    proofObligations: planObligationsForRevision(current),
+    revisedBy: "user",
+    revisedAt: new Date().toISOString(),
+    revisionReason:
+      reason ?? "The user approved this exact plan revision.",
+  });
+  return { plan, idempotent: false };
+}
+
 function boundedSemanticValue(
   value: unknown,
   label: string,
@@ -1247,6 +1368,57 @@ export async function createApp(
     string,
     { expiresAt: number; models: AvailableModel[] }
   >();
+  const planApprovalTokens = new Map<
+    string,
+    {
+      token: string;
+      planDigest: `sha256:${string}`;
+      expiresAt: number;
+    }
+  >();
+  const planApprovalTokenKey = (projectId: string, taskId: string): string =>
+    `${projectId}\0${taskId}`;
+  const issuePlanApprovalToken = (
+    projectId: string,
+    taskId: string,
+    planDigest: `sha256:${string}`,
+  ): { token: string; expiresAt: string } => {
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = Date.now() + PLAN_APPROVAL_TOKEN_TTL_MS;
+    planApprovalTokens.set(planApprovalTokenKey(projectId, taskId), {
+      token,
+      planDigest,
+      expiresAt,
+    });
+    while (planApprovalTokens.size > MAX_PLAN_APPROVAL_TOKENS) {
+      const oldest = planApprovalTokens.keys().next().value;
+      if (typeof oldest !== "string") break;
+      planApprovalTokens.delete(oldest);
+    }
+    return { token, expiresAt: new Date(expiresAt).toISOString() };
+  };
+  const consumePlanApprovalToken = (
+    projectId: string,
+    taskId: string,
+    planDigest: `sha256:${string}`,
+    candidate: string,
+  ): boolean => {
+    const key = planApprovalTokenKey(projectId, taskId);
+    const issued = planApprovalTokens.get(key);
+    if (!issued) return false;
+    if (issued.expiresAt <= Date.now()) {
+      planApprovalTokens.delete(key);
+      return false;
+    }
+    if (
+      issued.planDigest !== planDigest ||
+      !secureEqual(candidate, issued.token)
+    ) {
+      return false;
+    }
+    planApprovalTokens.delete(key);
+    return true;
+  };
   const loadModels = async (
     apiKey: string,
     signal?: AbortSignal,
@@ -1489,6 +1661,7 @@ export async function createApp(
     terminalControllers.clear();
     disposeSessions();
     modelCache.clear();
+    planApprovalTokens.clear();
     await closeDevelopmentServer?.();
   };
   app.disable("x-powered-by");
@@ -2006,7 +2179,7 @@ export async function createApp(
     try {
       const body = requestObject(request.body, "Task");
       const taskRequest = requestString(body.request, 'Task "request"');
-      const assurance = body.assurance ?? "standard";
+      const assurance = body.assurance ?? config.defaultAssurance;
       if (
         assurance !== "fast" &&
         assurance !== "standard" &&
@@ -2078,6 +2251,91 @@ export async function createApp(
     }
   });
 
+  app.get("/api/v2/leases", async (request, response) => {
+    if (Object.keys(request.query).some((key) => key !== "projectId")) {
+      sendError(
+        response,
+        400,
+        'Proof lease index supports only the optional "projectId" query parameter.',
+      );
+      return;
+    }
+    const project = optionalCurrentProject(request, response, "Proof lease");
+    if (!project) return;
+    try {
+      const now = new Date().toISOString();
+      const projections = await (await openEvidenceStore(project.path)).tasks();
+      const leases = [...projections.values()]
+        .flatMap((projection) =>
+          projection.autopilot.proofLeases.map((lease) => {
+            const validity = evaluateProofLease(
+              lease,
+              projection.autopilot,
+              {
+                taskId: projection.taskId,
+                planDigest:
+                  projection.autopilot.currentPlan?.digest ?? lease.planDigest,
+                subjectDigest: lease.subjectDigest,
+                environmentDigest: lease.environmentDigest,
+                policyDigest: lease.policyDigest,
+                toolchainDigest: lease.toolchainDigest,
+                now,
+              },
+            );
+            const latestProductionObservation =
+              projection.autopilot.productionObservations
+                .filter(
+                  (observation) =>
+                    observation.subjectDigest === lease.subjectDigest &&
+                    Date.parse(observation.observedAt) >=
+                      Date.parse(lease.issuedAt),
+                )
+                .sort(
+                  (left, right) =>
+                    Date.parse(right.observedAt) -
+                    Date.parse(left.observedAt),
+                )[0];
+            const observationExpired =
+              latestProductionObservation?.validUntil !== undefined &&
+              Date.parse(latestProductionObservation.validUntil) <=
+                Date.parse(now);
+            const proofState =
+              latestProductionObservation?.status === "failed" ||
+              latestProductionObservation?.status === "degraded"
+                ? "contradicted"
+                : !validity.valid || observationExpired
+                  ? "needs_recheck"
+                  : latestProductionObservation?.status === "healthy"
+                    ? "verified"
+                    : "unmonitored";
+            return {
+              taskId: projection.taskId,
+              lease,
+              validity,
+              proofState,
+              ...(latestProductionObservation
+                ? { latestProductionObservation }
+                : {}),
+            };
+          }),
+        )
+        .sort(
+          (left, right) =>
+            Date.parse(right.lease.issuedAt) -
+            Date.parse(left.lease.issuedAt),
+        );
+      response.json({
+        leases,
+        activeMonitoring: false,
+        observedAt: now,
+        note:
+          "This is a read-only snapshot of locally recorded ProofGraph leases and observations. It does not poll production or start monitoring.",
+      });
+    } catch (error) {
+      sendError(response, 500, (error as Error).message);
+    }
+  });
+
   app.get("/api/v2/tasks/:taskId/plan", async (request, response) => {
     const project = optionalCurrentProject(request, response, "Task");
     if (!project) return;
@@ -2085,12 +2343,194 @@ export async function createApp(
       const projection = await (
         await openEvidenceStore(project.path)
       ).task(request.params.taskId);
-      response.json(projection.autopilot);
+      const current = projection.autopilot.currentPlan;
+      if (!current) {
+        sendError(response, 409, "This task has no executable plan.");
+        return;
+      }
+      const approval = issuePlanApprovalToken(
+        project.id,
+        request.params.taskId,
+        current.digest,
+      );
+      response.setHeader("Cache-Control", "no-store");
+      response.json({
+        ...projection.autopilot,
+        approval: {
+          plan_hash: current.digest,
+          token: approval.token,
+          expiresAt: approval.expiresAt,
+          oneTime: true,
+        },
+      });
     } catch (error) {
       const message = (error as Error).message;
       sendError(
         response,
         /does not exist|not found|ENOENT/i.test(message) ? 404 : 500,
+        message,
+      );
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/clarify", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Clarification");
+    if (!project) return;
+    try {
+      const body = strictRequestObject(request.body, "Clarification", [
+        "answer",
+        "expectedPlanDigest",
+      ]);
+      const answer = boundedRequestText(
+        body.answer,
+        'Clarification "answer"',
+        MAX_CLARIFICATION_ANSWER_BYTES,
+      );
+      const store = await openEvidenceStore(project.path);
+      const projection = await store.task(request.params.taskId);
+      const current = projection.autopilot.currentPlan;
+      if (!current) {
+        sendError(response, 409, "This task has no executable plan.");
+        return;
+      }
+      const expectedPlanDigest =
+        body.expectedPlanDigest === undefined
+          ? current.digest
+          : requestDigest(
+              body.expectedPlanDigest,
+              'Clarification "expectedPlanDigest"',
+            );
+      if (expectedPlanDigest !== current.digest) {
+        sendError(
+          response,
+          409,
+          "The task plan changed after it was opened. Reload before clarifying it.",
+        );
+        return;
+      }
+
+      const selected = selectedInterpretation(projection.contract, answer);
+      const knownSelection = projection.contract.interpretations.some(
+        (interpretation) => interpretation.id === selected.id,
+      );
+      const interpretations = projection.contract.interpretations.map(
+        (interpretation) => ({
+          ...interpretation,
+          selected: interpretation.id === selected.id,
+        }),
+      );
+      if (!knownSelection) {
+        interpretations.push({ ...selected, selected: true });
+      }
+      const nextContract: TaskContract = {
+        ...projection.contract,
+        interpretations,
+      };
+      const nextContractDigest = sha256Digest(
+        canonicalStringify(nextContract),
+      ) as `sha256:${string}`;
+      const selectionAlreadyApplied =
+        current.objective === selected.description &&
+        current.contractDigest === nextContractDigest;
+
+      if (
+        projection.state !== "clarification" &&
+        !(projection.state === "reproduction" && selectionAlreadyApplied)
+      ) {
+        sendError(
+          response,
+          409,
+          `Task ${request.params.taskId} is ${projection.state}; clarification answers are accepted only while a clarification is pending.`,
+        );
+        return;
+      }
+
+      const occurredAt = new Date().toISOString();
+      const previousContractDigest = current.contractDigest;
+      if (
+        sha256Digest(canonicalStringify(projection.contract)) !==
+        nextContractDigest
+      ) {
+        await store.append({
+          taskId: request.params.taskId,
+          kind: "contract.set",
+          payload: { contract: nextContract },
+          occurredAt,
+        });
+      }
+
+      const plan = selectionAlreadyApplied
+        ? current
+        : await new VerifiedAutopilotService(store).revisePlan({
+            id: current.id,
+            taskId: request.params.taskId,
+            expectedPreviousPlanDigest: current.digest,
+            status: current.status === "approved" ? "active" : current.status,
+            objective: selected.description,
+            contractDigest: nextContractDigest,
+            steps: planStepsForRevision(current),
+            proofObligations: planObligationsForRevision(
+              current,
+              previousContractDigest,
+              nextContractDigest,
+            ),
+            revisedBy: "user",
+            revisedAt: occurredAt,
+            revisionReason: `User clarification selected interpretation ${selected.id}.`,
+          });
+
+      const afterRevision = await store.task(request.params.taskId);
+      if (afterRevision.state === "clarification") {
+        await store.append({
+          taskId: request.params.taskId,
+          kind: "task.state.changed",
+          payload: {
+            from: "clarification",
+            to: "reproduction",
+            reason:
+              "The pending clarification was answered and compiled into the durable task plan.",
+          },
+          occurredAt,
+        });
+      } else if (afterRevision.state !== "reproduction") {
+        throw new Error(
+          `Task state changed to ${afterRevision.state} while the clarification was being recorded.`,
+        );
+      }
+      const updated = await store.task(request.params.taskId);
+      response.json({
+        plan,
+        planDiff: {
+          fromDigest: current.digest,
+          toDigest: plan.digest,
+          fromRevision: current.revision,
+          toRevision: plan.revision,
+          objective: {
+            before: current.objective,
+            after: plan.objective,
+          },
+          contractChanged:
+            previousContractDigest !== nextContractDigest,
+          selectedInterpretation: {
+            id: selected.id,
+            description: selected.description,
+          },
+        },
+        taskState: updated.state,
+        idempotent: selectionAlreadyApplied,
+        executionStarted: false,
+        note:
+          "The answer updated the durable contract and plan only. It did not execute tools or mutate the workspace.",
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /changed|pending|state|current|revision/i.test(message)
+            ? 409
+            : 400,
         message,
       );
     }
@@ -2313,61 +2753,30 @@ export async function createApp(
     const project = optionalCurrentProject(request, response, "Task");
     if (!project) return;
     try {
-      const body = requestObject(request.body, "Task plan approval");
-      const store = await openEvidenceStore(project.path);
-      const projection = await store.task(request.params.taskId);
-      const current = projection.autopilot.currentPlan;
-      if (!current) {
-        sendError(response, 409, "This task has no executable plan.");
-        return;
-      }
-      const expectedPlanDigest = requestString(
+      const body = strictRequestObject(request.body, "Task plan approval", [
+        "expectedPlanDigest",
+        "reason",
+      ]);
+      const expectedPlanDigest = requestDigest(
         body.expectedPlanDigest,
         'Task plan approval "expectedPlanDigest"',
       );
-      if (expectedPlanDigest !== current.digest) {
-        sendError(
-          response,
-          409,
-          "The task plan changed after it was opened. Reload before approving it.",
-        );
-        return;
-      }
-      if (current.status === "approved") {
-        response.json({ plan: current, idempotent: true });
-        return;
-      }
-      if (
-        current.status === "closed" ||
-        current.status === "completed" ||
-        current.status === "cancelled"
-      ) {
-        sendError(
-          response,
-          409,
-          `A ${current.status} task plan cannot be approved.`,
-        );
-        return;
-      }
-      const { schemaVersion: _schemaVersion, digest: _digest, ...planBody } =
-        current;
-      const plan = await new VerifiedAutopilotService(store).revisePlan({
-        ...planBody,
-        steps: current.steps.map(
-          ({ schemaVersion: _version, ...step }) => step,
+      const reason =
+        body.reason === undefined
+          ? undefined
+          : boundedRequestText(
+              body.reason,
+              'Task plan approval "reason"',
+              1_000,
+            );
+      response.json(
+        await approveExactTaskPlan(
+          project.path,
+          request.params.taskId,
+          expectedPlanDigest,
+          reason,
         ),
-        proofObligations: current.proofObligations.map(
-          ({ schemaVersion: _version, ...obligation }) => obligation,
-        ),
-        status: "approved",
-        revisedBy: "user",
-        revisedAt: new Date().toISOString(),
-        revisionReason:
-          typeof body.reason === "string" && body.reason.trim()
-            ? body.reason.trim()
-            : "The user approved this exact plan revision.",
-      });
-      response.json({ plan, idempotent: false });
+      );
     } catch (error) {
       const message = (error as Error).message;
       sendError(
@@ -2375,6 +2784,74 @@ export async function createApp(
         /does not exist|not found|ENOENT/i.test(message)
           ? 404
           : /changed|cannot|revision|current/i.test(message)
+            ? 409
+            : 400,
+        message,
+      );
+    }
+  });
+
+  app.post("/api/v2/tasks/:taskId/approve", async (request, response) => {
+    const project = optionalCurrentProject(request, response, "Task");
+    if (!project) return;
+    try {
+      const body = strictRequestObject(
+        request.body,
+        "Compatibility task approval",
+        ["plan_hash", "token", "reason"],
+      );
+      const planHash = requestDigest(
+        body.plan_hash,
+        'Compatibility task approval "plan_hash"',
+      );
+      const token = boundedRequestText(
+        body.token,
+        'Compatibility task approval "token"',
+        256,
+      );
+      const reason =
+        body.reason === undefined
+          ? undefined
+          : boundedRequestText(
+              body.reason,
+              'Compatibility task approval "reason"',
+              1_000,
+            );
+      if (
+        !consumePlanApprovalToken(
+          project.id,
+          request.params.taskId,
+          planHash,
+          token,
+        )
+      ) {
+        sendError(
+          response,
+          409,
+          "The one-time plan approval token is invalid or expired. Reload the plan before approving it.",
+        );
+        return;
+      }
+      const result = await approveExactTaskPlan(
+        project.path,
+        request.params.taskId,
+        planHash,
+        reason,
+      );
+      response.json({
+        ...result,
+        executionStarted: false,
+        approvalMode: "authenticated_exact_plan_digest",
+        note:
+          "Approval is bound to the authenticated local session and exact durable plan digest. It does not execute the plan.",
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      sendError(
+        response,
+        /does not exist|not found|ENOENT/i.test(message)
+          ? 404
+          : /changed|cannot|revision|current|token|expired/i.test(message)
             ? 409
             : 400,
         message,
@@ -3436,7 +3913,7 @@ export async function createApp(
         : config.model;
     const assurance =
       request.body?.assurance === undefined
-        ? "standard"
+        ? config.defaultAssurance
         : request.body.assurance;
     if (!message) {
       sendError(response, 400, "Message cannot be empty.");

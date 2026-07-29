@@ -44,14 +44,21 @@ the model response. Commands:
 
 - `/help`: show the short command card;
 - `/clear`: clear any active task context before the next prompt;
-- `/contract`: show the latest outcome contract;
+- `/understood`: show the latest outcome contract (`/contract` remains an
+  alias);
+- `/plan`: show the current versioned executable plan;
 - `/assumptions`: show recorded assumptions;
-- `/evidence`: show the latest evidence verdict and gaps;
+- `/proof`: show the latest evidence verdict and gaps (`/evidence` remains an
+  alias);
 - `/why`: show claims and the known gaps behind the latest verdict;
 - `/publish`: publish the most recent reviewed ProofPatch, asking before
   accepting any evidence gaps;
-- `/rollback`: discard the most recent staged ProofPatch or restore its
-  published files; and
+- `/ship`: report structured GitHub/Cloudflare adapter readiness without
+  discovering ambient credentials or executing a raw-shell deployment;
+- `/watch`: show the locally recorded Proof Lease and production-observation
+  snapshot without claiming background monitoring;
+- `/undo`: discard the most recent staged ProofPatch or restore its published
+  files (`/rollback` remains an alias); and
 - `/exit` or `/quit`: close cleanly.
 
 Streaming text is printed immediately. Tool calls show their name and compact
@@ -116,6 +123,7 @@ as unresolved so the agent must verify it during discovery.
 ```sh
 krater setup
 krater setup --replace
+krater setup --project /path/to/project --default-assurance standard
 KRATER_API_KEY=... krater setup --non-interactive --no-open
 krater setup --env-fallback
 krater doctor
@@ -138,6 +146,12 @@ empty private template. Until a credential is configured, setup returns a
 
 `--replace` starts hidden input even when a credential is configured. The old
 value remains usable unless the replacement validates and persists.
+
+`--project` selects an existing directory for this setup run.
+`--default-assurance` persists the non-secret `fast`, `standard`, or `high`
+trust dial under that project's protected `.krater/` state only after
+credential validation. Per-invocation `--assurance` and `KRATER_ASSURANCE`
+still take precedence.
 
 `doctor` makes no network request by default. It checks the supported Node
 version, workspace access, safely loaded configuration, credential presence and source,

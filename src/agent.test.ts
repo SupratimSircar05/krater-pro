@@ -1,8 +1,19 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "./agent.js";
+import {
+  platformContainmentPrimitives,
+  type NativeSandboxAdapter,
+} from "./sandbox/index.js";
 import { ProviderCompletionError } from "./types.js";
 import type {
   AgentEvent,
@@ -82,6 +93,44 @@ async function temporaryDirectory(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), "krater-agent-"));
   temporaryPaths.push(path);
   return path;
+}
+
+function verifiedAgentTestAdapter(
+  run: NativeSandboxAdapter["run"],
+): NativeSandboxAdapter {
+  const primitives = platformContainmentPrimitives(process.platform);
+  return {
+    id: "verified-agent-test",
+    probe: async () => ({
+      platform:
+        process.platform === "darwin" ||
+        process.platform === "linux" ||
+        process.platform === "win32"
+          ? process.platform
+          : "unsupported",
+      verification: "verified",
+      availability: "available",
+      expectedPrimitives: primitives,
+      verifiedPrimitives: primitives,
+      controls: {
+        filesystemBoundary: true,
+        processIsolation: true,
+        networkDeny: true,
+        networkAllowlist: false,
+        cpuLimit: true,
+        memoryLimit: true,
+        wallTimeLimit: true,
+        processCountLimit: true,
+        outputLimit: true,
+      },
+      adapterId: "verified-agent-test",
+      supportsApprovedUncontainedExecution: false,
+      reason: "Verified fixture adapter.",
+      verifiedAt: "2026-07-29T00:00:00.000Z",
+    }),
+    run,
+    cancel: async () => undefined,
+  };
 }
 
 afterEach(async () => {
@@ -342,7 +391,7 @@ describe("AgentSession tool loop", () => {
     const cwd = await temporaryDirectory();
     const provider = new FakeProvider([
       toolTurn("uncontained", "run_command", {
-        command: 'node -e "require(\\"node:fs\\").writeFileSync(\\"escaped.txt\\", \\"unsafe\\")"',
+        command: "pwd",
       }),
       finalTurn(),
     ]);
@@ -365,13 +414,10 @@ describe("AgentSession tool loop", () => {
         role: "tool",
         tool_call_id: "uncontained",
         content: expect.stringContaining(
-          "Unattended command refused by native containment",
+          "Pre-gate read-only command refused by native containment",
         ),
       }),
     );
-    await expect(stat(join(cwd, "escaped.txt"))).rejects.toMatchObject({
-      code: "ENOENT",
-    });
   });
 
   it("labels a user-approved model command as attended", async () => {
@@ -831,6 +877,199 @@ describe("AgentSession tool loop", () => {
       reasons: ["The requested content is absent."],
       evidenceRefs: ["read-1"],
     });
+  });
+
+  it("blocks shell redirection before the Action Gate even under auto-approval", async () => {
+    const cwd = await temporaryDirectory();
+    const provider = new FakeProvider([
+      toolTurn("pre-gate-shell-write", "run_command", {
+        command: "printf pre-gate > pre_gate.txt",
+      }),
+      finalTurn("The unsafe command was rejected."),
+    ]);
+    const requestApproval = vi.fn(async () => true);
+    const events: AgentEvent[] = [];
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      autoApprove: true,
+      requestApproval,
+      onEvent: (event) => events.push(event),
+    });
+
+    await agent.run("Mutate the workspace before proving a change is needed");
+
+    expect(requestApproval).not.toHaveBeenCalled();
+    await expect(stat(join(cwd, "pre_gate.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(provider.calls[1].at(-1)).toEqual(
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "pre-gate-shell-write",
+        content: expect.stringMatching(
+          /Action\/Abstention Gate not established.*Blocked \[shell_syntax\]/,
+        ),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_result",
+        id: "pre-gate-shell-write",
+        ok: false,
+      }),
+    );
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "permits approved bounded discovery before the gate only under read-only native containment",
+    async () => {
+      const cwd = await temporaryDirectory();
+      await writeFile(join(cwd, "note.txt"), "needle value\n");
+      const run = vi.fn<NativeSandboxAdapter["run"]>(async () => ({
+        exitCode: 0,
+        terminationReason: "exit",
+        output: [{ stream: "stdout", data: "note.txt:1:needle value\n" }],
+        resourceUsage: { peakProcessCount: 1 },
+      }));
+      const provider = new FakeProvider([
+        toolTurn("pre-gate-discovery", "run_command", {
+          command: "grep -n 'needle value' note.txt",
+        }),
+        toolTurn("discovery-gate", "record_action_gate", {
+          outcome: "already_satisfied_no_change",
+          reasons: ["The requested value is already present."],
+          evidenceRefs: ["pre-gate-discovery"],
+        }),
+        finalTurn("No change is needed."),
+      ]);
+      const requestApproval = vi.fn(async () => true);
+      const canonicalCwd = await realpath(cwd);
+      const agent = new AgentSession({
+        provider,
+        cwd,
+        model: "test/model",
+        evidenceMode: true,
+        requestApproval,
+        nativeSandboxAdapter: verifiedAgentTestAdapter(run),
+      });
+
+      await agent.run("Check whether the value is present");
+
+      expect(requestApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolCallId: "pre-gate-discovery",
+          reason: expect.stringContaining(
+            "Krater will still require verified native read-only containment",
+          ),
+        }),
+      );
+      expect(provider.calls[1].at(-1)).toEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "pre-gate-discovery",
+          content: expect.stringContaining(
+            "approved_attended · verified_native",
+          ),
+        }),
+      );
+      expect(run).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: expect.objectContaining({
+            executable: "/usr/bin/grep",
+            arguments: ["-n", "needle value", "note.txt"],
+          }),
+          resources: expect.arrayContaining([
+            expect.objectContaining({
+              access: "read",
+              paths: [canonicalCwd],
+            }),
+          ]),
+        }),
+      );
+    },
+  );
+
+  it("keeps mutation blocked after a no-change Action Gate", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, "note.txt"), "already correct\n");
+    const provider = new FakeProvider([
+      toolTurn("no-change-evidence", "read_file", { path: "note.txt" }),
+      toolTurn("no-change-gate", "record_action_gate", {
+        outcome: "already_satisfied_no_change",
+        reasons: ["The requested state is already present."],
+        evidenceRefs: ["no-change-evidence"],
+      }),
+      toolTurn("post-no-change-write", "run_command", {
+        command: "touch after_no_change.txt",
+      }),
+      finalTurn("No change was made."),
+    ]);
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      autoApprove: true,
+    });
+
+    await agent.run("Verify the note and do not change it if correct");
+
+    await expect(
+      stat(join(cwd, "after_no_change.txt")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(provider.calls[3].at(-1)).toEqual(
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "post-no-change-write",
+        content: expect.stringMatching(
+          /already_satisfied_no_change.*Blocked \[unsupported_command\]/,
+        ),
+      }),
+    );
+  });
+
+  it("allows an attended mutation command after a change-authorizing Action Gate", async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, "note.txt"), "before\n");
+    const provider = new FakeProvider([
+      toolTurn("change-evidence", "read_file", { path: "note.txt" }),
+      toolTurn("change-gate", "record_action_gate", {
+        outcome: "change_required",
+        reasons: ["The requested output is absent."],
+        evidenceRefs: ["change-evidence"],
+      }),
+      toolTurn("post-gate-write", "run_command", {
+        command:
+          'node -e "require(\\"node:fs\\").writeFileSync(\\"after_gate.txt\\", \\"allowed\\")"',
+      }),
+      finalTurn(),
+    ]);
+    const requestApproval = vi.fn(async () => true);
+    const agent = new AgentSession({
+      provider,
+      cwd,
+      model: "test/model",
+      evidenceMode: true,
+      requestApproval,
+      nativeSandboxAdapter: null,
+    });
+
+    await agent.run("Create the requested output if evidence justifies it");
+
+    expect(await readFile(join(cwd, "after_gate.txt"), "utf8")).toBe(
+      "allowed",
+    );
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: "post-gate-write",
+        reason: expect.stringContaining(
+          "This approval authorizes one attended command",
+        ),
+      }),
+    );
   });
 
   it("suppresses a premature final answer and reminds the model to classify evidence", async () => {

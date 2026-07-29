@@ -485,6 +485,42 @@ describe("VerifiedAutopilotService", () => {
     ).toMatchObject({ valid: false, status: "invalidated" });
   });
 
+  it("rejects a plan revision based on a stale expected digest", async () => {
+    const store = await temporaryStore();
+    await createTask(store);
+    const service = new VerifiedAutopilotService(store);
+    const initialInputs = planInputs("task-1");
+    const initial = await service.revisePlan({
+      id: "plan-1",
+      taskId: "task-1",
+      status: "active",
+      objective: "Initial plan",
+      ...initialInputs,
+      revisedBy: "agent",
+      revisedAt: CREATED_AT,
+      revisionReason: "Initial executable plan",
+    });
+    const revisedInputs = planInputs("task-1", REVISED_AT);
+
+    await expect(
+      service.revisePlan({
+        id: initial.id,
+        taskId: "task-1",
+        expectedPreviousPlanDigest: digest("stale-plan"),
+        status: "approved",
+        objective: initial.objective,
+        ...revisedInputs,
+        revisedBy: "user",
+        revisedAt: REVISED_AT,
+        revisionReason: "Attempted approval from a stale view.",
+      }),
+    ).rejects.toThrow(/changed after it was opened/i);
+
+    const projection = await store.task("task-1");
+    expect(projection.autopilot.planRevisions).toEqual([initial]);
+    expect(projection.autopilot.proofLeaseInvalidations).toEqual([]);
+  });
+
   it("rejects undeclared effects, mismatched leases, and unredacted persistence", async () => {
     const store = await temporaryStore();
     await createTask(store);
