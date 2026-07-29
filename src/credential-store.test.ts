@@ -80,7 +80,10 @@ describe("credential store", () => {
       String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`,
     );
     const probeScript = decodedPowerShellCommand(probeArgs);
-    expect(probeScript).toContain("Add-Type -AssemblyName System.Security");
+    expect(probeScript).toContain(
+      "System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+    );
+    expect(probeScript).not.toContain("Add-Type");
     expect(probeScript).toContain("ProtectedData]::Protect");
     expect(probeScript).toContain("ProtectedData]::Unprotect");
   });
@@ -389,7 +392,10 @@ describe("credential store", () => {
     );
     expect(backendArgs).toContain("-EncodedCommand");
     const backendScript = decodedPowerShellCommand(backendArgs ?? []);
-    expect(backendScript).toContain("Add-Type -AssemblyName System.Security");
+    expect(backendScript).toContain(
+      "System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+    );
+    expect(backendScript).not.toContain("Add-Type");
     expect(backendScript).toContain(expectedWorkspaceAccount(cwd));
     expect(backendScript).toContain("[Microsoft.Win32.Registry]::CurrentUser");
     expect(backendScript).not.toMatch(
@@ -462,7 +468,10 @@ describe("credential store", () => {
     expect(reader).toHaveBeenCalledOnce();
     expect(backendArgs).toContain("-EncodedCommand");
     const backendScript = decodedPowerShellCommand(backendArgs ?? []);
-    expect(backendScript).toContain("Add-Type -AssemblyName System.Security");
+    expect(backendScript).toContain(
+      "System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+    );
+    expect(backendScript).not.toContain("Add-Type");
     expect(backendScript).toContain(expectedWorkspaceAccount(cwd));
     expect(backendScript).toContain("[Microsoft.Win32.Registry]::CurrentUser");
     expect(backendScript).not.toMatch(

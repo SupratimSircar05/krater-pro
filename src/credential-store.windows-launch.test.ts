@@ -87,19 +87,11 @@ import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 describe("Windows credential executable launch", () => {
   it.runIf(process.platform === "win32")(
-    "uses canonical PowerShell and only audited runtime paths",
+    "uses canonical PowerShell without caller-controlled environment",
     async () => {
       observedLaunches.asynchronous.length = 0;
       observedLaunches.synchronous.length = 0;
       const expected = windowsSystemExecutable("powershell.exe");
-      const expectedCommandProcessor = windowsSystemExecutable("cmd.exe");
-      const expectedSystemRoot = win32.dirname(
-        win32.dirname(expectedCommandProcessor),
-      );
-      const expectedModulePath = win32.join(
-        win32.dirname(expected),
-        "Modules",
-      );
       const previous = new Map(
         [
           "KRATER_API_KEY",
@@ -150,12 +142,7 @@ describe("Windows credential executable launch", () => {
           expect(launch?.options.env).not.toHaveProperty("KRATER_API_KEY");
           expect(launch?.options.env).not.toHaveProperty("GITHUB_TOKEN");
           expect(launch?.options.env).not.toHaveProperty("PATH");
-          expect(launch?.options.env).toEqual({
-            SystemRoot: expectedSystemRoot,
-            WINDIR: expectedSystemRoot,
-            ComSpec: expectedCommandProcessor,
-            PSModulePath: expectedModulePath,
-          });
+          expect(launch?.options.env).toEqual({});
         }
       } finally {
         for (const [name, value] of previous) {
