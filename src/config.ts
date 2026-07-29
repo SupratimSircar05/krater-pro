@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { parse } from "dotenv";
 import { readStoredCredentialSync } from "./credential-store.js";
 
@@ -22,6 +22,7 @@ export interface ConfigOverrides {
   baseURL?: string;
   model?: string;
   cwd?: string;
+  gitExecutable?: string;
   port?: number;
   host?: string;
   contextChars?: number;
@@ -37,6 +38,7 @@ export interface KraterConfig {
   baseURL: string;
   model: string;
   cwd: string;
+  gitExecutable?: string;
   port: number;
   host: string;
   contextChars: number;
@@ -133,6 +135,19 @@ export function loadConfig(
   }
 
   const file = readEnvFile(cwd);
+  const gitExecutable =
+    clean(overrides.gitExecutable) ??
+    clean(environment.KRATER_GIT_EXECUTABLE);
+  if (
+    gitExecutable !== undefined &&
+    (!isAbsolute(gitExecutable) ||
+      gitExecutable.length > 4_096 ||
+      /[\u0000-\u001f\u007f]/.test(gitExecutable))
+  ) {
+    throw new Error(
+      "The trusted Git executable must be a safe absolute host-selected path.",
+    );
+  }
   const commandKey = clean(overrides.apiKey);
   const environmentKey = clean(environment.KRATER_API_KEY);
   const storedKey =
@@ -264,6 +279,7 @@ export function loadConfig(
     baseURL,
     model,
     cwd,
+    gitExecutable,
     port,
     host,
     contextChars,

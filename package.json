@@ -60,8 +60,8 @@
     "social:preview": "node scripts/build-social-preview.mjs",
     "desktop:icons": "node desktop/scripts/generate-icons.mjs",
     "desktop:test": "vitest run desktop/tests",
-    "desktop:start": "electron desktop/main.mjs",
-    "desktop:dev": "npm run build && npm run desktop:icons && electron desktop/main.mjs",
+    "desktop:start": "electron desktop/bootstrap.mjs",
+    "desktop:dev": "npm run build && npm run desktop:icons && electron desktop/bootstrap.mjs",
     "desktop:prepare": "npm run build && npm run desktop:icons && npm run desktop:test",
     "desktop:dist": "npm run desktop:prepare && node desktop/scripts/build.mjs",
     "desktop:dist:mac": "npm run desktop:prepare && node desktop/scripts/build.mjs --mac",
@@ -84,7 +84,10 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "overrides": {
-    "brace-expansion": "$brace-expansion"
+    "brace-expansion": "$brace-expansion",
+    "monaco-editor": {
+      "dompurify": "3.4.12"
+    }
   },
   "keywords": [
     "krater",
@@ -100,7 +103,9 @@
     "commander": "^14.0.0",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
-    "openai": "^5.0.0"
+    "express-rate-limit": "^8.6.1",
+    "openai": "^5.0.0",
+    "parse5": "^8.0.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

@@ -36,6 +36,7 @@ test("desktop release config covers every requested native format", async () => 
     "onlyLoadAppFromAsar: true",
     "grantFileProtocolExtraPrivileges: false",
     "afterPack: desktop/scripts/after-pack.mjs",
+    "desktop/command-gate-parent.mjs",
     "entitlements: desktop/entitlements.mac.plist",
     "entitlementsInherit: desktop/entitlements.mac.inherit.plist",
     "maintainer: Supratim Sircar <supratimsircar@users.noreply.github.com>",
@@ -71,6 +72,16 @@ test("desktop release config covers every requested native format", async () => 
     "utf8",
   );
   assert.match(afterPack, /"\/usr\/bin\/xattr", \["-cr", appPath\]/);
+
+  const bootstrap = await readFile(
+    join(repositoryRoot, "desktop", "bootstrap.mjs"),
+    "utf8",
+  );
+  assert.match(bootstrap, /assertTrustedCommandGateParent/);
+  assert.match(
+    bootstrap,
+    /command gate refused an untrusted parent process/,
+  );
 
   for (const entitlementFile of [
     "entitlements.mac.plist",
@@ -111,6 +122,13 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
     /startServer\(config, \{ evidenceMode: true \}\)/,
     "desktop must use the same evidence-native staged agent runtime as krater web",
   );
+  assert.match(main, /KRATER_DESKTOP_REOPEN_OK/);
+  assert.match(main, /localServer\.createLaunchUrl/);
+  assert.match(main, /reopenMainWindow\(\{ showWhenReady: false \}\)/);
+  assert.match(
+    main,
+    /app\.on\("activate", \(\) => \{\s+reopenMainWindow\(\)/,
+  );
 });
 
 test("write-capable release automation pins actions and isolates permission", async () => {
@@ -130,12 +148,18 @@ test("write-capable release automation pins actions and isolates permission", as
     /- name: Select ephemeral Apple key path\n\s+if: github\.event_name == 'push' && matrix\.platform == 'mac'/,
     "candidate builds must not opt into notarization without stable-release credentials",
   );
+  assert.match(
+    workflow,
+    /assemble:\n[\s\S]*?if: >-\n\s+always\(\) &&\n\s+needs\.validate\.result == 'success' &&\n\s+needs\.cli\.result == 'success' &&\n\s+needs\.desktop\.result == 'success'/,
+    "candidate receipt assembly must explicitly tolerate the skipped stable-release authorization job",
+  );
   assert.equal(/uses:\s+[^@\s]+@v\d/.test(workflow), false);
+  assert.doesNotMatch(workflow, /macos-14/);
   assert.ok(
     (workflow.match(/persist-credentials: false/g) ?? []).length >= 5,
   );
   for (const required of [
-    "macos-14",
+    "os: macos-15\n",
     "macos-15-intel",
     "windows-2022",
     "ubuntu-22.04",
@@ -145,6 +169,10 @@ test("write-capable release automation pins actions and isolates permission", as
     "NODE_OPTIONS: --max-old-space-size=6144",
     "release:cli",
     "smoke-built-desktop.mjs",
+    "smoke-workspace-command.mjs",
+    "src/command-gate.test.ts",
+    '"release" "win-unpacked"',
+    "Test-Path -LiteralPath $innerExecutable -PathType Leaf",
     "validate-release-environment.mjs",
     "create-release-manifest.mjs",
     "sign-release-artifacts.mjs",
@@ -159,6 +187,29 @@ test("write-capable release automation pins actions and isolates permission", as
     /echo\s+["']?\$\{\{\s*secrets\./,
     "release workflow must never print a secret expression",
   );
+});
+
+test("pull-request CI exercises macOS and Windows command boundaries", async () => {
+  const workflow = await readFile(
+    join(repositoryRoot, ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  assert.doesNotMatch(workflow, /macos-14/);
+  for (const required of [
+    "native-boundary:",
+    "os: macos-15\n",
+    "windows-2022",
+    'npm install --global "npm@${{ env.NPM_VERSION }}"',
+    "npm run build",
+    "src/command-gate.test.ts",
+    "src/workspace.command-security.test.ts",
+    "desktop/tests/command-gate-parent.test.mjs",
+    "smoke-workspace-command.mjs",
+    "npm run desktop:start -- --krater-smoke-test",
+    "KRATER_DESKTOP_WORKSPACE",
+  ]) {
+    assert.ok(workflow.includes(required), `missing PR boundary gate: ${required}`);
+  }
 });
 
 test("release tag must exactly match package version", () => {

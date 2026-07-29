@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import {
-  chmod,
+  link,
   lstat,
-  readFile,
-  rename,
+  open,
   rm,
   writeFile,
 } from "node:fs/promises";
+import { parse as parseDotenv } from "dotenv";
 import { join, resolve } from "node:path";
 import { KRATER_DEVELOPER_URL } from "./browser-auth.js";
 import {
@@ -21,6 +21,7 @@ import {
   inspectCredentialStore,
   storeCredential,
 } from "./credential-store.js";
+import { isStableRegularFileIdentity } from "./file-identity.js";
 import { ROUTER_FALLBACK_MODEL } from "./model-selection.js";
 import { KraterProvider } from "./provider.js";
 
@@ -34,6 +35,7 @@ const ENV_TEMPLATE = [
   "KRATER_MODEL=auto",
   "",
 ].join("\n");
+const MAX_ENVIRONMENT_FILE_BYTES = 1_000_000n;
 
 export type SetupCredentialSource =
   | KraterConfig["apiKeySource"]
@@ -158,32 +160,61 @@ async function writeEnvironmentCredential(
   secret: string,
 ): Promise<{ created: boolean; updated: boolean }> {
   const path = join(cwd, ".env");
-  let original = "";
   let created = false;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    const stats = await lstat(path);
-    if (!stats.isFile() || stats.isSymbolicLink()) {
+    handle = await open(
+      path,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    );
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ELOOP") {
       throw new Error(
         "The workspace .env is not a regular file; credential fallback was refused.",
       );
     }
-    original = await readFile(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (code !== "ENOENT") throw error;
     created = true;
+  }
+  if (handle) {
+    const existingHandle = handle;
+    try {
+      const opened = await existingHandle.stat({ bigint: true });
+      const current = await lstat(path, { bigint: true });
+      if (!isStableRegularFileIdentity(opened, current)) {
+        throw new Error(
+          "The workspace .env is not a regular file; credential fallback was refused.",
+        );
+      }
+      if (opened.size < 0n || opened.size > MAX_ENVIRONMENT_FILE_BYTES) {
+        throw new Error(
+          "The workspace .env is too large for safe credential persistence.",
+        );
+      }
+      const existing = parseDotenv(await existingHandle.readFile("utf8"));
+      if (existing.KRATER_API_KEY === secret) {
+        await existingHandle.close();
+        handle = undefined;
+        return { created: false, updated: false };
+      }
+      throw new Error(
+        "The workspace .env already exists. To avoid overwriting concurrent or unrelated settings, edit KRATER_API_KEY there manually or use the OS credential store.",
+      );
+    } catch (error) {
+      await existingHandle.close().catch(() => undefined);
+      handle = undefined;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          "The workspace .env changed while it was opened; credential fallback was refused.",
+        );
+      }
+      throw error;
+    }
   }
 
   const assignment = `KRATER_API_KEY=${JSON.stringify(secret)}`;
-  const lines = original.split(/\r?\n/);
-  const retained = lines.filter(
-    (line) => !/^\s*(?:export\s+)?KRATER_API_KEY\s*=/.test(line),
-  );
-  while (retained.length && retained.at(-1) === "") retained.pop();
-  retained.push(assignment);
-  if (!retained.some((line) => /^\s*KRATER_MODEL\s*=/.test(line))) {
-    retained.push("KRATER_MODEL=auto");
-  }
-  const contents = `${retained.join("\n")}\n`;
+  const contents = `${assignment}\nKRATER_MODEL=auto\n`;
   const temporary = join(cwd, `.env.krater-${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, contents, {
@@ -191,12 +222,24 @@ async function writeEnvironmentCredential(
       flag: "wx",
       mode: 0o600,
     });
-    await rename(temporary, path);
-    if (process.platform !== "win32") await chmod(path, 0o600);
+    if (created) {
+      try {
+        // A hard link publishes the complete temporary file only if `.env`
+        // is still absent; unlike rename, it never replaces a concurrent file.
+        await link(temporary, path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(
+            "The workspace .env was created concurrently; credential persistence was refused.",
+          );
+        }
+        throw error;
+      }
+    }
   } finally {
     await rm(temporary, { force: true }).catch(() => undefined);
   }
-  return { created, updated: !created };
+  return { created, updated: false };
 }
 
 function offlineResult(
@@ -251,15 +294,14 @@ export async function setupWorkspace(
   const environment = options.environment ?? process.env;
   const config = loadConfig(options.overrides, environment);
   const environmentPath = join(config.cwd, ".env");
-  let environmentFileExists = existsSync(environmentPath);
+  let environmentFileExists = false;
   let environmentFileCreated = false;
 
-  if (
+  const shouldCreateEnvironmentFile =
     !config.apiKey &&
     !options.credential &&
-    options.createEnvironmentFile === true &&
-    !environmentFileExists
-  ) {
+    options.createEnvironmentFile === true;
+  if (shouldCreateEnvironmentFile) {
     try {
       await writeFile(environmentPath, ENV_TEMPLATE, {
         encoding: "utf8",
@@ -272,6 +314,8 @@ export async function setupWorkspace(
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       environmentFileExists = true;
     }
+  } else {
+    environmentFileExists = existsSync(environmentPath);
   }
 
   const candidate = options.credential ?? config.apiKey;

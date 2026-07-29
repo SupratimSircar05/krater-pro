@@ -23,6 +23,15 @@ describe("compactToolOutput", () => {
     );
   });
 
+  it("strips long hostile control sequences in one pass", () => {
+    const hostile = `before\u001b[${";#".repeat(100_000)}mafter`;
+    expect(compactToolOutput(hostile, 1_000)).toBe("beforeafter");
+    expect(
+      compactToolOutput("safe\u001b]0;private title\u0007text", 1_000),
+    ).toBe("safetext");
+    expect(compactToolOutput("\u001b(Bplain", 1_000)).toBe("plain");
+  });
+
   it("keeps diagnostically useful head and tail content within the budget", () => {
     const compacted = compactToolOutput(`BEGIN-${"x".repeat(1_000)}-END`, 240);
     expect(compacted.length).toBeLessThanOrEqual(240);

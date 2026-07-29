@@ -117,6 +117,7 @@ interface GlobalOptions {
   baseUrl?: string;
   model?: string;
   cwd?: string;
+  gitExecutable?: string;
   yes?: boolean;
   contextChars?: number;
   toolOutputChars?: number;
@@ -188,6 +189,7 @@ function globalOverrides(options: GlobalOptions): ConfigOverrides {
     baseURL: options.baseUrl,
     model: options.model,
     cwd: options.cwd,
+    gitExecutable: options.gitExecutable,
     contextChars: options.contextChars,
     toolOutputChars: options.toolOutputChars,
     responseStyle: options.responseStyle,
@@ -345,6 +347,7 @@ async function createAgent(
         maxOutputTokens: config.maxOutputTokens,
       }),
       cwd: executionWorkspace?.cwd ?? config.cwd,
+      gitExecutable: config.gitExecutable,
       readOnlyDependencyRoots: executionWorkspace?.readOnlyDependencyRoots,
       model: selection.model,
       autoApprove: options.yes,
@@ -1162,6 +1165,10 @@ function addGlobalOptions(command: Command): Command {
       'model ID returned by Krater /v1/models, or "auto" for Smart Router',
     )
     .option("-C, --cwd <path>", "workspace directory", process.cwd())
+    .option(
+      "--git-executable <path>",
+      "trusted absolute Git executable outside the workspace",
+    )
     .option(
       "-y, --yes",
       "approve staged file edits; use fail-closed unattended command containment",
@@ -2475,7 +2482,7 @@ program
       evidenceMode: true,
     });
     process.stdout.write(
-      `\n${logo()}\n${green}Web GUI ready:${reset} ${server.url}\n` +
+      `\n${logo()}\n${green}Web GUI ready:${reset} ${server.launchUrl}\n` +
         `${dim}Workspace: ${config.cwd}\nPress Ctrl+C to stop.${reset}\n`,
     );
     const stop = async () => {

@@ -5,15 +5,63 @@ export const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =
   /(?:api[_-]?key|authorization|password|passwd|secret|token|cookie|private[_-]?key|client[_-]?secret)/i;
 
+const PRIVATE_KEY_BEGIN_MARKERS = [
+  "-----BEGIN PRIVATE KEY-----",
+  "-----BEGIN RSA PRIVATE KEY-----",
+  "-----BEGIN EC PRIVATE KEY-----",
+  "-----BEGIN OPENSSH PRIVATE KEY-----",
+] as const;
+
+const PRIVATE_KEY_END_MARKERS = [
+  "-----END PRIVATE KEY-----",
+  "-----END RSA PRIVATE KEY-----",
+  "-----END EC PRIVATE KEY-----",
+  "-----END OPENSSH PRIVATE KEY-----",
+] as const;
+
 const TEXT_PATTERNS: readonly RegExp[] = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g,
   /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}\b/gi,
   /\b(?:sk|pk|kr)[_-][A-Za-z0-9_-]{16,}\b/g,
   /(\b(?:api[_-]?key|password|passwd|secret|token|authorization)\b\s*[:=]\s*)(["']?)[^\s"',;]+/gi,
 ];
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function nextMarker(
+  value: string,
+  start: number,
+  markers: readonly string[],
+): { index: number; marker: string } | undefined {
+  let cursor = start;
+  while (cursor < value.length) {
+    const index = value.indexOf("-----", cursor);
+    if (index < 0) return undefined;
+    for (const marker of markers) {
+      if (value.startsWith(marker, index)) return { index, marker };
+    }
+    cursor = index + 1;
+  }
+  return undefined;
+}
+
+function redactPrivateKeyBlocks(value: string, replacement: string): string {
+  const chunks: string[] = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    const begin = nextMarker(value, cursor, PRIVATE_KEY_BEGIN_MARKERS);
+    if (!begin) break;
+    chunks.push(value.slice(cursor, begin.index), replacement);
+    const end = nextMarker(
+      value,
+      begin.index + begin.marker.length,
+      PRIVATE_KEY_END_MARKERS,
+    );
+    if (!end) {
+      cursor = value.length;
+      break;
+    }
+    cursor = end.index + end.marker.length;
+  }
+  chunks.push(value.slice(cursor));
+  return chunks.join("");
 }
 
 export interface RedactionOptions {
@@ -27,12 +75,12 @@ export function redactSensitiveText(
   options: RedactionOptions = {},
 ): string {
   const replacement = options.replacement ?? REDACTED;
-  let redacted = text;
+  let redacted = redactPrivateKeyBlocks(text, replacement);
   const secrets = [...new Set(options.secrets?.filter(Boolean) ?? [])].sort(
     (left, right) => right.length - left.length,
   );
   for (const secret of secrets) {
-    redacted = redacted.replace(new RegExp(escapeRegExp(secret), "g"), replacement);
+    redacted = redacted.replaceAll(secret, replacement);
   }
   for (const pattern of TEXT_PATTERNS) {
     redacted = redacted.replace(pattern, (match, prefix?: string) =>

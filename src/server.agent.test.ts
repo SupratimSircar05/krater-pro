@@ -463,11 +463,52 @@ describe("Krater Pro streamed browser agent", () => {
     const port = await availablePort();
     const running = await startServer(loadConfig({ cwd, port }, {}));
     try {
-      const bootstrap = await fetch(running.url);
-      const cookie = bootstrap.headers.get("set-cookie")?.split(";")[0];
-      if (!cookie) throw new Error("Expected the loopback bootstrap cookie.");
+      const launchUrl = new URL(running.launchUrl);
+      expect(launchUrl.origin).toBe(running.url);
+      expect(launchUrl.search).toBe("");
+      const bootstrapToken = new URLSearchParams(
+        launchUrl.hash.slice(1),
+      ).get("__krater_session");
+      expect(bootstrapToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      const bootstrap = await fetch(running.launchUrl);
+      expect(bootstrap.status).toBe(200);
+      expect(bootstrap.headers.get("set-cookie")).toBeNull();
+      const exchange = await fetch(`${running.url}/api/local-session`, {
+        method: "POST",
+        headers: { "x-krater-bootstrap-token": bootstrapToken! },
+      });
+      expect(exchange.status).toBe(200);
+      const { token: localToken } = (await exchange.json()) as {
+        token: string;
+      };
+      expect(localToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(localToken).not.toBe(bootstrapToken);
+      const replay = await fetch(`${running.url}/api/local-session`, {
+        method: "POST",
+        headers: { "x-krater-bootstrap-token": bootstrapToken! },
+      });
+      expect(replay.status).toBe(401);
+      const reopenedLaunchUrl = new URL(running.createLaunchUrl());
+      const reopenedBootstrapToken = new URLSearchParams(
+        reopenedLaunchUrl.hash.slice(1),
+      ).get("__krater_session");
+      expect(reopenedBootstrapToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(reopenedBootstrapToken).not.toBe(bootstrapToken);
+      const reopenedExchange = await fetch(
+        `${running.url}/api/local-session`,
+        {
+          method: "POST",
+          headers: {
+            "x-krater-bootstrap-token": reopenedBootstrapToken!,
+          },
+        },
+      );
+      expect(reopenedExchange.status).toBe(200);
+      await expect(reopenedExchange.json()).resolves.toEqual({
+        token: localToken,
+      });
       const statusResponse = await fetch(`${running.url}/api/status`, {
-        headers: { Cookie: cookie },
+        headers: { "x-krater-local-token": localToken },
       });
       const { projectId } = (await statusResponse.json()) as {
         projectId: string;
@@ -475,13 +516,21 @@ describe("Krater Pro streamed browser agent", () => {
 
       const sessionResponse = await fetch(`${running.url}/api/sessions`, {
         method: "POST",
-        headers: { Cookie: cookie, "content-type": "application/json" },
+        headers: {
+          "x-krater-local-token": localToken,
+          Origin: running.url,
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ projectId }),
       });
       const { id } = (await sessionResponse.json()) as { id: string };
       const messageResponse = await fetch(`${running.url}/api/sessions/${id}/messages`, {
         method: "POST",
-        headers: { Cookie: cookie, "content-type": "application/json" },
+        headers: {
+          "x-krater-local-token": localToken,
+          Origin: running.url,
+          "content-type": "application/json",
+        },
         body: JSON.stringify({
           projectId,
           message: "Create a file and wait for approval",

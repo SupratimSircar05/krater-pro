@@ -44,6 +44,7 @@ describe("loadConfig", () => {
       model: DEFAULT_MODEL,
       modelSource: "default",
       cwd: await realpath(cwd),
+      gitExecutable: undefined,
       port: DEFAULT_PORT,
       host: DEFAULT_HOST,
       contextChars: DEFAULT_CONTEXT_CHARS,
@@ -174,6 +175,42 @@ describe("loadConfig", () => {
     expect(config.model).toBe("environment/model");
     expect(config.modelSource).toBe("environment");
     expect(config.host).toBe("environment-host");
+  });
+
+  it("accepts trusted Git only from host configuration and ignores workspace .env", async () => {
+    const cwd = await temporaryDirectory();
+    const hostDirectory = await temporaryDirectory();
+    const environmentGit = join(hostDirectory, "environment-git");
+    const overrideGit = join(hostDirectory, "override-git");
+    await writeFile(
+      join(cwd, ".env"),
+      `KRATER_GIT_EXECUTABLE=${join(cwd, "workspace-git")}\n`,
+    );
+
+    expect(loadConfig({ cwd }, {}).gitExecutable).toBeUndefined();
+    expect(
+      loadConfig(
+        { cwd },
+        { KRATER_GIT_EXECUTABLE: environmentGit },
+      ).gitExecutable,
+    ).toBe(environmentGit);
+    expect(
+      loadConfig(
+        { cwd, gitExecutable: ` ${overrideGit} ` },
+        { KRATER_GIT_EXECUTABLE: environmentGit },
+      ).gitExecutable,
+    ).toBe(overrideGit);
+  });
+
+  it("rejects relative host-selected Git paths", async () => {
+    const cwd = await temporaryDirectory();
+
+    expect(() =>
+      loadConfig({ cwd }, { KRATER_GIT_EXECUTABLE: "git" }),
+    ).toThrow(/absolute host-selected path/);
+    expect(() => loadConfig({ cwd, gitExecutable: "./git" }, {})).toThrow(
+      /absolute host-selected path/,
+    );
   });
 
   it("resolves a host credential handle before the plaintext .env fallback", async () => {

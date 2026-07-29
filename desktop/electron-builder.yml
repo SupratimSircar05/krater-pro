@@ -9,6 +9,8 @@ directories:
 files:
   - dist/**/*
   - web/dist/**/*
+  - desktop/bootstrap.mjs
+  - desktop/command-gate-parent.mjs
   - desktop/main.mjs
   - desktop/runtime.mjs
   - desktop/window-security.mjs
@@ -17,7 +19,7 @@ files:
   - LICENSE
 
 extraMetadata:
-  main: desktop/main.mjs
+  main: desktop/bootstrap.mjs
   desktopName: krater-pro
 
 asar: true

@@ -285,6 +285,17 @@ describe("redaction helpers", () => {
     expect(redacted).toContain("[REDACTED]");
   });
 
+  it("redacts repeated and truncated private-key blocks without backtracking", () => {
+    const begin = "-----BEGIN OPENSSH PRIVATE KEY-----";
+    const end = "-----END OPENSSH PRIVATE KEY-----";
+    const repeated = `${`${begin}\n`.repeat(20_000)}private material\n${end}`;
+
+    expect(redactSensitiveText(repeated)).toBe("[REDACTED]");
+    expect(redactSensitiveText(`visible\n${begin}\ntruncated-secret`)).toBe(
+      "visible\n[REDACTED]",
+    );
+  });
+
   it("redacts sensitive object keys and handles cycles safely", () => {
     const source: Record<string, unknown> = {
       name: "safe",

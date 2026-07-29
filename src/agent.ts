@@ -47,6 +47,8 @@ import { Workspace } from "./workspace.js";
 export interface AgentOptions {
   provider: ChatProvider;
   cwd: string;
+  /** Host-selected absolute Git executable; never sourced from workspace files. */
+  gitExecutable?: string;
   model: string;
   maxSteps?: number;
   sessionTokenBudget?: number;
@@ -292,6 +294,7 @@ export class AgentSession {
     this.workspace = new Workspace(options.cwd, {
       readOnlyDependencyRoots: options.readOnlyDependencyRoots,
       nativeSandboxAdapter: options.nativeSandboxAdapter,
+      gitExecutable: options.gitExecutable,
     });
     this.model = options.model;
     this.maxSteps = options.maxSteps ?? 24;

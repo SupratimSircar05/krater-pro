@@ -137,7 +137,7 @@ jobs:
       matrix:
         include:
           - label: macOS ARM64
-            os: macos-14
+            os: macos-15
             platform: mac
             script: desktop:dist:mac
             args: --arm64
@@ -213,6 +213,13 @@ jobs:
           cache: npm
       - run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - run: npm ci
+      - name: Exercise platform command-gate tests
+        run: >-
+          npm test --
+          src/command-gate.test.ts
+          src/workspace.command-security.test.ts
+          desktop/tests/command-gate-parent.test.mjs
+          --testTimeout=20000
       - name: Fix source timestamp to the release commit
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
@@ -235,6 +242,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes xvfb
       - name: Build native packages
         run: npm run ${{ matrix.script }} -- ${{ matrix.args }}
+      - name: Exercise the native workspace command boundary
+        run: node scripts/release/smoke-workspace-command.mjs
       - name: Create deterministic dependency SBOM
         run: node scripts/release/create-sbom.mjs --profile desktop --output release/${{ matrix.sbom }}
       - name: Launch packaged application and renderer
@@ -254,7 +263,18 @@ jobs:
         if: github.event_name == 'push' && matrix.platform == 'win'
         shell: pwsh
         run: |
-          Get-ChildItem release -Filter *.exe | ForEach-Object {
+          $releaseExecutables = @(Get-ChildItem release -File -Filter *.exe)
+          if ($releaseExecutables.Count -eq 0) {
+            throw "No Windows release executables were produced."
+          }
+          $innerExecutable = Join-Path (Join-Path "release" "win-unpacked") "KraterPro.exe"
+          if (-not (Test-Path -LiteralPath $innerExecutable -PathType Leaf)) {
+            throw "The shipped inner Windows executable was not produced: $innerExecutable"
+          }
+          $executablesToVerify = @($releaseExecutables) + @(
+            Get-Item -LiteralPath $innerExecutable
+          )
+          $executablesToVerify | ForEach-Object {
             $signature = Get-AuthenticodeSignature $_.FullName
             if ($signature.Status -ne "Valid") {
               throw "Invalid Authenticode signature for $($_.Name): $($signature.Status)"
@@ -283,6 +303,11 @@ jobs:
       - validate
       - cli
       - desktop
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.cli.result == 'success' &&
+      needs.desktop.result == 'success'
     runs-on: ubuntu-22.04
     environment:
       name: ${{ github.event_name == 'push' && 'production-release' || 'release-candidate' }}

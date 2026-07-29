@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -114,6 +121,25 @@ describe("setupWorkspace", () => {
     if (process.platform !== "win32") expect(fileMode).toBe(0o600);
   });
 
+  it("uses exclusive create and preserves an existing keyless environment file", async () => {
+    const cwd = await temporaryDirectory();
+    const original = "# Existing workspace settings\nKRATER_MODEL=auto\n";
+    await writeFile(join(cwd, ".env"), original, { mode: 0o600 });
+
+    const result = await setupWorkspace({
+      overrides: { cwd },
+      environment: {},
+      createEnvironmentFile: true,
+    });
+
+    expect(result.environmentFile).toMatchObject({
+      exists: true,
+      created: false,
+      updated: false,
+    });
+    expect(await readFile(join(cwd, ".env"), "utf8")).toBe(original);
+  });
+
   it("never overwrites or serializes an existing credential", async () => {
     const cwd = await temporaryDirectory();
     const secret = "test_secret_that_must_not_leak";
@@ -189,6 +215,61 @@ describe("setupWorkspace", () => {
     }
   });
 
+  it("refuses to replace an existing environment credential", async () => {
+    const cwd = await temporaryDirectory();
+    const previous = "setup-credential-previous";
+    const replacement = "setup-credential-replacement";
+    await writeFile(
+      join(cwd, ".env"),
+      [
+        "# Preserve this comment",
+        `KRATER_API_KEY=${previous}`,
+        "KRATER_MODEL=auto",
+        "KEEP_SETTING=yes",
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+
+    await expect(
+      setupWorkspace({
+        overrides: { cwd },
+        environment: {},
+        credential: replacement,
+        validateCredential: true,
+        persistence: "environment_file",
+        validator: async () => ({ verified: true, modelCount: 3 }),
+      }),
+    ).rejects.toThrow(/already exists.*edit KRATER_API_KEY.*manually/i);
+    const contents = await readFile(join(cwd, ".env"), "utf8");
+    expect(contents).toContain("# Preserve this comment");
+    expect(contents).toContain("KEEP_SETTING=yes");
+    expect(contents).toContain(previous);
+    expect(contents).not.toContain(replacement);
+  });
+
+  it("refuses to persist through a symlinked environment file", async () => {
+    if (process.platform === "win32") return;
+    const cwd = await temporaryDirectory();
+    const outside = await temporaryDirectory();
+    const outsideEnvironment = join(outside, ".env");
+    const original = "KRATER_MODEL=auto\nKEEP_SETTING=yes\n";
+    await writeFile(outsideEnvironment, original, { mode: 0o600 });
+    await symlink(outsideEnvironment, join(cwd, ".env"));
+
+    await expect(
+      setupWorkspace({
+        overrides: { cwd },
+        environment: {},
+        credential: "setup-credential-symlink",
+        validateCredential: true,
+        persistence: "environment_file",
+        validator: async () => ({ verified: true, modelCount: 2 }),
+      }),
+    ).rejects.toThrow(/not a regular file/);
+    expect(await readFile(outsideEnvironment, "utf8")).toBe(original);
+  });
+
   it("does not persist a credential when authenticated discovery fails", async () => {
     const cwd = await temporaryDirectory();
     const credentialValue = ["setup", "credential", "rejected"].join("-");
@@ -235,7 +316,6 @@ describe("setupWorkspace", () => {
           expect(args.join(" ")).not.toContain(credentialValue);
           return { ok: true, stdout: "" };
         },
-        now: () => "2026-07-28T00:00:00.000Z",
       },
     });
 

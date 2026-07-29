@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { request as httpRequest, type Server } from "node:http";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -12,12 +14,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, type KraterConfig } from "./config.js";
-import { createApp, startServer } from "./server.js";
+import {
+  createApp,
+  inlineModuleScriptHashes,
+  issueLocalLaunchUrl,
+  startServer,
+  type ServerOptions,
+} from "./server.js";
 import { Workspace } from "./workspace.js";
 
 const temporaryPaths: string[] = [];
 const servers: Server[] = [];
 const localTokens = new Map<string, string>();
+const localBootstrapTokens = new Map<string, string>();
 
 async function temporaryDirectory(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), "krater-server-"));
@@ -25,8 +34,11 @@ async function temporaryDirectory(): Promise<string> {
   return path;
 }
 
-async function serve(config: KraterConfig): Promise<string> {
-  const app = await createApp(config);
+async function serve(
+  config: KraterConfig,
+  options: ServerOptions = {},
+): Promise<string> {
+  const app = await createApp(config, options);
   const server = await new Promise<Server>((resolveServer, reject) => {
     const instance = app.listen(0, "127.0.0.1", () => resolveServer(instance));
     instance.once("error", reject);
@@ -38,6 +50,11 @@ async function serve(config: KraterConfig): Promise<string> {
   }
   const base = `http://127.0.0.1:${address.port}`;
   localTokens.set(base, String(app.locals.localToken));
+  const launchUrl = new URL(issueLocalLaunchUrl(app, base));
+  localBootstrapTokens.set(
+    base,
+    new URLSearchParams(launchUrl.hash.slice(1)).get("__krater_session")!,
+  );
   return base;
 }
 
@@ -75,6 +92,7 @@ function requestStatus(
 
 afterEach(async () => {
   localTokens.clear();
+  localBootstrapTokens.clear();
   await Promise.all(
     servers.splice(0).map(
       (server) =>
@@ -89,6 +107,90 @@ afterEach(async () => {
 });
 
 describe("Krater Pro HTTP API", () => {
+  it("threads the host Git trust boundary into project and workspace construction", async () => {
+    const cwd = await temporaryDirectory();
+    const executable = join(
+      cwd,
+      process.platform === "win32" ? "git.cmd" : "git",
+    );
+    await writeFile(
+      executable,
+      process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+    );
+    await chmod(executable, 0o755);
+
+    await expect(
+      createApp(loadConfig({ cwd, gitExecutable: executable }, {})),
+    ).rejects.toThrow(/outside writable workspace roots/i);
+  });
+
+  it("hashes only inline script types processed by the document", () => {
+    const executable = [
+      "\n  classic();\n",
+      "emptyType();",
+      "legacyLanguage();",
+      "mimeType();",
+      "moduleType();",
+      '{"imports":{"krater":"/krater.js"}}',
+    ];
+    const html = [
+      `<script>${executable[0]}</script>`,
+      `<script type="">${executable[1]}</script>`,
+      `<script language="JavaScript">${executable[2]}</script>`,
+      `<script type="APPLICATION/JAVASCRIPT">${executable[3]}</script>`,
+      `<script type="module">${executable[4]}</script>`,
+      `<script type="IMPORTMAP">${executable[5]}</script>`,
+      '<script src="/external.js">ignoredExternalBody()</script>',
+      "<script src>ignoredEmptySourceBody()</script>",
+      '<script type="application/json">{"ignored":true}</script>',
+      '<script type="text/javascript; charset=utf-8">ignoredParameter()</script>',
+      '<script type=" ">ignoredWhitespaceType()</script>',
+      "<script=foo>ignoredMalformedTag()</script=foo>",
+    ].join("");
+
+    expect(inlineModuleScriptHashes(html)).toEqual(
+      executable.map((script) =>
+        createHash("sha256").update(script).digest("base64"),
+      ),
+    );
+    expect(inlineModuleScriptHashes("<script>ignoredUnclosed()")).toEqual([]);
+  });
+
+  it("uses document parsing for comments, raw text, templates, and tag syntax", () => {
+    const executable = 'window.krater = "1 > 0";';
+    const html = [
+      "<!-- <script>ignoredComment()</script> --!>",
+      "<title><script>ignoredTitle()</script></title>",
+      "<style><script>ignoredStyle()</script></style>",
+      "<textarea><script>ignoredTextarea()</script></textarea>",
+      "<template><script>ignoredTemplate()</script></template>",
+      '<script data-comparison="1 > 0">',
+      executable,
+      "</script >",
+    ].join("");
+
+    expect(inlineModuleScriptHashes(html)).toEqual([
+      createHash("sha256").update(executable).digest("base64"),
+    ]);
+  });
+
+  it("preserves near-miss and double-escaped script text exactly", () => {
+    const nearMiss = `${"</scriptx".repeat(20_000)}safe();`;
+    const doubleEscaped = "<!--<script>doubleEscaped()</script>-->";
+    const after = "after();";
+    const html = [
+      `<script>${nearMiss}</script>`,
+      `<script>${doubleEscaped}</script>`,
+      `<script>${after}</script>`,
+    ].join("");
+
+    expect(inlineModuleScriptHashes(html)).toEqual(
+      [nearMiss, doubleEscaped, after].map((script) =>
+        createHash("sha256").update(script).digest("base64"),
+      ),
+    );
+  });
+
   it("serves a Vite-transformed development shell without weakening script CSP", async () => {
     const cwd = await temporaryDirectory();
     const app = await createApp(loadConfig({ cwd }, {}), {
@@ -170,7 +272,8 @@ describe("Krater Pro HTTP API", () => {
 
   it("lists and switches among local and scratch projects while expiring old sessions", async () => {
     const cwd = await temporaryDirectory();
-    const other = await temporaryDirectory();
+    const other = join(cwd, "other-project");
+    await mkdir(other);
     const config = loadConfig({ cwd }, {});
     const otherPath = await realpath(other);
     const base = await serve(config);
@@ -292,7 +395,8 @@ describe("Krater Pro HTTP API", () => {
 
   it("rolls back project selection when a registered workspace disappears", async () => {
     const cwd = await temporaryDirectory();
-    const other = await temporaryDirectory();
+    const other = join(cwd, "disappearing-project");
+    await mkdir(other);
     const base = await serve(loadConfig({ cwd }, {}));
     const initial = (await (
       await apiFetch(`${base}/api/status`)
@@ -325,8 +429,52 @@ describe("Krater Pro HTTP API", () => {
     });
   });
 
+  it.runIf(process.platform !== "win32")(
+    "refuses a registered project replaced by an unauthorized symlink",
+    async () => {
+      const cwd = await temporaryDirectory();
+      const registeredPath = join(cwd, "registered-project");
+      await mkdir(registeredPath);
+      const outside = await temporaryDirectory();
+      const base = await serve(loadConfig({ cwd }, {}));
+      const initial = (await (
+        await apiFetch(`${base}/api/status`)
+      ).json()) as { projectId: string; cwd: string };
+      const registeredResponse = await apiFetch(`${base}/api/projects/local`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: registeredPath }),
+      });
+      expect(registeredResponse.status).toBe(201);
+      const registered = (await registeredResponse.json()) as {
+        current: { id: string };
+      };
+      await apiFetch(`${base}/api/projects/select`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: initial.projectId }),
+      });
+      await rm(registeredPath, { recursive: true, force: true });
+      await symlink(outside, registeredPath, "dir");
+
+      const failed = await apiFetch(`${base}/api/projects/select`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: registered.current.id }),
+      });
+      expect(failed.status).toBe(404);
+      await expect(
+        (await apiFetch(`${base}/api/status`)).json(),
+      ).resolves.toMatchObject({
+        projectId: initial.projectId,
+        cwd: initial.cwd,
+      });
+    },
+  );
+
   it("rejects invalid project sources without starting Git", async () => {
     const cwd = await temporaryDirectory();
+    const outsideAuthorizedRoots = await temporaryDirectory();
     const base = await serve(loadConfig({ cwd }, {}));
 
     const relative = await apiFetch(`${base}/api/projects/local`, {
@@ -335,6 +483,13 @@ describe("Krater Pro HTTP API", () => {
       body: JSON.stringify({ path: "relative/project" }),
     });
     expect(relative.status).toBe(400);
+
+    const outside = await apiFetch(`${base}/api/projects/local`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: outsideAuthorizedRoots }),
+    });
+    expect(outside.status).toBe(400);
 
     const unknown = await apiFetch(`${base}/api/projects/select`, {
       method: "POST",
@@ -354,7 +509,9 @@ describe("Krater Pro HTTP API", () => {
     });
   });
 
-  it("supports project-scoped explorer, conflict-safe editor, Git, and terminal APIs", async () => {
+  it(
+    "supports project-scoped explorer, conflict-safe editor, Git, and terminal APIs",
+    async () => {
     const cwd = await temporaryDirectory();
     const outside = await temporaryDirectory();
     await mkdir(join(cwd, "src"), { recursive: true });
@@ -504,7 +661,9 @@ describe("Krater Pro HTTP API", () => {
     await expect(destructive.json()).resolves.toMatchObject({
       error: { message: expect.stringContaining("irreversibly destroy") },
     });
-  });
+    },
+    15_000,
+  );
 
   it("bounds IDE inputs and returns structured JSON parser errors", async () => {
     const cwd = await temporaryDirectory();
@@ -598,14 +757,67 @@ describe("Krater Pro HTTP API", () => {
     expect(terminal.status).toBe(200);
   });
 
-  it("requires its launch token and rejects cross-origin or rebound requests", async () => {
+  it("requires its origin-bound header token and rejects cookies, cross-origin, or rebound requests", async () => {
     const cwd = await temporaryDirectory();
     const base = await serve(loadConfig({ cwd }, {}));
 
     const unauthenticated = await fetch(`${base}/api/status`);
     expect(unauthenticated.status).toBe(401);
-    expect(unauthenticated.headers.get("set-cookie")).toContain("HttpOnly");
-    expect(unauthenticated.headers.get("set-cookie")).toContain("SameSite=Strict");
+    expect(unauthenticated.headers.get("set-cookie")).toBeNull();
+    await expect(unauthenticated.json()).resolves.toMatchObject({
+      error: {
+        message: expect.stringMatching(
+          /fresh Krater Pro launch URL.*close and reopen the desktop window/i,
+        ),
+      },
+    });
+
+    const mixedCaseRead = await fetch(`${base}/API/status`);
+    expect(mixedCaseRead.status).toBe(404);
+    const mixedCaseMutation = await fetch(`${base}/Api/projects/scratch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "must-not-exist" }),
+    });
+    expect(mixedCaseMutation.status).toBe(404);
+
+    const publicShell = await fetch(base);
+    expect(publicShell.status).toBe(200);
+    expect(publicShell.headers.get("set-cookie")).toBeNull();
+
+    const queryBootstrapAttempt = await fetch(
+      `${base}/?__krater_session=${encodeURIComponent(localTokens.get(base)!)}`,
+    );
+    expect(queryBootstrapAttempt.status).toBe(200);
+    expect(queryBootstrapAttempt.headers.get("set-cookie")).toBeNull();
+
+    const cookieStatus = await fetch(`${base}/api/status`, {
+      headers: {
+        Cookie: `krater_pro_local=${encodeURIComponent(localTokens.get(base)!)}`,
+      },
+    });
+    expect(cookieStatus.status).toBe(401);
+
+    const exchange = await fetch(`${base}/api/local-session`, {
+      method: "POST",
+      headers: {
+        "x-krater-bootstrap-token": localBootstrapTokens.get(base)!,
+      },
+    });
+    expect(exchange.status).toBe(200);
+    await expect(exchange.json()).resolves.toEqual({
+      token: localTokens.get(base),
+    });
+    const replay = await fetch(`${base}/api/local-session`, {
+      method: "POST",
+      headers: {
+        "x-krater-bootstrap-token": localBootstrapTokens.get(base)!,
+      },
+    });
+    expect(replay.status).toBe(401);
+
+    const headerStatus = await apiFetch(`${base}/api/status`);
+    expect(headerStatus.status).toBe(200);
 
     const crossOrigin = await apiFetch(`${base}/api/status`, {
       headers: { Origin: "https://attacker.example" },
@@ -619,6 +831,52 @@ describe("Krater Pro HTTP API", () => {
     expect(reboundStatus).toBe(403);
   });
 
+  it("does not let invalid bootstrap rate limits block a valid launch token", async () => {
+    const cwd = await temporaryDirectory();
+    const base = await serve(
+      loadConfig({ cwd }, {}),
+      {
+        rateLimits: {
+          windowMs: 60_000,
+          localSessionBootstrap: 2,
+        },
+      },
+    );
+
+    expect(
+      (
+        await fetch(`${base}/api/local-session`, {
+          method: "POST",
+          headers: { "x-krater-bootstrap-token": "x".repeat(43) },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await fetch(`${base}/api/local-session`, {
+          method: "POST",
+          headers: { "x-krater-bootstrap-token": "y".repeat(43) },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await fetch(`${base}/api/local-session`, {
+          method: "POST",
+          headers: { "x-krater-bootstrap-token": "z".repeat(43) },
+        })
+      ).status,
+    ).toBe(429);
+
+    const valid = await fetch(`${base}/api/local-session`, {
+      method: "POST",
+      headers: {
+        "x-krater-bootstrap-token": localBootstrapTokens.get(base)!,
+      },
+    });
+    expect(valid.status).toBe(200);
+  });
+
   it("reports safe browser-auth capabilities without exposing session access", async () => {
     const cwd = await temporaryDirectory();
     const base = await serve(loadConfig({ cwd }, {}));
@@ -630,6 +888,57 @@ describe("Krater Pro HTTP API", () => {
       mode: "api-key-handoff",
       developerUrl: "https://krater.ai/developers",
     });
+  });
+
+  it("rate-limits costly reads with isolated counters and resets", async () => {
+    const cwd = await temporaryDirectory();
+    const base = await serve(loadConfig({ cwd }, {}), {
+      rateLimits: {
+        windowMs: 500,
+        authCapabilities: 2,
+        passport: 2,
+        shellFallback: 2,
+      },
+    });
+    const projectId = (await (
+      await apiFetch(`${base}/api/status`)
+    ).json()) as { projectId: string };
+
+    expect((await apiFetch(`${base}/api/auth/capabilities`)).status).toBe(200);
+    expect((await apiFetch(`${base}/api/auth/capabilities`)).status).toBe(200);
+    const limitedAuth = await apiFetch(`${base}/api/auth/capabilities`);
+    expect(limitedAuth.status).toBe(429);
+    expect(limitedAuth.headers.get("retry-after")).not.toBeNull();
+    await expect(limitedAuth.json()).resolves.toEqual({
+      error: {
+        message:
+          "Too many authentication capability requests. Try again shortly.",
+      },
+    });
+
+    expect((await fetch(`${base}/first-shell-route`)).status).toBe(200);
+    const passportPath =
+      `${base}/api/v2/tasks/missing/passport?projectId=${projectId.projectId}`;
+    expect((await apiFetch(passportPath)).status).toBe(404);
+    expect((await apiFetch(passportPath)).status).toBe(404);
+    const limitedPassport = await apiFetch(passportPath);
+    expect(limitedPassport.status).toBe(429);
+    expect(limitedPassport.headers.get("content-type")).toContain(
+      "application/json",
+    );
+    await expect(limitedPassport.json()).resolves.toEqual({
+      error: {
+        message: "Too many passport requests. Try again shortly.",
+      },
+    });
+
+    expect((await fetch(`${base}/second-shell-route`)).status).toBe(200);
+    expect((await fetch(`${base}/limited-shell-route`)).status).toBe(429);
+    expect((await apiFetch(`${base}/api/status`)).status).toBe(200);
+
+    await new Promise((resolveWait) => setTimeout(resolveWait, 550));
+    expect((await apiFetch(`${base}/api/auth/capabilities`)).status).toBe(200);
+    expect((await fetch(`${base}/shell-after-reset`)).status).toBe(200);
   });
 
   it("rejects model discovery without an API key before making a provider request", async () => {

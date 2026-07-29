@@ -6,9 +6,12 @@ import {
 } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import express, { type Express, type Request, type Response } from "express";
+import { rateLimit } from "express-rate-limit";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 import {
   AgentSession,
   type AgentContinuitySnapshot,
@@ -120,6 +123,14 @@ export interface ServerOptions {
    * verified, fail-closed local implementation.
    */
   liveCausalExecutor?: typeof runLiveCausalTwin;
+  /** Optional test/embedder overrides; omitted values retain production limits. */
+  rateLimits?: {
+    windowMs?: number;
+    localSessionBootstrap?: number;
+    authCapabilities?: number;
+    passport?: number;
+    shellFallback?: number;
+  };
 }
 
 interface PendingApproval {
@@ -128,7 +139,7 @@ interface PendingApproval {
   removeAbortListener?: () => void;
 }
 
-const LOCAL_SESSION_COOKIE = "krater_pro_local";
+const LOCAL_SESSION_FRAGMENT = "__krater_session";
 const MAX_BROWSER_SESSIONS = 64;
 const SESSION_IDLE_MS = 60 * 60 * 1_000;
 const MAX_IDE_COMMAND_BYTES = 8_192;
@@ -263,6 +274,7 @@ class BrowserSession {
           maxOutputTokens: this.config.maxOutputTokens,
         }),
         cwd: this.stagedWorkspace?.stageRoot ?? this.config.cwd,
+        gitExecutable: this.config.gitExecutable,
         readOnlyDependencyRoots:
           this.stagedWorkspace?.readOnlyDependencyRoots,
         model,
@@ -536,17 +548,8 @@ function allowedOrigin(origin: string | undefined, hostHeader: string): boolean 
   }
 }
 
-function cookieValue(request: Request, name: string): string | undefined {
-  for (const item of (request.header("cookie") ?? "").split(";")) {
-    const separator = item.indexOf("=");
-    if (separator < 0 || item.slice(0, separator).trim() !== name) continue;
-    try {
-      return decodeURIComponent(item.slice(separator + 1).trim());
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
+function isApiPath(path: string): boolean {
+  return path === "/api" || path.startsWith("/api/");
 }
 
 function secureEqual(left: string | undefined, right: string): boolean {
@@ -570,11 +573,126 @@ function contentSecurityPolicy(
   );
 }
 
-function inlineModuleScriptHashes(html: string): string[] {
-  return [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
-    .map((match) => match[1] ?? "")
-    .filter((script) => script.length > 0)
-    .map((script) => createHash("sha256").update(script).digest("base64"));
+type HtmlNode = DefaultTreeAdapterMap["node"];
+type HtmlElement = DefaultTreeAdapterMap["element"];
+type HtmlChildNode = DefaultTreeAdapterMap["childNode"];
+type HtmlTextNode = DefaultTreeAdapterMap["textNode"];
+
+const JAVASCRIPT_MIME_TYPE_ESSENCES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-ecmascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+  "text/javascript1.0",
+  "text/javascript1.1",
+  "text/javascript1.2",
+  "text/javascript1.3",
+  "text/javascript1.4",
+  "text/javascript1.5",
+  "text/jscript",
+  "text/livescript",
+  "text/x-ecmascript",
+  "text/x-javascript",
+]);
+
+function stripAsciiWhitespace(value: string): string {
+  let start = 0;
+  let end = value.length;
+  const isWhitespace = (code: number): boolean =>
+    code === 0x09 ||
+    code === 0x0a ||
+    code === 0x0c ||
+    code === 0x0d ||
+    code === 0x20;
+  while (start < end && isWhitespace(value.charCodeAt(start))) start += 1;
+  while (end > start && isWhitespace(value.charCodeAt(end - 1))) end -= 1;
+  return value.slice(start, end);
+}
+
+function asciiLowercase(value: string): string {
+  let normalized = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    normalized += String.fromCharCode(
+      code >= 0x41 && code <= 0x5a ? code + 0x20 : code,
+    );
+  }
+  return normalized;
+}
+
+function attributeValue(
+  element: HtmlElement,
+  name: string,
+): string | undefined {
+  return element.attrs.find((attribute) => attribute.name === name)?.value;
+}
+
+function hasAttribute(element: HtmlElement, name: string): boolean {
+  return element.attrs.some((attribute) => attribute.name === name);
+}
+
+function isHtmlTextNode(node: HtmlChildNode): node is HtmlTextNode {
+  return node.nodeName === "#text";
+}
+
+function isExecutableInlineScript(element: HtmlElement): boolean {
+  if (element.tagName !== "script" || hasAttribute(element, "src")) {
+    return false;
+  }
+  const type = attributeValue(element, "type");
+  const language = attributeValue(element, "language");
+  let typeString: string;
+  if (
+    type === "" ||
+    (type === undefined && (language === undefined || language === ""))
+  ) {
+    typeString = "text/javascript";
+  } else if (type !== undefined) {
+    typeString = stripAsciiWhitespace(type);
+  } else {
+    typeString = `text/${language}`;
+  }
+  const normalized = asciiLowercase(typeString);
+  return (
+    JAVASCRIPT_MIME_TYPE_ESSENCES.has(normalized) ||
+    normalized === "module" ||
+    normalized === "importmap"
+  );
+}
+
+function exactInlineScriptSource(element: HtmlElement): string | undefined {
+  const location = element.sourceCodeLocation;
+  if (!location?.startTag || !location.endTag) return undefined;
+  return element.childNodes
+    .filter(isHtmlTextNode)
+    .map((node) => node.value)
+    .join("");
+}
+
+export function inlineModuleScriptHashes(html: string): string[] {
+  const document = parse(html, {
+    scriptingEnabled: true,
+    sourceCodeLocationInfo: true,
+  });
+  const scripts: string[] = [];
+  const pending: HtmlNode[] = [document];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if ("tagName" in node && isExecutableInlineScript(node)) {
+      const script = exactInlineScriptSource(node);
+      if (script) scripts.push(script);
+    }
+    if ("childNodes" in node) {
+      for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
+        pending.push(node.childNodes[index]);
+      }
+    }
+  }
+  return scripts.map((script) =>
+    createHash("sha256").update(script).digest("base64"),
+  );
 }
 
 function apiKeyFrom(request: Request, fallback?: string): string | undefined {
@@ -1030,10 +1148,94 @@ export async function createApp(
   options: ServerOptions = {},
 ): Promise<Express> {
   const app = express();
+  app.set("case sensitive routing", true);
+  const rateLimitWindowMs = options.rateLimits?.windowMs ?? 60_000;
+  const authCapabilitiesRateLimit = rateLimit({
+    windowMs: rateLimitWindowMs,
+    limit: options.rateLimits?.authCapabilities ?? 120,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+      error: {
+        message: "Too many authentication capability requests. Try again shortly.",
+      },
+    },
+  });
+  const passportRateLimit = rateLimit({
+    windowMs: rateLimitWindowMs,
+    limit: options.rateLimits?.passport ?? 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+      error: {
+        message: "Too many passport requests. Try again shortly.",
+      },
+    },
+  });
+  const shellFallbackRateLimit = rateLimit({
+    windowMs: rateLimitWindowMs,
+    limit: options.rateLimits?.shellFallback ?? 120,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    skip: (request) => isApiPath(request.path),
+  });
   const localToken = randomBytes(32).toString("base64url");
+  const localSessionBootstrapTokens = new Set<string>();
+  const issueLocalSessionBootstrap = (): string => {
+    const token = randomBytes(32).toString("base64url");
+    localSessionBootstrapTokens.add(token);
+    while (localSessionBootstrapTokens.size > 16) {
+      const oldest = localSessionBootstrapTokens.values().next().value;
+      if (typeof oldest !== "string") break;
+      localSessionBootstrapTokens.delete(oldest);
+    }
+    return token;
+  };
+  const consumeLocalSessionBootstrap = (
+    candidate: string | undefined,
+  ): boolean => {
+    for (const token of localSessionBootstrapTokens) {
+      if (!secureEqual(candidate, token)) continue;
+      localSessionBootstrapTokens.delete(token);
+      return true;
+    }
+    return false;
+  };
+  const validLocalSessionBootstrap = (
+    candidate: string | undefined,
+  ): boolean =>
+    [...localSessionBootstrapTokens].some((token) =>
+      secureEqual(candidate, token),
+    );
+  const localSessionBootstrapRateLimit = rateLimit({
+    windowMs: rateLimitWindowMs,
+    limit: options.rateLimits?.localSessionBootstrap ?? 30,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    skip: (request) =>
+      validLocalSessionBootstrap(
+        request.header("x-krater-bootstrap-token"),
+      ),
+    message: {
+      error: {
+        message: "Too many invalid local launch-token attempts. Try again shortly.",
+      },
+    },
+  });
   app.locals.localToken = localToken;
-  const projects = new ProjectRegistry(config.cwd);
-  let ideWorkspace = new Workspace(projects.current().path);
+  app.locals.issueLocalSessionBootstrap = issueLocalSessionBootstrap;
+  const authCapabilities = browserAuthCapabilities();
+  const workspaceAuthorizationRoots = [homedir(), config.cwd];
+  const projects = new ProjectRegistry(config.cwd, {
+    localProjectRoots: workspaceAuthorizationRoots,
+    gitExecutable: config.gitExecutable,
+  });
+  const createIdeWorkspace = (path: string): Workspace =>
+    new Workspace(path, {
+      authorizedRootPaths: workspaceAuthorizationRoots,
+      gitExecutable: config.gitExecutable,
+    });
+  let ideWorkspace = createIdeWorkspace(projects.current().path);
   const sessions = new Map<string, BrowserSession>();
   let projectChanging = false;
   let activeWorkspaceOperations = 0;
@@ -1302,10 +1504,6 @@ export async function createApp(
       return;
     }
 
-    response.setHeader(
-      "Set-Cookie",
-      `${LOCAL_SESSION_COOKIE}=${encodeURIComponent(localToken)}; HttpOnly; SameSite=Strict; Path=/`,
-    );
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader(
@@ -1313,15 +1511,28 @@ export async function createApp(
       contentSecurityPolicy(),
     );
 
-    if (request.path === "/api" || request.path.startsWith("/api/")) {
-      const supplied =
-        request.header("x-krater-local-token") ??
-        cookieValue(request, LOCAL_SESSION_COOKIE);
-      if (!secureEqual(supplied, localToken)) {
+    const lowerPath = request.path.toLowerCase();
+    if (
+      (lowerPath === "/api" || lowerPath.startsWith("/api/")) &&
+      !isApiPath(request.path)
+    ) {
+      sendError(response, 404, "API paths are case-sensitive.");
+      return;
+    }
+
+    const localSessionExchange =
+      request.method === "POST" && request.path === "/api/local-session";
+    if (
+      (request.path === "/api" || request.path.startsWith("/api/")) &&
+      !localSessionExchange
+    ) {
+      const headerToken = request.header("x-krater-local-token");
+      const headerAuthorized = secureEqual(headerToken, localToken);
+      if (!headerAuthorized) {
         sendError(
           response,
           401,
-          "Local session token missing or expired. Reload the Krater Pro page.",
+          "Local session token missing or expired. Open a fresh Krater Pro launch URL (or close and reopen the desktop window).",
         );
         return;
       }
@@ -1336,6 +1547,23 @@ export async function createApp(
     response.setHeader("X-Content-Type-Options", "nosniff");
     next();
   });
+
+  app.post(
+    "/api/local-session",
+    localSessionBootstrapRateLimit,
+    (request, response) => {
+      const bootstrapToken = request.header("x-krater-bootstrap-token");
+      if (!consumeLocalSessionBootstrap(bootstrapToken)) {
+        sendError(
+          response,
+          401,
+          "This Krater Pro launch token is invalid or has already been used.",
+        );
+        return;
+      }
+      response.json({ token: localToken });
+    },
+  );
 
   app.get("/api/status", (_request, response) => {
     const currentProject = projects.current();
@@ -1378,7 +1606,7 @@ export async function createApp(
     const previous = projects.current();
     try {
       const current = projects.select(id);
-      const nextWorkspace = new Workspace(current.path);
+      const nextWorkspace = createIdeWorkspace(current.path);
       ideWorkspace = nextWorkspace;
       disposeSessions();
       response.json(projectPayload(projects, current));
@@ -1402,7 +1630,7 @@ export async function createApp(
     const previous = projects.current();
     try {
       const current = await projects.addLocal(path);
-      const nextWorkspace = new Workspace(current.path);
+      const nextWorkspace = createIdeWorkspace(current.path);
       ideWorkspace = nextWorkspace;
       disposeSessions();
       response.status(201).json(projectPayload(projects, current));
@@ -1428,7 +1656,7 @@ export async function createApp(
     const previous = projects.current();
     try {
       const current = await projects.createScratch(suppliedName?.trim() || undefined);
-      const nextWorkspace = new Workspace(current.path);
+      const nextWorkspace = createIdeWorkspace(current.path);
       ideWorkspace = nextWorkspace;
       disposeSessions();
       response.status(201).json(projectPayload(projects, current));
@@ -1455,7 +1683,7 @@ export async function createApp(
     response.once("close", cancelClone);
     try {
       const current = await projects.cloneGitHub(url, abort.signal);
-      const nextWorkspace = new Workspace(current.path);
+      const nextWorkspace = createIdeWorkspace(current.path);
       ideWorkspace = nextWorkspace;
       disposeSessions();
       if (!response.writableEnded) {
@@ -1745,9 +1973,13 @@ export async function createApp(
     }
   });
 
-  app.get("/api/auth/capabilities", (_request, response) => {
-    response.json(browserAuthCapabilities());
-  });
+  app.get(
+    "/api/auth/capabilities",
+    authCapabilitiesRateLimit,
+    (_request, response) => {
+      response.json(authCapabilities);
+    },
+  );
 
   app.get("/api/models", async (request, response) => {
     const apiKey = apiKeyFrom(request, config.apiKey);
@@ -2608,52 +2840,62 @@ export async function createApp(
     }
   });
 
-  app.get("/api/v2/tasks/:taskId/passport", async (request, response) => {
-    const project = optionalCurrentProject(request, response, "Task");
-    if (!project) return;
-    const format = singleQuery(request, "format") ?? "json";
-    if (format !== "json" && format !== "markdown") {
-      sendError(response, 400, 'Passport "format" must be "json" or "markdown".');
-      return;
-    }
-    try {
-      const store = await openEvidenceStore(project.path);
-      const projection = await store.task(request.params.taskId);
-      if (!projection.passport || !projection.capsule) {
-        sendError(response, 409, "This task does not have a generated passport yet.");
+  app.get(
+    "/api/v2/tasks/:taskId/passport",
+    passportRateLimit,
+    async (request: Request<{ taskId: string }>, response: Response) => {
+      const project = optionalCurrentProject(request, response, "Task");
+      if (!project) return;
+      const format = singleQuery(request, "format") ?? "json";
+      if (format !== "json" && format !== "markdown") {
+        sendError(response, 400, 'Passport "format" must be "json" or "markdown".');
         return;
       }
-      if (format === "markdown") {
-        response.type("text/markdown; charset=utf-8");
-        response.setHeader(
-          "Content-Disposition",
-          `attachment; filename="krater-passport-${projection.taskId}.md"`,
+      try {
+        const store = await openEvidenceStore(project.path);
+        const projection = await store.task(request.params.taskId);
+        if (!projection.passport || !projection.capsule) {
+          sendError(
+            response,
+            409,
+            "This task does not have a generated passport yet.",
+          );
+          return;
+        }
+        if (format === "markdown") {
+          response.type("text/markdown; charset=utf-8");
+          response.setHeader(
+            "Content-Disposition",
+            `attachment; filename="krater-passport-${projection.taskId}.md"`,
+          );
+          response.send(renderPassportMarkdown(projection));
+          return;
+        }
+        response.json({
+          passport: projection.passport,
+          capsule: projection.capsule,
+          verification: {
+            passport: verifyChangePassport(
+              projection.passport,
+              projection.capsule,
+            ),
+            capsule: verifyEvidenceCapsule(projection.capsule),
+          },
+        });
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        sendError(
+          response,
+          code === "ENOENT" || /does not exist/i.test((error as Error).message)
+            ? 404
+            : 500,
+          code === "ENOENT"
+            ? "Evidence task not found."
+            : (error as Error).message,
         );
-        response.send(renderPassportMarkdown(projection));
-        return;
       }
-      response.json({
-        passport: projection.passport,
-        capsule: projection.capsule,
-        verification: {
-          passport: verifyChangePassport(
-            projection.passport,
-            projection.capsule,
-          ),
-          capsule: verifyEvidenceCapsule(projection.capsule),
-        },
-      });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      sendError(
-        response,
-        code === "ENOENT" || /does not exist/i.test((error as Error).message)
-          ? 404
-          : 500,
-        code === "ENOENT" ? "Evidence task not found." : (error as Error).message,
-      );
-    }
-  });
+    },
+  );
 
   app.get("/api/v2/tasks/:taskId", async (request, response) => {
     const project = optionalCurrentProject(request, response, "Task");
@@ -3303,7 +3545,8 @@ export async function createApp(
   const currentDirectory = dirname(fileURLToPath(import.meta.url));
   const webRoot = resolve(currentDirectory, "../web");
   if (options.dev) {
-    if (!existsSync(resolve(webRoot, "vite.config.ts"))) {
+    const viteConfigPath = resolve(webRoot, "vite.config.ts");
+    if (!existsSync(viteConfigPath)) {
       throw new Error(
         "Web development mode is available only from a source checkout. Use the packaged production GUI without --dev.",
       );
@@ -3311,7 +3554,7 @@ export async function createApp(
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       root: webRoot,
-      configFile: resolve(webRoot, "vite.config.ts"),
+      configFile: viteConfigPath,
       server: {
         middlewareMode: true,
         hmr:
@@ -3325,30 +3568,34 @@ export async function createApp(
     });
     closeDevelopmentServer = () => vite.close();
     app.use(vite.middlewares);
-    app.use(async (request, response, next) => {
-      if (request.path.startsWith("/api/")) {
-        next();
-        return;
-      }
-      try {
-        const template = await readFile(resolve(webRoot, "index.html"), "utf8");
-        const html = await vite.transformIndexHtml(
-          request.originalUrl,
-          template,
-        );
-        response.setHeader(
-          "Content-Security-Policy",
-          contentSecurityPolicy(inlineModuleScriptHashes(html)),
-        );
-        response.status(200).type("html").send(html);
-      } catch (error) {
-        vite.ssrFixStacktrace(error as Error);
-        next(error);
-      }
-    });
+    app.use(
+      shellFallbackRateLimit,
+      async (request, response, next) => {
+        if (isApiPath(request.path)) {
+          next();
+          return;
+        }
+        try {
+          const template = await readFile(resolve(webRoot, "index.html"), "utf8");
+          const html = await vite.transformIndexHtml(
+            request.originalUrl,
+            template,
+          );
+          response.setHeader(
+            "Content-Security-Policy",
+            contentSecurityPolicy(inlineModuleScriptHashes(html)),
+          );
+          response.status(200).type("html").send(html);
+        } catch (error) {
+          vite.ssrFixStacktrace(error as Error);
+          next(error);
+        }
+      },
+    );
   } else {
     const staticRoot = resolve(webRoot, "dist");
-    if (!existsSync(staticRoot)) {
+    const staticIndexPath = resolve(staticRoot, "index.html");
+    if (!existsSync(staticIndexPath)) {
       app.get("/", (_request, response) => {
         response
           .status(503)
@@ -3356,24 +3603,57 @@ export async function createApp(
           .send("Krater Pro GUI has not been built. Run `npm run build` first.");
       });
     } else {
+      const productionShell = await readFile(staticIndexPath, "utf8");
       app.use(express.static(staticRoot, { index: false }));
-      app.use((request, response, next) => {
-        if (request.path.startsWith("/api/")) {
-          next();
-          return;
-        }
-        response.sendFile(resolve(staticRoot, "index.html"));
-      });
+      app.use(
+        shellFallbackRateLimit,
+        (request, response, next) => {
+          if (isApiPath(request.path)) {
+            next();
+            return;
+          }
+          response.status(200).type("html").send(productionShell);
+        },
+      );
     }
   }
 
   return app;
 }
 
+export function issueLocalLaunchUrl(app: Express, baseUrl: string): string {
+  const launchUrl = new URL(baseUrl);
+  if (
+    launchUrl.protocol !== "http:" ||
+    launchUrl.username ||
+    launchUrl.password ||
+    loopbackHostname(launchUrl.host) === undefined
+  ) {
+    throw new Error("Local launch URLs require an uncredentialed loopback HTTP origin.");
+  }
+  const issueBootstrap = app.locals.issueLocalSessionBootstrap;
+  if (typeof issueBootstrap !== "function") {
+    throw new Error("The local session bootstrap issuer is unavailable.");
+  }
+  const bootstrapToken = String(issueBootstrap());
+  if (!/^[A-Za-z0-9_-]{43}$/.test(bootstrapToken)) {
+    throw new Error("The local session bootstrap issuer returned an invalid token.");
+  }
+  launchUrl.hash = new URLSearchParams({
+    [LOCAL_SESSION_FRAGMENT]: bootstrapToken,
+  }).toString();
+  return launchUrl.href;
+}
+
 export async function startServer(
   config: KraterConfig,
   options: ServerOptions = {},
-): Promise<{ url: string; close: () => Promise<void> }> {
+): Promise<{
+  url: string;
+  launchUrl: string;
+  createLaunchUrl: () => string;
+  close: () => Promise<void>;
+}> {
   const host = config.host.toLowerCase();
   if (!["127.0.0.1", "localhost", "::1"].includes(host)) {
     throw new Error(
@@ -3389,9 +3669,14 @@ export async function startServer(
     },
   );
   const displayHost = config.host === "::1" ? "[::1]" : config.host;
+  const url = `http://${displayHost}:${config.port}`;
+  const createLaunchUrl = (): string => issueLocalLaunchUrl(app, url);
+  const launchUrl = createLaunchUrl();
   let closePromise: Promise<void> | undefined;
   return {
-    url: `http://${displayHost}:${config.port}`,
+    url,
+    launchUrl,
+    createLaunchUrl,
     close: () => {
       if (closePromise) return closePromise;
       const shutdown = Promise.resolve(app.locals.shutdown?.());

@@ -1,15 +1,39 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createHash } from "node:crypto";
-import { realpathSync, statSync } from "node:fs";
 import {
-  mkdir,
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import {
   mkdtemp,
   realpath,
   rm,
   stat,
 } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  parse,
+  posix,
+  relative,
+  resolve,
+  sep,
+  win32,
+} from "node:path";
 import type { Readable } from "node:stream";
+import {
+  assertTrustedGitExecutable,
+  resolveTrustedGitExecutable,
+  type TrustedGitExecutable,
+} from "./trusted-git.js";
 
 export type ProjectKind = "local" | "github" | "scratch";
 
@@ -25,6 +49,11 @@ export interface ProjectRegistryOptions {
   cloneTimeoutMs?: number;
   maxCloneOutputBytes?: number;
   gitExecutable?: string;
+  /**
+   * Host-selected roots from which local projects may be opened. When omitted,
+   * the initial project is the only root; callers must expand this explicitly.
+   */
+  localProjectRoots?: readonly string[];
 }
 
 interface GitHubRepository {
@@ -41,6 +70,136 @@ const MIN_CLONE_TIMEOUT_MS = 10;
 const MAX_CLONE_TIMEOUT_MS = 10 * 60_000;
 const MIN_CLONE_OUTPUT_BYTES = 128;
 const MAX_CLONE_OUTPUT_BYTES = 1024 * 1024;
+
+interface BoundDirectory {
+  path: string;
+  device: bigint;
+  inode: bigint;
+}
+
+function samePhysicalPath(left: string, right: string): boolean {
+  return process.platform === "win32"
+    ? win32.normalize(left).toLowerCase() ===
+        win32.normalize(right).toLowerCase()
+    : left === right;
+}
+
+function captureBoundDirectory(
+  path: string,
+  expectedParent?: BoundDirectory,
+): BoundDirectory {
+  if (process.platform === "win32") {
+    const before = lstatSync(path, { bigint: true });
+    const physical = realpathSync(path);
+    const after = lstatSync(path, { bigint: true });
+    if (
+      !before.isDirectory() ||
+      before.isSymbolicLink() ||
+      !after.isDirectory() ||
+      after.isSymbolicLink() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      (expectedParent &&
+        !samePhysicalPath(dirname(physical), expectedParent.path))
+    ) {
+      throw new Error("A project directory identity could not be verified.");
+    }
+    return {
+      path: physical,
+      device: after.dev,
+      inode: after.ino,
+    };
+  }
+
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(
+      path,
+      constants.O_RDONLY |
+        (constants.O_DIRECTORY ?? 0) |
+        (constants.O_NOFOLLOW ?? 0),
+    );
+    const opened = fstatSync(descriptor, { bigint: true });
+    const lexical = lstatSync(path, { bigint: true });
+    const physical = realpathSync(path);
+    const afterOpen = fstatSync(descriptor, { bigint: true });
+    const afterPath = lstatSync(path, { bigint: true });
+    if (
+      !opened.isDirectory() ||
+      opened.isSymbolicLink() ||
+      !lexical.isDirectory() ||
+      lexical.isSymbolicLink() ||
+      !afterOpen.isDirectory() ||
+      !afterPath.isDirectory() ||
+      afterPath.isSymbolicLink() ||
+      opened.dev !== lexical.dev ||
+      opened.ino !== lexical.ino ||
+      opened.dev !== afterOpen.dev ||
+      opened.ino !== afterOpen.ino ||
+      opened.dev !== afterPath.dev ||
+      opened.ino !== afterPath.ino ||
+      (expectedParent &&
+        !samePhysicalPath(dirname(physical), expectedParent.path))
+    ) {
+      throw new Error("A project directory identity could not be verified.");
+    }
+    return {
+      path: physical,
+      device: opened.dev,
+      inode: opened.ino,
+    };
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function assertBoundDirectory(identity: BoundDirectory): void {
+  let current: BoundDirectory;
+  try {
+    current = captureBoundDirectory(identity.path);
+  } catch (error) {
+    throw new Error(
+      "The launch workspace or its internal project directory changed; restart Krater before creating projects.",
+      { cause: error },
+    );
+  }
+  if (
+    !samePhysicalPath(current.path, identity.path) ||
+    current.device !== identity.device ||
+    current.inode !== identity.inode
+  ) {
+    throw new Error(
+      "The launch workspace or its internal project directory changed; restart Krater before creating projects.",
+    );
+  }
+}
+
+function createDirectoryIfMissing(path: string): void {
+  try {
+    mkdirSync(path, { mode: 0o700 });
+  } catch (error) {
+    if (
+      !error ||
+      typeof error !== "object" ||
+      !("code" in error) ||
+      error.code !== "EEXIST"
+    ) {
+      throw error;
+    }
+  }
+}
+
+function ensureBoundChildDirectory(
+  parent: BoundDirectory,
+  name: string,
+): BoundDirectory {
+  assertBoundDirectory(parent);
+  const path = join(parent.path, name);
+  createDirectoryIfMissing(path);
+  const child = captureBoundDirectory(path, parent);
+  assertBoundDirectory(parent);
+  return child;
+}
 
 function copyRecord(record: ProjectRecord): ProjectRecord {
   return { ...record };
@@ -90,6 +249,163 @@ function ensureInitialDirectory(initialCwd: string): string {
     throw new Error("The initial project path must be an existing directory.");
   }
   return physicalPath;
+}
+
+type CanonicalPathSemantics = Pick<
+  typeof posix,
+  | "basename"
+  | "isAbsolute"
+  | "normalize"
+  | "parse"
+  | "relative"
+  | "resolve"
+  | "sep"
+>;
+
+export function canonicalAbsolutePath(
+  input: string,
+  paths: CanonicalPathSemantics = process.platform === "win32" ? win32 : posix,
+): string {
+  if (
+    !input ||
+    input.length > 4_096 ||
+    /[\u0000-\u001f\u007f]/.test(input)
+  ) {
+    throw new Error(
+      "A local project path must be a non-empty path without control characters.",
+    );
+  }
+  if (!paths.isAbsolute(input)) {
+    throw new Error("A local project path must be absolute.");
+  }
+  const windows = paths.sep === "\\";
+  let normalizedPath = paths.normalize(input);
+  if (!windows && process.platform === "darwin") {
+    for (const alias of ["/var", "/tmp", "/etc"] as const) {
+      if (
+        normalizedPath === alias ||
+        normalizedPath.startsWith(`${alias}/`)
+      ) {
+        normalizedPath = `/private${normalizedPath}`;
+        break;
+      }
+    }
+  }
+  const parsedRoot = paths.parse(normalizedPath).root;
+  const sanitizePiece = (piece: string, label: string): string => {
+    const safePiece = windows ? win32.basename(piece) : posix.basename(piece);
+    const windowsDeviceName = safePiece.split(".", 1)[0]?.toUpperCase() ?? "";
+    if (
+      !safePiece ||
+      safePiece === "." ||
+      safePiece === ".." ||
+      safePiece !== piece ||
+      (windows &&
+        (/[<>:"/\\|?*\u0000-\u001f]/.test(safePiece) ||
+          /[ .]$/.test(safePiece) ||
+          /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(
+            windowsDeviceName,
+          )))
+    ) {
+      throw new Error(`A local project path contains an unsafe ${label}.`);
+    }
+    return safePiece;
+  };
+
+  let trustedRoot: string;
+  if (windows) {
+    const extendedUncPrefix = "\\\\?\\UNC\\";
+    if (
+      normalizedPath
+        .slice(0, extendedUncPrefix.length)
+        .toUpperCase() === extendedUncPrefix
+    ) {
+      const rootParts = input
+        .replace(/\//g, "\\")
+        .slice(extendedUncPrefix.length)
+        .split("\\");
+      const server = sanitizePiece(rootParts[0] ?? "", "UNC server");
+      const share = sanitizePiece(rootParts[1] ?? "", "UNC share");
+      if (
+        rootParts
+          .slice(2)
+          .some((segment) => segment === "." || segment === "..")
+      ) {
+        throw new Error(
+          "A local project path cannot traverse an extended UNC share.",
+        );
+      }
+      trustedRoot = `\\\\${server}\\${share}\\`;
+      normalizedPath = paths.resolve(
+        trustedRoot,
+        rootParts.slice(2).join("\\"),
+      );
+    } else {
+      const extendedDrive = /^\\\\\?\\([A-Za-z]):\\$/.exec(parsedRoot);
+      const drive = /^([A-Za-z]):\\$/.exec(parsedRoot);
+      const unc = /^\\\\([^\\]+)\\([^\\]+)\\$/.exec(parsedRoot);
+      const volume =
+        /^\\\\\?\\(Volume\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\})\\$/.exec(
+          parsedRoot,
+        );
+      if (extendedDrive || drive) {
+        const driveLetter = (
+          extendedDrive?.[1] ??
+          drive?.[1] ??
+          ""
+        ).toUpperCase();
+        if (!"ABCDEFGHIJKLMNOPQRSTUVWXYZ".includes(driveLetter)) {
+          throw new Error("A local project path has an unsafe drive root.");
+        }
+        trustedRoot = `${driveLetter}:\\`;
+        if (extendedDrive) {
+          normalizedPath = paths.normalize(normalizedPath.slice(4));
+        }
+      } else if (volume) {
+        const volumeName = sanitizePiece(
+          volume[1] ?? "",
+          "extended volume root",
+        );
+        trustedRoot = `\\\\?\\${volumeName}\\`;
+      } else if (unc) {
+        const server = sanitizePiece(unc[1] ?? "", "UNC server");
+        const share = sanitizePiece(unc[2] ?? "", "UNC share");
+        trustedRoot = `\\\\${server}\\${share}\\`;
+      } else {
+        throw new Error("A local project path has an unsupported Windows root.");
+      }
+    }
+  } else {
+    if (parsedRoot !== paths.sep) {
+      throw new Error("A local project path must be absolute.");
+    }
+    trustedRoot = paths.sep;
+  }
+
+  const relativePath = paths.relative(trustedRoot, normalizedPath);
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${paths.sep}`) ||
+    paths.isAbsolute(relativePath)
+  ) {
+    throw new Error("A local project path cannot traverse its filesystem root.");
+  }
+  let reconstructed = trustedRoot;
+  for (const segment of relativePath.split(paths.sep).filter(Boolean)) {
+    const safeSegment = sanitizePiece(segment, "segment");
+    reconstructed = paths.resolve(reconstructed, safeSegment);
+  }
+  return reconstructed;
+}
+
+function isWithinRoot(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate);
+  return (
+    fromRoot === "" ||
+    (fromRoot !== ".." &&
+      !fromRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(fromRoot))
+  );
 }
 
 function parseGitHubRepositoryUrl(value: string): GitHubRepository {
@@ -235,13 +551,28 @@ export class ProjectRegistry {
 
   readonly #cloneTimeoutMs: number;
   readonly #maxCloneOutputBytes: number;
-  readonly #gitExecutable: string;
+  readonly #gitExecutable?: TrustedGitExecutable;
+  readonly #initialRoot: BoundDirectory;
+  readonly #localProjectRoots: string[];
   readonly #records = new Map<string, ProjectRecord>();
   readonly #pathIndex = new Map<string, string>();
+  #kraterRoot?: BoundDirectory;
+  #projectsRoot?: BoundDirectory;
+  #gitHomeRoot?: BoundDirectory;
+  #scratchRoot?: BoundDirectory;
   #selectedId: string;
 
   constructor(initialCwd: string, options: ProjectRegistryOptions = {}) {
     this.initialCwd = ensureInitialDirectory(initialCwd);
+    this.#initialRoot = captureBoundDirectory(this.initialCwd);
+    this.#localProjectRoots = [
+      ...new Set(
+        (options.localProjectRoots ?? [initialCwd]).flatMap((root) => [
+          canonicalAbsolutePath(resolve(root)),
+          ensureInitialDirectory(root),
+        ]),
+      ),
+    ];
     this.#cloneTimeoutMs = boundedInteger(
       options.cloneTimeoutMs,
       DEFAULT_CLONE_TIMEOUT_MS,
@@ -256,10 +587,9 @@ export class ProjectRegistry {
       MAX_CLONE_OUTPUT_BYTES,
       "maxCloneOutputBytes",
     );
-    this.#gitExecutable = options.gitExecutable ?? "git";
-    if (!this.#gitExecutable || this.#gitExecutable.includes("\0")) {
-      throw new Error("gitExecutable must be a non-empty executable name.");
-    }
+    this.#gitExecutable = resolveTrustedGitExecutable(options.gitExecutable, [
+      this.initialCwd,
+    ]);
 
     const initial: ProjectRecord = {
       id: stableLocalId(this.initialCwd),
@@ -270,6 +600,100 @@ export class ProjectRegistry {
     this.#records.set(initial.id, initial);
     this.#pathIndex.set(initial.path, initial.id);
     this.#selectedId = initial.id;
+  }
+
+  #boundKraterRoot(): BoundDirectory {
+    assertBoundDirectory(this.#initialRoot);
+    if (!this.#kraterRoot) {
+      this.#kraterRoot = ensureBoundChildDirectory(
+        this.#initialRoot,
+        ".krater",
+      );
+    } else {
+      assertBoundDirectory(this.#kraterRoot);
+    }
+    assertBoundDirectory(this.#initialRoot);
+    return this.#kraterRoot;
+  }
+
+  #boundScratchRoot(): BoundDirectory {
+    const kraterRoot = this.#boundKraterRoot();
+    if (!this.#scratchRoot) {
+      this.#scratchRoot = ensureBoundChildDirectory(kraterRoot, "scratch");
+    } else {
+      assertBoundDirectory(this.#scratchRoot);
+    }
+    assertBoundDirectory(kraterRoot);
+    return this.#scratchRoot;
+  }
+
+  #boundCloneRoots(): {
+    kraterRoot: BoundDirectory;
+    projectsRoot: BoundDirectory;
+    gitHomeRoot: BoundDirectory;
+  } {
+    const kraterRoot = this.#boundKraterRoot();
+    if (!this.#projectsRoot) {
+      this.#projectsRoot = ensureBoundChildDirectory(
+        kraterRoot,
+        "projects",
+      );
+    } else {
+      assertBoundDirectory(this.#projectsRoot);
+    }
+    if (!this.#gitHomeRoot) {
+      this.#gitHomeRoot = ensureBoundChildDirectory(
+        kraterRoot,
+        "git-home",
+      );
+    } else {
+      assertBoundDirectory(this.#gitHomeRoot);
+    }
+    this.#assertCloneRootsBound();
+    return {
+      kraterRoot,
+      projectsRoot: this.#projectsRoot,
+      gitHomeRoot: this.#gitHomeRoot,
+    };
+  }
+
+  #assertScratchRootsBound(): void {
+    assertBoundDirectory(this.#initialRoot);
+    if (!this.#kraterRoot || !this.#scratchRoot) {
+      throw new Error("Scratch project directories were not bound.");
+    }
+    assertBoundDirectory(this.#kraterRoot);
+    assertBoundDirectory(this.#scratchRoot);
+  }
+
+  #assertCloneRootsBound(): void {
+    assertBoundDirectory(this.#initialRoot);
+    if (!this.#kraterRoot || !this.#projectsRoot || !this.#gitHomeRoot) {
+      throw new Error("GitHub clone directories were not bound.");
+    }
+    assertBoundDirectory(this.#kraterRoot);
+    assertBoundDirectory(this.#projectsRoot);
+    assertBoundDirectory(this.#gitHomeRoot);
+  }
+
+  #cloneCleanupIsSafe(destination: BoundDirectory): boolean {
+    try {
+      this.#assertCloneRootsBound();
+      assertBoundDirectory(destination);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #scratchCleanupIsSafe(destination: BoundDirectory): boolean {
+    try {
+      this.#assertScratchRootsBound();
+      assertBoundDirectory(destination);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   list(): ProjectRecord[] {
@@ -294,19 +718,63 @@ export class ProjectRegistry {
   }
 
   async addLocal(path: string): Promise<ProjectRecord> {
+    if (
+      !path ||
+      path.length > 4_096 ||
+      /[\u0000-\u001f\u007f]/.test(path)
+    ) {
+      throw new Error(
+        "A local project path must be a non-empty path without control characters.",
+      );
+    }
     if (!isAbsolute(path)) {
       throw new Error("A local project path must be absolute.");
     }
 
-    let physicalPath: string;
-    try {
-      physicalPath = await realpath(path);
-      const details = await stat(physicalPath);
-      if (!details.isDirectory()) {
-        throw new Error("not a directory");
+    const normalizedPath = canonicalAbsolutePath(path);
+    let physicalPath: string | undefined;
+    for (const root of this.#localProjectRoots) {
+      let fromRoot = relative(root, normalizedPath);
+      if (
+        process.platform === "darwin" &&
+        (fromRoot === ".." ||
+          fromRoot.startsWith(`..${sep}`) ||
+          isAbsolute(fromRoot))
+      ) {
+        fromRoot = relative(
+          root.toLocaleLowerCase("en-US"),
+          normalizedPath.toLocaleLowerCase("en-US"),
+        );
       }
-    } catch {
-      throw new Error("The local project path must be an existing directory.");
+      if (
+        fromRoot === ".." ||
+        fromRoot.startsWith(`..${sep}`) ||
+        isAbsolute(fromRoot)
+      ) {
+        continue;
+      }
+      const guardedPath = resolve(root, fromRoot);
+      try {
+        const candidate = await realpath(guardedPath);
+        if (
+          !this.#localProjectRoots.some((authorizedRoot) =>
+            isWithinRoot(authorizedRoot, candidate),
+          )
+        ) {
+          continue;
+        }
+        const details = await stat(candidate);
+        if (!details.isDirectory()) continue;
+        physicalPath = candidate;
+        break;
+      } catch {
+        // Try another host-authorized root before returning one safe error.
+      }
+    }
+    if (!physicalPath) {
+      throw new Error(
+        "The local project path must be an existing directory within an authorized local project root.",
+      );
     }
 
     const existingId = this.#pathIndex.get(physicalPath);
@@ -323,19 +791,26 @@ export class ProjectRegistry {
   }
 
   async createScratch(name = "scratch"): Promise<ProjectRecord> {
-    const scratchRoot = join(this.initialCwd, ".krater", "scratch");
-    await mkdir(scratchRoot, { recursive: true });
-
+    const scratchRoot = this.#boundScratchRoot();
     const prefix = `${safeName(name, "scratch")}-`;
-    const path = await mkdtemp(join(scratchRoot, prefix));
-    const physicalPath = await realpath(path);
-
-    return this.#register({
-      id: `scratch-${basename(physicalPath)}`,
-      name: basename(physicalPath),
-      kind: "scratch",
-      path: physicalPath,
-    });
+    const path = await mkdtemp(join(scratchRoot.path, prefix));
+    const created = captureBoundDirectory(path, scratchRoot);
+    try {
+      this.#assertScratchRootsBound();
+      return this.#register({
+        id: `scratch-${basename(created.path)}`,
+        name: basename(created.path),
+        kind: "scratch",
+        path: created.path,
+      });
+    } catch (error) {
+      if (this.#scratchCleanupIsSafe(created)) {
+        await rm(created.path, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
+      throw error;
+    }
   }
 
   async cloneGitHub(
@@ -346,41 +821,46 @@ export class ProjectRegistry {
     if (signal?.aborted) {
       throw abortError();
     }
+    this.#validatedGitExecutable();
 
-    const kraterRoot = join(this.initialCwd, ".krater");
-    const projectsRoot = join(kraterRoot, "projects");
-    const isolatedGitHome = join(kraterRoot, "git-home");
-    await Promise.all([
-      mkdir(projectsRoot, { recursive: true }),
-      mkdir(isolatedGitHome, { recursive: true }),
-    ]);
+    const { projectsRoot, gitHomeRoot } = this.#boundCloneRoots();
 
     if (signal?.aborted) {
       throw abortError();
     }
 
     const prefix = `${safeName(repository.repository, "project")}-`;
-    const destination = await mkdtemp(join(projectsRoot, prefix));
+    const destinationPath = await mkdtemp(join(projectsRoot.path, prefix));
+    const destination = captureBoundDirectory(
+      destinationPath,
+      projectsRoot,
+    );
+    this.#assertCloneRootsBound();
 
     try {
       await this.#runGitClone(
         repository.source,
-        destination,
-        projectsRoot,
-        isolatedGitHome,
+        destination.path,
+        projectsRoot.path,
+        gitHomeRoot.path,
         signal,
       );
-      const physicalPath = await realpath(destination);
+      this.#assertCloneRootsBound();
+      assertBoundDirectory(destination);
       return this.#register({
-        id: `github-${basename(physicalPath)}`,
-        name: basename(physicalPath),
+        id: `github-${basename(destination.path)}`,
+        name: basename(destination.path),
         kind: "github",
-        path: physicalPath,
+        path: destination.path,
         source: repository.source,
       });
     } catch (error) {
       // This path was created by this invocation and was never registered.
-      await rm(destination, { recursive: true, force: true }).catch(() => {});
+      if (this.#cloneCleanupIsSafe(destination)) {
+        await rm(destination.path, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
       throw error;
     }
   }
@@ -408,6 +888,8 @@ export class ProjectRegistry {
     isolatedGitHome: string,
     abortSignal?: AbortSignal,
   ): Promise<void> {
+    this.#assertCloneRootsBound();
+    const gitExecutable = this.#validatedGitExecutable();
     const args = [
       "-c",
       "credential.helper=",
@@ -449,7 +931,8 @@ export class ProjectRegistry {
     return new Promise((resolve, reject) => {
       let child: CloneProcess;
       try {
-        child = spawn(this.#gitExecutable, args, {
+        this.#assertCloneRootsBound();
+        child = spawn(gitExecutable, args, {
           cwd: projectsRoot,
           detached: process.platform !== "win32",
           env,
@@ -563,5 +1046,15 @@ export class ProjectRegistry {
         );
       });
     });
+  }
+
+  #validatedGitExecutable(): string {
+    const executable = this.#gitExecutable;
+    if (!executable) {
+      throw new Error(
+        "Git is unavailable from Krater Pro's fixed system paths. Configure a trusted absolute Git executable.",
+      );
+    }
+    return assertTrustedGitExecutable(executable);
   }
 }

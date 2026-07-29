@@ -99,7 +99,9 @@ Start the local GUI:
 krater web
 ```
 
-Then open [http://127.0.0.1:4317](http://127.0.0.1:4317).
+Open the exact loopback launch URL printed by the command. Its fragment carries
+a one-use local bootstrap token; opening the bare port does not authorize API
+access.
 
 Full source, first-run, Homebrew-readiness, shell-completion, update, and
 uninstall guidance: [docs/INSTALLATION.md](docs/INSTALLATION.md).
@@ -135,7 +137,7 @@ Krater Pro resolves a key in this order:
 
 1. `--api-key`
 2. `KRATER_API_KEY` in the process environment
-3. an OS-protected credential referenced by the selected workspace
+3. an OS-protected credential scoped to the selected workspace path
 4. `KRATER_API_KEY` in the selected workspace’s `.env`
 
 It intentionally ignores `OPENAI_API_KEY` and `OPENAI_BASE_URL`. A command-line
@@ -337,6 +339,7 @@ directory).
 | `KRATER_API_KEY` | none | Krater bearer credential |
 | `KRATER_BASE_URL` | `https://api.krater.ai/v1` | OpenAI-compatible API root |
 | `KRATER_MODEL` | `auto` | Smart Router, or an exact model ID as a hard override |
+| `KRATER_GIT_EXECUTABLE` | fixed system Git | Host-selected absolute Git executable outside the workspace |
 | `KRATER_HOST` | `127.0.0.1` | Local GUI bind address |
 | `KRATER_PORT` | `4317` | Local GUI port |
 | `KRATER_CONTEXT_CHARS` | `120000` | Estimated context-character budget |
@@ -348,6 +351,11 @@ directory).
 
 Explicit CLI options override environment values, which override `.env`, which
 override defaults.
+
+`KRATER_GIT_EXECUTABLE` is deliberately host-only: set it in the process
+environment or with `--git-executable`; a workspace `.env` entry is ignored.
+Krater never searches `PATH` for Git and rejects executables that resolve inside
+the writable workspace.
 
 ## Smart Coding Router
 

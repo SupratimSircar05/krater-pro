@@ -14,10 +14,13 @@ import {
 import {
   constants,
   existsSync,
+  lstatSync,
   realpathSync,
+  statSync,
   type Dirent,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import {
   basename,
@@ -32,6 +35,8 @@ import {
 } from "node:path";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import type { Writable } from "node:stream";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   MacOsSandboxAdapter,
   SandboxSupervisor,
@@ -39,6 +44,12 @@ import {
   type NativeSandboxAdapter,
   type ResourceCapabilityRequest,
 } from "./sandbox/index.js";
+import {
+  assertTrustedGitExecutable,
+  resolveTrustedGitExecutable,
+  serializeTrustedGitExecutable,
+  type TrustedGitExecutable,
+} from "./trusted-git.js";
 
 const DEFAULT_IGNORES = new Set([
   ".git",
@@ -56,11 +67,49 @@ const MAX_SEARCH_FILES = 5_000;
 const MAX_SEARCH_OUTPUT_CHARS = 120_000;
 const MAX_SEARCH_MATCH_LINE_CHARS = 4_000;
 const MAX_COMMAND_OUTPUT = 120_000;
+const MAX_COMMAND_SCRIPT_BYTES = 128_000;
 const MAX_LIST_OUTPUT_CHARS = 120_000;
 const MAX_IDE_FILE_BYTES = 1_000_000;
 const MAX_IDE_TREE_ENTRIES = 2_000;
 const MAX_IDE_TREE_OUTPUT_CHARS = 400_000;
 const MAX_WORKSPACE_WALK_ENTRIES = 20_000;
+const WORKSPACE_MODULE_PATH = fileURLToPath(import.meta.url);
+const COMMAND_GATE_PATH = join(
+  dirname(WORKSPACE_MODULE_PATH),
+  extname(WORKSPACE_MODULE_PATH) === ".ts"
+    ? "command-gate.ts"
+    : "command-gate.js",
+);
+const COMMAND_GATE_FLAG = "--krater-internal-command-gate";
+const TSX_LOADER_URL =
+  extname(COMMAND_GATE_PATH) === ".ts"
+    ? pathToFileURL(
+        createRequire(import.meta.url).resolve("tsx"),
+      ).href
+    : undefined;
+
+function commandGateArguments(): string[] {
+  if (process.versions.electron) {
+    const electronProcess = process as NodeJS.Process & {
+      defaultApp?: boolean;
+    };
+    return electronProcess.defaultApp
+      ? [
+          join(dirname(WORKSPACE_MODULE_PATH), "..", "desktop", "bootstrap.mjs"),
+          COMMAND_GATE_FLAG,
+        ]
+      : [COMMAND_GATE_FLAG];
+  }
+  return extname(COMMAND_GATE_PATH) === ".ts"
+    ? ["--import", TSX_LOADER_URL!, COMMAND_GATE_PATH]
+    : [COMMAND_GATE_PATH];
+}
+
+function commandGateEnvironment(
+  environment: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  return environment;
+}
 
 export interface WorkspaceTreeEntry {
   path: string;
@@ -80,6 +129,11 @@ export interface WorkspaceTree {
 
 export interface WorkspaceOptions {
   /**
+   * Host-authorized physical roots for the workspace itself. This closes the
+   * gap between project registration and later workspace activation.
+   */
+  authorizedRootPaths?: readonly string[];
+  /**
    * Host-selected dependency/toolchain roots that sandboxed commands may read
    * but never mutate. These paths are not exposed through file tools.
    */
@@ -90,6 +144,12 @@ export interface WorkspaceOptions {
    * for deterministic tests and hosts that disable unattended execution.
    */
   nativeSandboxAdapter?: NativeSandboxAdapter | null;
+  /**
+   * Optional host-selected Git executable. Relative executable names are
+   * rejected. Without an explicit host selection, only fixed system install
+   * paths are considered. The selected file is bound to its physical identity.
+   */
+  gitExecutable?: string;
 }
 
 export interface WorkspaceDocument {
@@ -153,7 +213,13 @@ export interface CommandExecutionOptions {
 }
 
 function within(root: string, candidate: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}${sep}`);
+  const fromRoot = relative(root, candidate);
+  return (
+    fromRoot === "" ||
+    (fromRoot !== ".." &&
+      !fromRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(fromRoot))
+  );
 }
 
 function displayPath(root: string, absolute: string): string {
@@ -268,6 +334,30 @@ function formatGitPath(path: string): string {
   return /[\u0000-\u001f\u007f]/.test(path) ? JSON.stringify(path) : path;
 }
 
+function hasCommandOption(
+  argumentsText: string,
+  shortName: string,
+  longName: string,
+): boolean {
+  for (const rawToken of argumentsText.split(/\s+/)) {
+    let start = 0;
+    let end = rawToken.length;
+    while (start < end && "'\"`".includes(rawToken[start]!)) start += 1;
+    while (end > start && "'\"`".includes(rawToken[end - 1]!)) end -= 1;
+    const token = rawToken.slice(start, end).toLowerCase();
+    if (token === longName) return true;
+    if (
+      token.length > 1 &&
+      token[0] === "-" &&
+      token[1] !== "-" &&
+      token.slice(1).includes(shortName)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function containsDestructiveCommand(command: string): boolean {
   const segments = command.split(/[;&|]/).map((segment) => segment.trim());
   for (const segment of segments) {
@@ -277,10 +367,8 @@ function containsDestructiveCommand(command: string): boolean {
     for (const match of rmCommands) {
       const args = match[1];
       if (
-        (/(?:^|\s)--recursive(?:\s|$)/i.test(args) ||
-          /(?:^|\s)-[a-z]*r[a-z]*(?:\s|$)/i.test(args)) &&
-        (/(?:^|\s)--force(?:\s|$)/i.test(args) ||
-          /(?:^|\s)-[a-z]*f[a-z]*(?:\s|$)/i.test(args))
+        hasCommandOption(args, "r", "--recursive") &&
+        hasCommandOption(args, "f", "--force")
       ) {
         return true;
       }
@@ -288,8 +376,7 @@ function containsDestructiveCommand(command: string): boolean {
     if (
       /\bgit\b.*\breset\b.*(?:^|\s)--hard(?:\s|$)/i.test(segment) ||
       (/\bgit\b.*\bclean\b/i.test(segment) &&
-        (/(?:^|\s)--force(?:\s|$)/i.test(segment) ||
-          /(?:^|\s)-[a-z]*f[a-z]*(?:\s|$)/i.test(segment)))
+        hasCommandOption(segment, "f", "--force"))
     ) {
       return true;
     }
@@ -356,7 +443,12 @@ function safeCommandEnvironment(
   ]);
   const safe: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(source)) {
-    if (value !== undefined && (exact.has(name) || name.startsWith("LC_"))) {
+    const comparedName =
+      process.platform === "win32" ? name.toUpperCase() : name;
+    if (
+      value !== undefined &&
+      (exact.has(comparedName) || comparedName.startsWith("LC_"))
+    ) {
       safe[name] = value;
     }
   }
@@ -368,12 +460,14 @@ function sandboxLiteral(value: string): string {
 }
 
 function sandboxRegex(value: string): string {
-  if (/[\0\r\n]/.test(value)) {
-    throw new Error("Sandbox regular expressions cannot contain control lines.");
+  if (/[\0\r\n"]/.test(value)) {
+    throw new Error(
+      "Sandbox regular expressions cannot contain quotes or control lines.",
+    );
   }
   // Seatbelt's regex literals preserve regex backslashes. JSON
   // encoding would double them and turn `\.` into a literal backslash match.
-  return `#"${value.replace(/"/g, '\\"')}"`;
+  return `#"${value}"`;
 }
 
 function escapeRegularExpression(value: string): string {
@@ -389,11 +483,42 @@ function caseInsensitiveRegularExpressionLiteral(value: string): string {
 
 export class Workspace {
   readonly root: string;
+  private readonly rootIdentity: { dev: bigint; ino: bigint };
   private readonly readOnlyDependencyRoots: string[];
   private readonly nativeSandboxAdapter?: NativeSandboxAdapter;
+  private readonly gitExecutable?: TrustedGitExecutable;
 
   constructor(root: string, options: WorkspaceOptions = {}) {
-    this.root = realpathSync(resolve(root));
+    const physicalRoot = realpathSync(resolve(root));
+    if (options.authorizedRootPaths?.length) {
+      let authorized = false;
+      for (const configuredRoot of options.authorizedRootPaths) {
+        const trustedRoot = realpathSync(resolve(configuredRoot));
+        const fromTrustedRoot = relative(trustedRoot, physicalRoot);
+        if (
+          fromTrustedRoot !== ".." &&
+          !fromTrustedRoot.startsWith(`..${sep}`) &&
+          !isAbsolute(fromTrustedRoot)
+        ) {
+          authorized = true;
+          break;
+        }
+      }
+      if (!authorized) {
+        throw new Error(
+          "The selected project resolves outside its host-authorized roots.",
+        );
+      }
+    }
+    this.root = physicalRoot;
+    const rootDetails = statSync(this.root, { bigint: true });
+    if (!rootDetails.isDirectory()) {
+      throw new Error("The selected workspace root is not a directory.");
+    }
+    this.rootIdentity = {
+      dev: rootDetails.dev,
+      ino: rootDetails.ino,
+    };
     this.readOnlyDependencyRoots = [
       ...new Set(
         (options.readOnlyDependencyRoots ?? []).map((path) =>
@@ -405,15 +530,63 @@ export class Workspace {
       options.nativeSandboxAdapter === undefined
         ? createHostNativeSandboxAdapter()
         : options.nativeSandboxAdapter ?? undefined;
+    this.gitExecutable = resolveTrustedGitExecutable(options.gitExecutable, [
+      this.root,
+    ]);
+  }
+
+  private assertBoundRoot(): void {
+    let lexical;
+    let physical;
+    try {
+      lexical = lstatSync(this.root, { bigint: true });
+      physical = realpathSync(this.root);
+    } catch {
+      throw new Error(
+        "The selected workspace root changed or disappeared; reselect the project.",
+      );
+    }
+    if (
+      !lexical.isDirectory() ||
+      lexical.isSymbolicLink() ||
+      physical !== this.root ||
+      lexical.dev !== this.rootIdentity.dev ||
+      lexical.ino !== this.rootIdentity.ino
+    ) {
+      throw new Error(
+        "The selected workspace root changed or escaped its registered identity; reselect the project.",
+      );
+    }
   }
 
   private lexicalPath(input = "."): string {
-    if (input.includes("\0")) throw new Error("Path contains a null byte.");
+    if (input.length > 4_096) throw new Error("Path is too long.");
+    if (/[\0\r\n]/.test(input)) {
+      throw new Error("Path contains a forbidden control character.");
+    }
     const candidate = resolve(this.root, input);
-    if (!within(this.root, candidate)) {
+    const fromRoot = relative(this.root, candidate);
+    if (
+      fromRoot === ".." ||
+      fromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(fromRoot)
+    ) {
       throw new Error(`Path is outside the workspace: ${input}`);
     }
-    return candidate;
+    let reconstructed = this.root;
+    for (const part of fromRoot.split(sep).filter(Boolean)) {
+      const safePart = basename(part);
+      if (
+        !safePart ||
+        safePart === "." ||
+        safePart === ".." ||
+        safePart !== part
+      ) {
+        throw new Error(`Path contains an unsafe segment: ${input}`);
+      }
+      reconstructed = resolve(reconstructed, safePart);
+    }
+    return reconstructed;
   }
 
   private async safePath(input = "."): Promise<string> {
@@ -1344,6 +1517,18 @@ export class Workspace {
     signal?: AbortSignal,
     options: CommandExecutionOptions = {},
   ): Promise<CommandResult> {
+    if (
+      /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(command)
+    ) {
+      throw new Error(
+        "Commands cannot contain null bytes or unsafe control characters.",
+      );
+    }
+    if (Buffer.byteLength(command, "utf8") > MAX_COMMAND_SCRIPT_BYTES) {
+      throw new Error(
+        `Command is too large. Maximum is ${MAX_COMMAND_SCRIPT_BYTES} UTF-8 bytes.`,
+      );
+    }
     if (containsDestructiveCommand(command)) {
       throw new Error("This command is blocked because it can irreversibly destroy data.");
     }
@@ -1354,70 +1539,141 @@ export class Workspace {
     if (signal?.aborted) throw new Error("Request cancelled.");
     const authorization = options.authorization ?? "host_direct";
     if (authorization === "verified_unattended") {
+      this.assertBoundRoot();
       return this.runVerifiedUnattendedCommand(
         command,
         boundedTimeout,
         signal,
       );
     }
-    let sandboxDirectory: string | undefined;
-    let executable = command;
-    let executableArguments: string[] | undefined;
+    let executionDirectory: string | undefined;
     let environment = safeCommandEnvironment();
-    let useShell = true;
     let usedMacOsProfile = false;
-    if (
-      process.platform === "darwin" &&
-      existsSync("/usr/bin/sandbox-exec")
-    ) {
-      usedMacOsProfile = true;
-      sandboxDirectory = await mkdtemp(
-        join(tmpdir(), "krater-pro-terminal-"),
-      );
-      const profile = this.commandSandboxProfile(sandboxDirectory);
-      executable = "/usr/bin/sandbox-exec";
-      executableArguments = [
-        "-p",
-        profile,
-        "/bin/sh",
-        "-c",
-        command,
-      ];
-      environment = {
-        ...environment,
-        HOME: sandboxDirectory,
-        TMPDIR: sandboxDirectory,
-        TMP: sandboxDirectory,
-        TEMP: sandboxDirectory,
-        ...(existsSync("/Library/Developer/CommandLineTools/usr/bin")
-          ? {
-              PATH:
-                `/Library/Developer/CommandLineTools/usr/bin${delimiter}` +
-                (environment.PATH ?? ""),
-            }
-          : {}),
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_CONFIG_SYSTEM: "/dev/null",
-      };
-      useShell = false;
-    }
-    if (signal?.aborted) {
-      if (sandboxDirectory) {
-        await rm(sandboxDirectory, { recursive: true, force: true }).catch(
-          () => undefined,
+    let macOsSandboxProfile: string | undefined;
+    const cleanupExecutionDirectory = async (): Promise<void> => {
+      if (!executionDirectory) return;
+      const target = executionDirectory;
+      await rm(target, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+      executionDirectory = undefined;
+    };
+    const cleanupFailure = async (error: unknown): Promise<unknown> => {
+      try {
+        await cleanupExecutionDirectory();
+        return error;
+      } catch (cleanupError) {
+        return new AggregateError(
+          [error, cleanupError],
+          "Command execution failed and its private temporary directory could not be removed.",
         );
       }
+    };
+    try {
+      if (
+        process.platform === "darwin" &&
+        existsSync("/usr/bin/sandbox-exec")
+      ) {
+        usedMacOsProfile = true;
+        executionDirectory = await mkdtemp(
+          join(tmpdir(), "krater-pro-terminal-"),
+        );
+        macOsSandboxProfile =
+          this.commandSandboxProfile(executionDirectory);
+        environment = {
+          ...environment,
+          HOME: executionDirectory,
+          TMPDIR: executionDirectory,
+          TMP: executionDirectory,
+          TEMP: executionDirectory,
+          ...(existsSync("/Library/Developer/CommandLineTools/usr/bin")
+            ? {
+                PATH:
+                  `/Library/Developer/CommandLineTools/usr/bin${delimiter}` +
+                  (environment.PATH ?? ""),
+              }
+            : {}),
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_SYSTEM: "/dev/null",
+        };
+      }
+    } catch (error) {
+      throw await cleanupFailure(error);
+    }
+    if (signal?.aborted) {
+      await cleanupExecutionDirectory();
       throw new Error("Request cancelled.");
     }
+    const gateConfig = {
+      mode:
+        process.platform === "win32"
+          ? ("shell-windows" as const)
+          : ("shell-posix" as const),
+      expectedRoot: this.root,
+      expectedDevice: this.rootIdentity.dev.toString(),
+      expectedInode: this.rootIdentity.ino.toString(),
+      ...(macOsSandboxProfile
+        ? { macOsSandboxProfile }
+        : {}),
+    };
 
     return new Promise((resolvePromise, reject) => {
-      const child = spawn(executable, executableArguments ?? [], {
-        cwd: this.root,
-        env: environment,
-        shell: useShell,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32",
+      let child: ReturnType<typeof spawn>;
+      try {
+        this.assertBoundRoot();
+        child = spawn(process.execPath, commandGateArguments(), {
+          cwd: this.root,
+          env: commandGateEnvironment(environment),
+          shell: false,
+          stdio: [
+            "ignore",
+            "pipe",
+            "pipe",
+            "pipe",
+            "pipe",
+            "pipe",
+          ],
+          detached: false,
+        });
+      } catch (error) {
+        void cleanupFailure(error).then(reject);
+        return;
+      }
+      const descriptors = child.stdio as unknown as Array<
+        NodeJS.ReadableStream | NodeJS.WritableStream | null | undefined
+      >;
+      const configInput = descriptors[3] as Writable | null | undefined;
+      const commandInput = descriptors[4] as Writable | null | undefined;
+      const controlInput = descriptors[5] as Writable | null | undefined;
+      const stdoutStream = child.stdout;
+      const stderrStream = child.stderr;
+      if (
+        !stdoutStream ||
+        !stderrStream ||
+        !configInput ||
+        !commandInput ||
+        !controlInput
+      ) {
+        child.kill("SIGKILL");
+        void cleanupFailure(
+          new Error("Command gate descriptors were unavailable."),
+        ).then(reject);
+        return;
+      }
+      configInput.on("error", () => {
+        // The gate may refuse the workspace before reading its full contract.
       });
+      commandInput.on("error", () => {
+        // The gate may refuse the workspace before reading its command.
+      });
+      controlInput.on("error", () => {
+        // A completed or refused gate closes its cancellation descriptor.
+      });
+      configInput.end(JSON.stringify(gateConfig));
+      commandInput.end(command);
       let stdout = "";
       let stderr = "";
       const stdoutDecoder = new StringDecoder("utf8");
@@ -1425,41 +1681,28 @@ export class Workspace {
       let timedOut = false;
       let aborted = false;
       let settled = false;
+      let cancellationRequested = false;
       let forceTimer: NodeJS.Timeout | undefined;
-      child.stdout.on("data", (chunk: Buffer) => {
+      stdoutStream.on("data", (chunk: Buffer) => {
         const text = stdoutDecoder.write(chunk);
         if (stdout.length < MAX_COMMAND_OUTPUT * 2) {
           stdout += text.slice(0, MAX_COMMAND_OUTPUT * 2 - stdout.length);
         }
       });
-      child.stderr.on("data", (chunk: Buffer) => {
+      stderrStream.on("data", (chunk: Buffer) => {
         const text = stderrDecoder.write(chunk);
         if (stderr.length < MAX_COMMAND_OUTPUT * 2) {
           stderr += text.slice(0, MAX_COMMAND_OUTPUT * 2 - stderr.length);
         }
       });
       const forceKill = () => {
-        if (child.pid && process.platform !== "win32") {
-          try {
-            process.kill(-child.pid, "SIGKILL");
-          } catch {
-            child.kill("SIGKILL");
-          }
-        } else {
-          child.kill("SIGKILL");
-        }
+        child.kill("SIGKILL");
       };
       const terminate = () => {
-        if (child.pid && process.platform !== "win32") {
-          try {
-            process.kill(-child.pid, "SIGTERM");
-          } catch {
-            child.kill("SIGTERM");
-          }
-          forceTimer = setTimeout(forceKill, 2_000);
-        } else {
-          child.kill("SIGTERM");
-        }
+        if (cancellationRequested) return;
+        cancellationRequested = true;
+        controlInput.end("cancel");
+        forceTimer = setTimeout(forceKill, 5_000);
       };
       const onAbort = () => {
         aborted = true;
@@ -1475,13 +1718,9 @@ export class Workspace {
           clearTimeout(forceTimer);
           forceKill();
         }
+        controlInput.destroy();
         signal?.removeEventListener("abort", onAbort);
-        if (sandboxDirectory) {
-          await rm(sandboxDirectory, { recursive: true, force: true }).catch(
-            () => undefined,
-          );
-        }
-        reject(error);
+        reject(await cleanupFailure(error));
       });
       const timer = setTimeout(() => {
         timedOut = true;
@@ -1493,13 +1732,19 @@ export class Workspace {
         clearTimeout(timer);
         if (forceTimer) {
           clearTimeout(forceTimer);
-          forceKill();
         }
+        controlInput.destroy();
         signal?.removeEventListener("abort", onAbort);
-        if (sandboxDirectory) {
-          await rm(sandboxDirectory, { recursive: true, force: true }).catch(
-            () => undefined,
+        try {
+          await cleanupExecutionDirectory();
+        } catch (cleanupError) {
+          reject(
+            new Error(
+              "Command finished but its private temporary directory could not be removed.",
+              { cause: cleanupError },
+            ),
           );
+          return;
         }
         if (aborted) {
           reject(new Error("Request cancelled."));
@@ -1845,8 +2090,7 @@ export class Workspace {
 
   async gitStatusSnapshot(): Promise<GitStatusSnapshot> {
     await this.assertSafeGitRepository();
-    const result = await this.runFixedCommand(
-      "git",
+    const result = await this.runFixedGitCommand(
       [
         ...this.safeGitPrefix(),
         "-c",
@@ -1933,8 +2177,7 @@ export class Workspace {
       "--no-ext-diff",
     ];
     if (staged) listArgs.push("--cached");
-    const listed = await this.runFixedCommand(
-      "git",
+    const listed = await this.runFixedGitCommand(
       listArgs,
       30_000,
       this.safeGitEnvironment(),
@@ -1987,8 +2230,7 @@ export class Workspace {
           .slice(index, index + 100)
           .map((path) => `:(literal)${path}`),
       );
-      const result = await this.runFixedCommand(
-        "git",
+      const result = await this.runFixedGitCommand(
         args,
         30_000,
         this.safeGitEnvironment(),
@@ -2042,8 +2284,7 @@ export class Workspace {
       throw new Error("Git metadata resolves outside the workspace.");
     }
 
-    const inspected = await this.runFixedCommand(
-      "git",
+    const inspected = await this.runFixedGitCommand(
       [
         ...this.safeGitPrefix(),
         "rev-parse",
@@ -2088,24 +2329,60 @@ export class Workspace {
     };
   }
 
-  private async runFixedCommand(
-    executable: string,
+  private async runFixedGitCommand(
     args: string[],
     timeoutMs: number,
     environment: NodeJS.ProcessEnv = safeCommandEnvironment(),
   ): Promise<CommandResult> {
+    this.assertBoundRoot();
+    const gitExecutable = this.gitExecutable;
+    if (!gitExecutable) {
+      throw new Error(
+        "Git is unavailable because no trusted absolute executable could be resolved.",
+      );
+    }
+    assertTrustedGitExecutable(gitExecutable);
+    const gateConfig = {
+      mode: "git" as const,
+      expectedRoot: this.root,
+      expectedDevice: this.rootIdentity.dev.toString(),
+      expectedInode: this.rootIdentity.ino.toString(),
+      trustedGit: serializeTrustedGitExecutable(gitExecutable),
+      gitArguments: args,
+    };
     return new Promise((resolvePromise, reject) => {
-      const child = spawn(executable, args, {
+      const child = spawn(process.execPath, commandGateArguments(), {
         cwd: this.root,
-        env: environment,
+        env: commandGateEnvironment(environment),
         shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", "pipe", "pipe", "pipe", "ignore", "pipe"],
       });
+      const descriptors = child.stdio as unknown as Array<
+        NodeJS.ReadableStream | NodeJS.WritableStream | null | undefined
+      >;
+      const configInput = descriptors[3] as Writable | null | undefined;
+      const controlInput = descriptors[5] as Writable | null | undefined;
+      if (!configInput || !controlInput || !child.stdout || !child.stderr) {
+        child.kill("SIGKILL");
+        reject(new Error("Fixed-command gate descriptors were unavailable."));
+        return;
+      }
+      configInput.on("error", () => {
+        // The gate may reject the workspace before consuming its contract.
+      });
+      controlInput.on("error", () => {
+        // A completed or refused gate closes its cancellation descriptor.
+      });
+      configInput.end(JSON.stringify(gateConfig));
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let stdoutBytes = 0;
       let stderrBytes = 0;
       let truncated = false;
+      let timedOut = false;
+      let settled = false;
+      let cancellationRequested = false;
+      let forceTimer: NodeJS.Timeout | undefined;
       child.stdout.on("data", (chunk: Buffer) => {
         const remaining = MAX_COMMAND_OUTPUT + 1 - stdoutBytes;
         if (remaining > 0) {
@@ -2128,10 +2405,31 @@ export class Workspace {
           truncated = true;
         }
       });
-      child.on("error", reject);
-      const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
-      child.on("close", (exitCode) => {
+      const forceKill = () => child.kill("SIGKILL");
+      const requestCancellation = () => {
+        if (cancellationRequested) return;
+        cancellationRequested = true;
+        controlInput.end("cancel");
+        forceTimer = setTimeout(forceKill, 5_000);
+      };
+      const timer = setTimeout(() => {
+        timedOut = true;
+        requestCancellation();
+      }, timeoutMs);
+      child.on("error", (error) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        if (forceTimer) clearTimeout(forceTimer);
+        controlInput.destroy();
+        reject(error);
+      });
+      child.on("close", (exitCode) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (forceTimer) clearTimeout(forceTimer);
+        controlInput.destroy();
         resolvePromise({
           exitCode,
           stdout: Buffer.concat(stdoutChunks)
@@ -2140,7 +2438,7 @@ export class Workspace {
           stderr: Buffer.concat(stderrChunks)
             .subarray(0, MAX_COMMAND_OUTPUT)
             .toString("utf8"),
-          timedOut: false,
+          timedOut,
           truncated,
           execution: {
             authorization: "host_direct",

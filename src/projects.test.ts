@@ -4,16 +4,18 @@ import {
   mkdir,
   readFile,
   realpath,
+  rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, win32 } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ProjectRegistry } from "./projects.js";
+import { canonicalAbsolutePath, ProjectRegistry } from "./projects.js";
 
 const temporaryPaths: string[] = [];
 
@@ -25,10 +27,22 @@ async function temporaryDirectory(prefix: string): Promise<string> {
 }
 
 async function fakeGit(
+  _workspaceRoot: string,
+  behavior: "success" | "failure" | "hang" = "success",
+): Promise<string> {
+  const toolsRoot = await temporaryDirectory("krater-git-tool-");
+  return writeFakeGitAt(toolsRoot, behavior);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function writeFakeGitAt(
   root: string,
   behavior: "success" | "failure" | "hang" = "success",
 ): Promise<string> {
-  const path = join(root, `fake-git-${behavior}.cjs`);
+  const scriptPath = join(root, `fake-git-${behavior}.cjs`);
   const behaviorSource =
     behavior === "success"
       ? `
@@ -50,15 +64,24 @@ process.exit(9);`
 setInterval(() => {}, 1_000);`;
 
   await writeFile(
-    path,
-    `#!/usr/bin/env node
-const fs = require("node:fs");
+    scriptPath,
+    `const fs = require("node:fs");
 const path = require("node:path");
 ${behaviorSource}
 `,
   );
-  await chmod(path, 0o755);
-  return path;
+  const executable =
+    process.platform === "win32"
+      ? join(root, `fake-git-${behavior}.cmd`)
+      : join(root, `fake-git-${behavior}.sh`);
+  await writeFile(
+    executable,
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+      : `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(scriptPath)} "$@"\n`,
+  );
+  await chmod(executable, 0o755);
+  return executable;
 }
 
 afterEach(async () => {
@@ -70,6 +93,63 @@ afterEach(async () => {
 });
 
 describe("ProjectRegistry", () => {
+  it("canonicalizes Windows drive, UNC, and extended-length paths", () => {
+    const longTail = Array.from(
+      { length: 32 },
+      (_, index) => `Long Segment ${index}`,
+    ).join("\\");
+    const extendedLongPath = `\\\\?\\C:\\${longTail}`;
+    expect(extendedLongPath.length).toBeGreaterThan(260);
+    expect(
+      canonicalAbsolutePath(
+        String.raw`c:/Client Work/ಕನ್ನಡ/../Résumé Project`,
+        win32,
+      ),
+    ).toBe(String.raw`C:\Client Work\Résumé Project`);
+    expect(
+      canonicalAbsolutePath(
+        String.raw`\\Build-Server\Projects$\Client Work\ಕನ್ನಡ`,
+        win32,
+      ),
+    ).toBe(String.raw`\\Build-Server\Projects$\Client Work\ಕನ್ನಡ`);
+    expect(
+      canonicalAbsolutePath(
+        String.raw`\\?\c:\Client Work\Résumé Project`,
+        win32,
+      ),
+    ).toBe(String.raw`C:\Client Work\Résumé Project`);
+    expect(
+      canonicalAbsolutePath(
+        String.raw`\\?\UNC\Build-Server\Projects$\Client Work\ಕನ್ನಡ`,
+        win32,
+      ),
+    ).toBe(String.raw`\\Build-Server\Projects$\Client Work\ಕನ್ನಡ`);
+    expect(
+      canonicalAbsolutePath(
+        String.raw`\\?\Volume{12345678-1234-1234-1234-123456789abc}\Project`,
+        win32,
+      ),
+    ).toBe(
+      String.raw`\\?\Volume{12345678-1234-1234-1234-123456789abc}\Project`,
+    );
+    expect(canonicalAbsolutePath(extendedLongPath, win32)).toBe(
+      extendedLongPath.slice(4),
+    );
+  });
+
+  it.each([
+    String.raw`\\.\pipe\krater`,
+    String.raw`\\server\..\project`,
+    String.raw`\\server\share\safe:stream`,
+    String.raw`\\?\UNC\server\share\CON`,
+    String.raw`\\?\UNC\server\share\..\other-share`,
+    String.raw`\\server`,
+  ])("rejects unsafe Windows local path %s", (path) => {
+    expect(() => canonicalAbsolutePath(path, win32)).toThrow(
+      /unsafe|unsupported|traverse/i,
+    );
+  });
+
   it("starts at the initial directory and registers/selects existing absolute directories", async () => {
     const root = await temporaryDirectory("krater-projects-");
     const second = join(root, "Second Project");
@@ -106,6 +186,42 @@ describe("ProjectRegistry", () => {
       /existing directory/i,
     );
     expect(() => registry.select("unknown")).toThrow(/not registered/i);
+  });
+
+  it("confines local projects to canonical host-authorized roots", async () => {
+    const root = await temporaryDirectory("krater-authorized-root-");
+    const outside = await temporaryDirectory("krater-unauthorized-root-");
+    const unicodeProject = join(outside, "ಕನ್ನಡ", "Résumé Project");
+    await mkdir(unicodeProject, { recursive: true });
+    const link = join(root, "outside-link");
+    await symlink(outside, link, "dir");
+    const registry = new ProjectRegistry(root, {
+      localProjectRoots: [root],
+    });
+
+    await expect(registry.addLocal(outside)).rejects.toThrow(
+      /authorized local project root/i,
+    );
+    await expect(registry.addLocal(link)).rejects.toThrow(
+      /authorized local project root/i,
+    );
+    await expect(registry.addLocal(`${root}\noutside`)).rejects.toThrow(
+      /control characters/i,
+    );
+    await expect(registry.addLocal(`/${"a".repeat(4_097)}`)).rejects.toThrow(
+      /non-empty path without control characters/i,
+    );
+
+    const expandedRegistry = new ProjectRegistry(root, {
+      localProjectRoots: [root, outside],
+    });
+    await expect(expandedRegistry.addLocal(unicodeProject)).resolves.toMatchObject({
+      path: unicodeProject,
+      name: "resume-project",
+    });
+    await expect(expandedRegistry.addLocal(link)).resolves.toMatchObject({
+      path: outside,
+    });
   });
 
   it("creates uniquely named persistent scratch directories without touching skills", async () => {
@@ -189,6 +305,106 @@ describe("ProjectRegistry", () => {
     });
     expect(invocation.env.globalConfig).toMatch(/(?:\/dev\/null|NUL)/);
     expect(await readFile(skillFile, "utf8")).toBe("keep me too");
+  });
+
+  it("requires a stable absolute host-selected Git executable", async () => {
+    const root = await temporaryDirectory("krater-git-identity-");
+    expect(
+      () => new ProjectRegistry(root, { gitExecutable: "git" }),
+    ).toThrow(/safe absolute path/i);
+
+    const workspaceExecutable = await writeFakeGitAt(root);
+    expect(
+      () =>
+        new ProjectRegistry(root, {
+          gitExecutable: workspaceExecutable,
+        }),
+    ).toThrow(/outside writable workspace roots/i);
+
+    const executable = await fakeGit(root);
+    const registry = new ProjectRegistry(root, {
+      gitExecutable: executable,
+    });
+    await rename(executable, `${executable}.original`);
+    await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    await expect(
+      registry.cloneGitHub("https://github.com/owner/repo"),
+    ).rejects.toThrow(/trusted Git executable changed or disappeared/i);
+    await expect(
+      stat(join(root, ".krater", "projects")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects an in-place rewrite of the pinned Git executable", async () => {
+    const root = await temporaryDirectory("krater-git-rewrite-");
+    const executable = await fakeGit(root);
+    const registry = new ProjectRegistry(root, {
+      gitExecutable: executable,
+    });
+    const before = await stat(executable);
+    await writeFile(executable, Buffer.alloc(before.size, 0x41));
+    const after = await stat(executable);
+
+    expect(after.dev).toBe(before.dev);
+    expect(after.ino).toBe(before.ino);
+    expect(after.size).toBe(before.size);
+    await expect(
+      registry.cloneGitHub("https://github.com/owner/repo"),
+    ).rejects.toThrow(/trusted Git executable changed or disappeared/i);
+    await expect(
+      stat(join(root, ".krater", "projects")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("binds the launch workspace identity before scratch and clone mutations", async () => {
+    const parent = await temporaryDirectory("krater-root-swap-");
+    const root = join(parent, "workspace");
+    const displaced = join(parent, "workspace-original");
+    await mkdir(root);
+    const executable = await fakeGit(root);
+    const registry = new ProjectRegistry(root, {
+      gitExecutable: executable,
+    });
+
+    await rename(root, displaced);
+    await mkdir(root);
+
+    await expect(registry.createScratch()).rejects.toThrow(
+      /launch workspace.*changed/i,
+    );
+    await expect(
+      registry.cloneGitHub("https://github.com/owner/repo"),
+    ).rejects.toThrow(/launch workspace.*changed/i);
+    await expect(stat(join(root, ".krater"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("binds the internal .krater ancestor across scratch mutations", async () => {
+    const root = await temporaryDirectory("krater-internal-swap-");
+    const executable = await fakeGit(root);
+    const registry = new ProjectRegistry(root, {
+      gitExecutable: executable,
+    });
+    await registry.createScratch("first");
+    const kraterRoot = join(root, ".krater");
+    const displaced = join(root, ".krater-original");
+    await rename(kraterRoot, displaced);
+    await mkdir(kraterRoot);
+
+    await expect(registry.createScratch("second")).rejects.toThrow(
+      /internal project directory changed/i,
+    );
+    await expect(
+      registry.cloneGitHub("https://github.com/owner/repo"),
+    ).rejects.toThrow(/internal project directory changed/i);
+    await expect(stat(join(kraterRoot, "scratch"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(stat(join(kraterRoot, "projects"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it.each([

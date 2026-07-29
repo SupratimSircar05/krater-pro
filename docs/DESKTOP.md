@@ -3,7 +3,11 @@
 Krater Pro 0.1.0 ships the same local agentic IDE as native, self-contained
 applications for macOS, Windows, and Linux. The desktop shell starts the
 production Krater Pro server on `127.0.0.1`, chooses an available port, and
-closes that server when the app exits.
+closes that server when the app exits. On each start, the main process opens a
+one-time local bootstrap URL. The renderer removes its fragment, exchanges that
+bootstrap once, and keeps the returned local-session token in
+origin-and-port-scoped session state for authenticated API headers. A recreated
+window receives a fresh bootstrap; cookies are not used for this authorization.
 
 Built by [Supratim](https://www.linkedin.com/in/supratimsircar/) with ❤️.
 
@@ -96,6 +100,11 @@ The browser partition is memory-only, and a pasted key is not stored in
 localStorage, cookies, an Electron credential store, logs, crash metadata, or
 release artifacts. The server-side key is never returned by the status API.
 
+The launch-bootstrap URL is separate from the Krater API key. Its fragment is
+valid for one exchange and is rejected after use. Treat an unconsumed launch
+URL as sensitive; it is a loopback single-user bootstrap, not a general account
+login or multi-user authentication mechanism.
+
 For controlled launches, the desktop shell also accepts:
 
 ```sh
@@ -113,6 +122,29 @@ environment variables are `KRATER_DESKTOP_WORKSPACE` and
 `KRATER_DESKTOP_PORT`. The host is always fixed to `127.0.0.1`; a desktop
 option cannot expose it to the network. Without a selected port, the launcher
 chooses an available ephemeral port and retries a bind race safely.
+
+## Command execution boundaries
+
+The packaged desktop command gate verifies that its live parent resolves to
+the canonical Krater executable before accepting the private command-gate
+route. This is defense-in-depth, not an authentication or sandbox boundary.
+
+For attended terminal or explicitly approved commands, destructive-data and
+protected-secret checks are regex guardrails for common spellings only. They do
+not parse every shell form and can be bypassed by alternate tools, aliases,
+interpreters, encodings, or constructed commands. Timeout, cancellation, and
+shutdown request best-effort termination of the initial POSIX process group or
+the Windows process tree through `taskkill /T /F`. A descendant that calls
+`setsid`, detaches, re-parents, or delegates work elsewhere can escape and
+survive.
+
+Strict unattended model commands run only when a native adapter verifies every
+requested sandbox and resource control; otherwise they fail closed and never
+fall back to the attended runner. The verified adapter is currently
+macOS-only. The Windows restricted-token/Job Object native supervisor is not
+yet complete, and no verified Linux supervisor ships in this release, so
+unattended execution fails closed on Windows and Linux. Windows attended
+commands use `taskkill`; they are not supervised by a Job Object.
 
 ## Build locally
 
@@ -142,9 +174,10 @@ Outputs go to `release/`.
 [`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-release.yml)
 runs the full source gate, creates the CLI archive twice and compares its bytes,
 builds on native macOS ARM64, macOS Intel, Windows x64, and Linux x64 runners,
-launches the packaged renderer, produces normalized SPDX dependency SBOMs,
-attests artifacts, signs the release receipt, publishes a matching GitHub
-Release, and opens a Homebrew tap update PR.
+launches the renderer from the distributed macOS ZIP, Windows portable
+executable, and Linux AppImage, verifies a fresh-window bootstrap, produces
+normalized SPDX dependency SBOMs, attests artifacts, signs the release receipt,
+publishes a matching GitHub Release, and opens a Homebrew tap update PR.
 
 Manual workflow dispatch is a non-publishing release-candidate path. It permits
 ad-hoc/unsigned candidates, labels them as candidates, and uploads CI artifacts

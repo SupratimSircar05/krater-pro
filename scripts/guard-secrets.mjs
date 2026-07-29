@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +27,17 @@ const plausibleLiveKeyPatterns = [
   /\bkr_(?:live|prod)_[A-Za-z0-9_-]{16,}\b/g,
   /\b(?:sk|rk)-(?:live-)?[A-Za-z0-9_-]{24,}\b/g,
 ];
+
+function isStableRegularFileIdentity(opened, current) {
+  return (
+    opened.isFile()
+    && !opened.isSymbolicLink()
+    && current.isFile()
+    && !current.isSymbolicLink()
+    && opened.dev === current.dev
+    && opened.ino === current.ino
+  );
+}
 
 function parseDotEnvValue(source, name) {
   const line = source
@@ -97,21 +109,24 @@ const configuredSecrets = await readConfiguredSecrets();
 const findings = [];
 
 for (const file of files) {
-  let metadata;
-  try {
-    metadata = await lstat(file);
-  } catch {
-    findings.push(file);
-    continue;
-  }
-  if (!metadata.isFile()) continue;
-
   let bytes;
+  let handle;
   try {
-    bytes = await readFile(file);
+    handle = await open(
+      file,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    );
+    const opened = await handle.stat({ bigint: true });
+    const current = await lstat(file, { bigint: true });
+    if (!isStableRegularFileIdentity(opened, current)) {
+      throw new Error("File identity changed while opening.");
+    }
+    bytes = await handle.readFile();
   } catch {
     findings.push(file);
     continue;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 
   if (configuredSecrets.some((secret) => bytes.indexOf(secret) !== -1)) {

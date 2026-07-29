@@ -3,13 +3,13 @@ import {
   mkdir,
   lstat,
   open,
-  readFile,
   realpath,
   rename,
   unlink,
 } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { isStableRegularFileIdentity } from "../file-identity.js";
 import { isSha256Digest, redactText } from "../proofgraph/index.js";
 import {
   ShippingIdempotencyConflictError,
@@ -226,23 +226,34 @@ class LockedJsonFile<T> {
   }
 
   async #read(): Promise<T> {
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      const info = await lstat(this.#file);
-      if (!info.isFile() || info.isSymbolicLink()) {
+      handle = await open(
+        this.#file,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      );
+      const opened = await handle.stat({ bigint: true });
+      const current = await lstat(this.#file, { bigint: true });
+      if (!isStableRegularFileIdentity(opened, current)) {
         throw new ShippingStateError("Shipping state file is unsafe.");
       }
-      if (process.platform !== "win32" && (info.mode & 0o077) !== 0) {
+      if (process.platform !== "win32" && (opened.mode & 0o077n) !== 0n) {
         throw new ShippingStateError(
           "Shipping state file permissions are too broad.",
         );
       }
-      return this.#validate(JSON.parse(await readFile(this.#file, "utf8")));
+      return this.#validate(JSON.parse(await handle.readFile("utf8")));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (
+        (error as NodeJS.ErrnoException).code === "ENOENT" &&
+        handle === undefined
+      ) {
         return this.#empty();
       }
       if (error instanceof ShippingStateError) throw error;
       throw new ShippingStateError("Shipping state is corrupt or unreadable.");
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   }
 

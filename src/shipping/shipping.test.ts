@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -677,6 +684,34 @@ describe("persistent shipping ledger and Proof Lease drift", () => {
     const persisted = await readFile(file, "utf8");
     expect(persisted).toContain(claim.idempotencyKeyDigest);
     expect(persisted).not.toContain(IDEMPOTENCY);
+  });
+
+  it("refuses to read a shipping ledger through a symbolic link", async () => {
+    if (process.platform === "win32") return;
+    const rawDirectory = await mkdtemp(join(tmpdir(), "krater-shipping-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "krater-shipping-outside-"));
+    temporaryDirectories.push(rawDirectory, outside);
+    const directory = await realpath(rawDirectory);
+    const outsideFile = join(outside, "ledger.json");
+    const original = `${JSON.stringify({ schemaVersion: 1, claims: {} })}\n`;
+    await writeFile(outsideFile, original, { mode: 0o600 });
+    const file = join(directory, "ledger.json");
+    await symlink(outsideFile, file);
+    const claim = {
+      schemaVersion: SHIPPING_SCHEMA_VERSION,
+      idempotencyKeyDigest: d("symlink-key"),
+      operationDigest: d("symlink-operation"),
+      effectPlanDigest: d("symlink-effect"),
+      confirmationDigest: d("symlink-confirmation"),
+      operation: "execute" as const,
+      state: "reserved" as const,
+      reservedAt: NOW,
+    };
+
+    await expect(
+      new FileShippingLedger(file).reserve(claim),
+    ).rejects.toBeInstanceOf(ShippingStateError);
+    expect(await readFile(outsideFile, "utf8")).toBe(original);
   });
 
   it("persists only opaque compensation handles in a permission-restricted vault", async () => {

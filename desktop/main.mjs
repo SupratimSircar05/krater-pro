@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -22,6 +22,7 @@ import {
 const APP_NAME = "Krater Pro";
 const CREATOR_CREDIT = "Built by Supratim with ❤️";
 const CREATOR_PROFILE = "https://www.linkedin.com/in/supratimsircar/";
+const DESKTOP_SMOKE_PROOF = ".krater-desktop-smoke.json";
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const applicationRoot = join(currentDirectory, "..");
 const iconPath = join(currentDirectory, "assets", "icon.png");
@@ -30,6 +31,7 @@ const allowDevTools =
 
 let mainWindow;
 let localServer;
+let pendingLaunchUrl;
 let shutdownPromise;
 let shutdownComplete = false;
 let quitting = false;
@@ -202,9 +204,20 @@ function createMainWindow({ showWhenReady = true } = {}) {
       "The IDE window stopped unexpectedly. Reopen Krater Pro to continue.",
     );
   });
-  const loadPromise = window.loadURL(localServer.url);
+  const launchUrl =
+    pendingLaunchUrl ??
+    (typeof localServer.createLaunchUrl === "function"
+      ? localServer.createLaunchUrl()
+      : localServer.launchUrl);
+  pendingLaunchUrl = undefined;
+  const loadPromise = window.loadURL(launchUrl);
   mainWindow = window;
-  return { loadPromise, window };
+  return { launchUrl, loadPromise, window };
+}
+
+function reopenMainWindow(options = {}) {
+  if (!mainWindow && localServer) return createMainWindow(options);
+  return undefined;
 }
 
 async function closeLocalServer() {
@@ -214,23 +227,53 @@ async function closeLocalServer() {
       await localServer?.close();
     } finally {
       localServer = undefined;
+      pendingLaunchUrl = undefined;
     }
   })();
   return shutdownPromise;
 }
 
-async function runPackagedSmokeTest() {
-  const { loadPromise, window } = createMainWindow({
-    showWhenReady: false,
-  });
+async function waitForSmokeLoad(loadPromise) {
+  let timeoutId;
   const timeout = new Promise((_, reject) => {
-    const timer = setTimeout(
+    timeoutId = setTimeout(
       () => reject(new Error("Desktop renderer smoke test timed out.")),
       30_000,
     );
-    timer.unref();
+    timeoutId.unref();
   });
-  await Promise.race([loadPromise, timeout]);
+  try {
+    await Promise.race([loadPromise, timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function bootstrapTokenFromLaunchUrl(launchUrl) {
+  const token = new URLSearchParams(
+    new URL(launchUrl).hash.slice(1),
+  ).get("__krater_session");
+  if (!token || !/^[A-Za-z0-9_-]{43}$/u.test(token)) {
+    throw new Error("Desktop smoke launch URL did not contain a valid bootstrap.");
+  }
+  return token;
+}
+
+async function destroySmokeWindow(window) {
+  if (window.isDestroyed()) return;
+  await new Promise((resolve) => {
+    window.once("closed", resolve);
+    window.destroy();
+  });
+}
+
+async function verifySmokeWindow({
+  commandProof,
+  launchUrl,
+  loadPromise,
+  window,
+}) {
+  await waitForSmokeLoad(loadPromise);
   const result = await window.webContents.executeJavaScript(
     `({
       title: document.title,
@@ -246,12 +289,142 @@ async function runPackagedSmokeTest() {
       "Desktop renderer loaded without the expected Krater Pro application root.",
     );
   }
-  process.stdout.write(
-    `KRATER_DESKTOP_SMOKE_OK ${process.platform} ${process.arch}\n`,
+  const bootstrapToken = bootstrapTokenFromLaunchUrl(launchUrl);
+  const command = commandProof
+    ? process.platform === "win32"
+      ? `echo ${commandProof}`
+      : `printf ${commandProof}`
+    : null;
+  const authenticated = await window.webContents.executeJavaScript(
+    `(async () => {
+      let localToken;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        localToken = sessionStorage.getItem("krater_pro_local_session");
+        if (localToken) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (!localToken) {
+        return {
+          status: 401,
+          replayStatus: 0,
+          terminal: null,
+          body: { error: "local session unavailable" }
+        };
+      }
+      const authenticatedHeaders = {
+        "x-krater-local-token": localToken
+      };
+      const statusResponse = await fetch("/api/status", {
+        cache: "no-store",
+        headers: authenticatedHeaders
+      });
+      const status = await statusResponse.json();
+      if (!statusResponse.ok) {
+        return {
+          status: statusResponse.status,
+          replayStatus: 0,
+          terminal: null,
+          body: status
+        };
+      }
+      const replayResponse = await fetch("/api/local-session", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          "x-krater-bootstrap-token": ${JSON.stringify(bootstrapToken)}
+        }
+      });
+      const command = ${JSON.stringify(command)};
+      let terminal = null;
+      if (command !== null) {
+        const terminalResponse = await fetch("/api/ide/terminal", {
+          method: "POST",
+          headers: {
+            ...authenticatedHeaders,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            projectId: status.projectId,
+            command,
+            timeoutMs: 15000
+          })
+        });
+        terminal = {
+          status: terminalResponse.status,
+          body: await terminalResponse.json()
+        };
+      }
+      return {
+        status: statusResponse.status,
+        replayStatus: replayResponse.status,
+        terminal,
+        body: status
+      };
+    })()`,
+    true,
   );
-  window.destroy();
+  if (authenticated.status !== 200) {
+    throw new Error(
+      `Desktop renderer local-session smoke failed: ${JSON.stringify(authenticated)}`,
+    );
+  }
+  if (authenticated.replayStatus !== 401) {
+    throw new Error(
+      `Desktop renderer launch bootstrap was reusable: ${authenticated.replayStatus}`,
+    );
+  }
+  const terminal = authenticated.terminal;
+  if (
+    commandProof &&
+    (terminal?.status !== 200 ||
+      terminal.body?.exitCode !== 0 ||
+      terminal.body?.timedOut !== false ||
+      !String(terminal.body?.stdout).includes(commandProof))
+  ) {
+    throw new Error(
+      `Packaged Electron command-gate smoke failed: ${JSON.stringify(terminal)}`,
+    );
+  }
+}
+
+async function runPackagedSmokeTest(workspace) {
+  const commandProof = "KRATER_DESKTOP_GATE_OK";
+  const first = createMainWindow({ showWhenReady: false });
+  await verifySmokeWindow({ ...first, commandProof });
+  await destroySmokeWindow(first.window);
+
+  const reopened = reopenMainWindow({ showWhenReady: false });
+  if (!reopened) {
+    throw new Error("Desktop smoke could not reopen its main window.");
+  }
+  if (reopened.launchUrl === first.launchUrl) {
+    throw new Error("Desktop reopen reused its consumed launch bootstrap.");
+  }
+  await verifySmokeWindow({ ...reopened, commandProof: undefined });
+
+  await destroySmokeWindow(reopened.window);
   await closeLocalServer();
   shutdownComplete = true;
+  await writeFile(
+    join(workspace, DESKTOP_SMOKE_PROOF),
+    `${JSON.stringify({
+      architecture: process.arch,
+      commandGate: true,
+      platform: process.platform,
+      renderer: true,
+      reopened: true,
+      schemaVersion: 1,
+    })}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  const markers =
+    `KRATER_DESKTOP_SMOKE_OK ${process.platform} ${process.arch}\n` +
+    `${commandProof} ${process.platform} ${process.arch}\n` +
+    `KRATER_DESKTOP_REOPEN_OK ${process.platform} ${process.arch}\n`;
+  await new Promise((resolve) => {
+    process.stdout.write(markers, resolve);
+  });
   app.exit(0);
 }
 
@@ -273,6 +446,7 @@ async function launch() {
     await mkdir(options.workspace, { recursive: true });
   }
   localServer = await startIdeServer(options);
+  pendingLaunchUrl = localServer.launchUrl;
 
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
@@ -283,7 +457,7 @@ async function launch() {
     iconPath,
   });
   if (options.smokeTest) {
-    await runPackagedSmokeTest();
+    await runPackagedSmokeTest(options.workspace);
     return;
   }
   buildApplicationMenu();
@@ -293,12 +467,13 @@ async function launch() {
 app.whenReady().then(launch).catch((error) => {
   const message =
     error instanceof Error ? error.message : "Unknown desktop startup failure.";
+  process.stderr.write(`Krater Pro desktop startup failed: ${message}\n`);
   dialog.showErrorBox("Krater Pro could not start", message);
   app.exit(1);
 });
 
 app.on("activate", () => {
-  if (!mainWindow && localServer) createMainWindow();
+  reopenMainWindow();
 });
 
 app.on("window-all-closed", () => {

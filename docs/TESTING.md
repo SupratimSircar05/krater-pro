@@ -23,13 +23,15 @@ Coverage includes:
   symlink escape rejection;
 - deterministic file operations, project maps, protected files, lexical/real
   path boundaries, binary files, and command credential stripping;
-- destructive/secret command guards;
+- common-spelling destructive/secret regex guard regressions (these tests do
+  not prove arbitrary shell-command safety);
 - HTTP status/auth capability/session validation, SSE approval continuation,
-  model caching, and loopback-only binding;
+  fragment bootstrap exchange and reuse rejection, no ambient cookie or
+  cross-port bearer authorization, model caching, and loopback-only binding;
 - IDE tree/document APIs, protected reads, 1 MiB editor bounds,
   revision-conflict saves, current-`projectId` enforcement, Git status/diff,
-  bounded terminal commands, destructive-command rejection, and project-change
-  exclusion while IDE work is active;
+  bounded terminal commands, common-spelling destructive-command rejection,
+  and project-change exclusion while IDE work is active;
 - exactly 100 benchmark tasks, strict schema errors, selection/credit gates,
   workspace isolation, secret exclusion, write/replace-only benchmark approval,
   command denial, default checker non-discovery, explicit checker-trust gates,
@@ -50,8 +52,9 @@ npm run release:cli
 
 Release tests cover shrinkwrap inclusion, reproducible metadata, SPDX
 normalization, source-bound checksums, fail-closed signing configuration,
-secret-free GPG arguments, native runner coverage, packaged-renderer smoke
-entry, checksum-gated formula/cask generation, and tap CI scaffolding.
+secret-free GPG arguments, native runner coverage, distributed-artifact
+renderer and fresh-window smoke entry, checksum-gated formula/cask generation,
+and tap CI scaffolding.
 
 `npm run release:cli` performs the stronger integration check: two independently
 packed archives from the same staged inputs must be byte-identical. Extract the
@@ -164,7 +167,8 @@ Chat layout:
 - **Ask Krater** places the file path and selected code in the composer without
   auto-submitting it;
 - a bounded terminal command displays sanitized stdout, exit state, and
-  duration, while a destructive or protected-secret command is rejected;
+  duration, while documented common spellings of destructive or
+  protected-secret reads are rejected;
 - working-tree and staged Git diffs load from the selected repository;
 - a project switch warns about dirty tabs, starts a clean agent task, and
   cannot reuse an old `projectId`; and
@@ -174,12 +178,30 @@ Chat layout:
 macOS terminal acceptance should also confirm that `sandbox-exec` is used when
 present and that writes outside the workspace/protected credential reads are
 denied. The response must label this as the attended compatibility profile.
+
+Command-gate parent-executable tests establish a defense-in-depth mismatch
+check only; they must not describe that check as authentication, sandboxing, or
+process-tree containment. Likewise, destructive/secret regex tests establish
+coverage for the exact common spellings in their fixtures, not a complete shell
+policy.
+
+Attended cancellation acceptance should confirm best-effort signaling of the
+initial POSIX process group and best-effort Windows `taskkill /T /F` behavior.
+It must also record the gap: a `setsid`/detached/re-parented descendant can
+escape, and Windows has no Job Object lifetime enforcement in this release.
+Tests that terminate an ordinary child tree must not be generalized into a
+guarantee that no descendant survives.
+
 Separate unattended acceptance must prove the native probe, protected-path
 deny overrides, network/fork denial, hard non-raiseable CPU/address-space
-ceilings, output cutoff, wall-time cancellation, and fail-closed behavior
-without an adapter. On a platform without that facility, the record must state that only
-the process, environment, command, timeout, and workspace controls were
-exercised; it must not call the terminal OS-sandboxed.
+ceilings, output cutoff, wall-time cancellation, and fail-closed behavior when
+an adapter or required capability is unavailable. Strict unattended execution
+must never fall back to the attended runner. On a platform without the verified
+facility, the record must state that only the process, environment, command,
+timeout, parent-check, and workspace controls were exercised; it must not call
+the terminal OS-sandboxed. The Windows restricted-token/Job Object native
+supervisor is not yet complete, so Windows unattended acceptance is a
+fail-closed test, not an execution-success test.
 
 ## Benchmark policy
 

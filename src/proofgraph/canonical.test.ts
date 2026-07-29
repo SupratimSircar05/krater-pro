@@ -83,6 +83,45 @@ describe("secret redaction", () => {
     expect(redacted.match(/\[REDACTED\]/g)?.length).toBeGreaterThanOrEqual(6);
   });
 
+  it("redacts multiple credential-bearing URLs without altering their hosts", () => {
+    const value = [
+      "https://user:secret@example.test/path",
+      "GIT+SSH://developer:pa:ss@git.example.test/repository",
+      "https://another:password@second.example.test/",
+    ].join("\n");
+
+    expect(redactText(value)).toBe(
+      [
+        `https://user:${REDACTED_VALUE}@example.test/path`,
+        `GIT+SSH://developer:${REDACTED_VALUE}@git.example.test/repository`,
+        `https://another:${REDACTED_VALUE}@second.example.test/`,
+      ].join("\n"),
+    );
+  });
+
+  it("leaves URL-credential near misses unchanged", () => {
+    const values = [
+      "https://user@example.test/path",
+      "https://:secret@example.test/path",
+      "https://user:@example.test/path",
+      "https://user:secret/path@example.test",
+      "plain-user:secret@example.test",
+    ];
+
+    for (const value of values) {
+      expect(redactText(value)).toBe(value);
+    }
+  });
+
+  it("scans hostile URL-credential inputs without whole-input backtracking", () => {
+    const prefix = "a".repeat(100_000);
+    expect(redactText(prefix)).toBe(prefix);
+    expect(redactText(`${prefix}://user:secret@example.test`)).toBe(
+      `${prefix}://user:${REDACTED_VALUE}@example.test`,
+    );
+    expect(redactText(":/".repeat(50_000))).toBe(":/".repeat(50_000));
+  });
+
   it("does not redact ordinary token-accounting fields", () => {
     expect(
       redactForPersistence({ promptTokens: 20, completionTokens: 5 }),
@@ -104,6 +143,17 @@ describe("secret redaction", () => {
 
     expect(JSON.stringify(redacted)).not.toMatch(
       /kr_demo_|private-material|do-not-store|session-secret/,
+    );
+  });
+
+  it("redacts repeated and truncated private-key blocks without backtracking", () => {
+    const begin = "-----BEGIN PRIVATE KEY-----";
+    const end = "-----END PRIVATE KEY-----";
+    const repeated = `${`${begin}\n`.repeat(20_000)}private-material\n${end}`;
+
+    expect(redactText(repeated)).toBe(REDACTED_VALUE);
+    expect(redactText(`safe\n${begin}\ntruncated-secret`)).toBe(
+      `safe\n${REDACTED_VALUE}`,
     );
   });
 });

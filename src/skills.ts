@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isStableRegularFileIdentity } from "./file-identity.js";
 
 const MAX_SKILL_BYTES = 256_000;
 const SKILL_NAME = /^[a-z0-9][a-z0-9_-]*$/;
@@ -65,8 +66,13 @@ export class SkillRegistry {
   private async locations(): Promise<SkillLocation[]> {
     const found = new Map<string, SkillLocation>();
     for (const root of this.roots) {
-      if (!existsSync(root.path)) continue;
-      const physicalRoot = await realpath(root.path);
+      let physicalRoot: string;
+      try {
+        physicalRoot = await realpath(root.path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
       const entries = await readdir(physicalRoot, { withFileTypes: true });
       entries.sort((a, b) => a.name.localeCompare(b.name));
       for (const entry of entries) {
@@ -75,12 +81,39 @@ export class SkillRegistry {
         }
         const directory = resolve(physicalRoot, entry.name);
         const skillFile = resolve(directory, "SKILL.md");
-        if (!existsSync(skillFile)) continue;
-        const physicalFile = await realpath(skillFile);
+        let physicalFile: string;
+        try {
+          physicalFile = await realpath(skillFile);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw error;
+        }
         if (!within(directory, physicalFile)) continue;
-        const details = await stat(physicalFile);
-        if (!details.isFile() || details.size > MAX_SKILL_BYTES) continue;
-        const parsed = frontmatter(await readFile(physicalFile, "utf8"));
+        let handle: Awaited<ReturnType<typeof open>> | undefined;
+        let parsed: ReturnType<typeof frontmatter>;
+        try {
+          handle = await open(
+            physicalFile,
+            constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+          );
+          const opened = await handle.stat({ bigint: true });
+          const current = await lstat(physicalFile, { bigint: true });
+          if (
+            !isStableRegularFileIdentity(opened, current) ||
+            opened.size > BigInt(MAX_SKILL_BYTES)
+          ) {
+            continue;
+          }
+          const content = await handle.readFile();
+          if (content.byteLength > MAX_SKILL_BYTES) continue;
+          parsed = frontmatter(content.toString("utf8"));
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ENOENT" || code === "ELOOP") continue;
+          throw error;
+        } finally {
+          await handle?.close().catch(() => undefined);
+        }
         const name = parsed.name && SKILL_NAME.test(parsed.name) ? parsed.name : entry.name;
         if (found.has(name)) continue;
         found.set(name, {
@@ -126,20 +159,40 @@ export class SkillRegistry {
     const location = (await this.locations()).find((skill) => skill.name === name);
     if (!location) throw new Error(`Unknown skill: ${name}`);
     const candidate = resolve(location.directory, resource);
-    if (!existsSync(candidate)) {
-      throw new Error(`Skill resource not found: ${name}/${resource}`);
+    let physical: string;
+    try {
+      physical = await realpath(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`Skill resource not found: ${name}/${resource}`);
+      }
+      throw error;
     }
-    const physical = await realpath(candidate);
     if (!within(location.directory, physical)) {
       throw new Error(`Skill resource resolves outside its skill directory: ${resource}`);
     }
-    const details = await stat(physical);
-    if (!details.isFile()) throw new Error(`Skill resource is not a file: ${resource}`);
-    if (details.size > MAX_SKILL_BYTES) {
-      throw new Error(`Skill resource exceeds ${MAX_SKILL_BYTES} bytes: ${resource}`);
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      handle = await open(
+        physical,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      );
+      const opened = await handle.stat({ bigint: true });
+      const current = await lstat(physical, { bigint: true });
+      if (!isStableRegularFileIdentity(opened, current)) {
+        throw new Error(`Skill resource changed while it was opened: ${resource}`);
+      }
+      if (opened.size > BigInt(MAX_SKILL_BYTES)) {
+        throw new Error(`Skill resource exceeds ${MAX_SKILL_BYTES} bytes: ${resource}`);
+      }
+      const content = await handle.readFile();
+      if (content.byteLength > MAX_SKILL_BYTES) {
+        throw new Error(`Skill resource exceeds ${MAX_SKILL_BYTES} bytes: ${resource}`);
+      }
+      if (content.includes(0)) throw new Error(`Skill resource is binary: ${resource}`);
+      return content.toString("utf8");
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
-    const content = await readFile(physical);
-    if (content.includes(0)) throw new Error(`Skill resource is binary: ${resource}`);
-    return content.toString("utf8");
   }
 }

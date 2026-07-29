@@ -11,7 +11,9 @@ npm run build
 krater web
 ```
 
-Open <http://127.0.0.1:4317>. For live source loading:
+Open the exact loopback launch URL printed by the command. The bare
+<http://127.0.0.1:4317> page cannot call local APIs because it lacks the
+one-use fragment bootstrap. For live source loading:
 
 ```sh
 npm run dev:web

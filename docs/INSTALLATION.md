@@ -80,8 +80,10 @@ krater setup
 In an interactive terminal, setup opens Krater's official developer page,
 accepts the key without terminal echo, and validates API/model access before
 persistence. It then recommends macOS Keychain, Linux Secret Service, or
-Windows CurrentUser DPAPI. The key travels to the credential backend through
-standard input, never command arguments or logs.
+Windows CurrentUser DPAPI backed by the current user's fixed Krater Pro
+registry key. The key travels to the credential backend through standard
+input, never command arguments or logs; no credential marker or encrypted blob
+is written into the workspace.
 
 If the backend is unavailable or declined, setup explains that `.env` is
 plaintext and requires a separate yes/no decision. The explicit equivalent is:

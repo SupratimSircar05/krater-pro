@@ -94,8 +94,9 @@ aggregation.
 `src/server.ts` stores browser sessions and approvals in memory, exposes SSE,
 cancels pending work on disconnect, hashes model-cache keys, serves the
 production bundle, and rejects public binds. The browser never receives the
-server’s API key. Every API request must present the random local-session token
-established by the loopback page, and Host/Origin checks reject cross-site use.
+server’s API key. A launch-fragment bootstrap is exchanged once for a random
+local-session token kept in origin-scoped session state; every API request must
+present that token as a header, and Host/Origin checks reject cross-site use.
 
 `src/projects.ts` owns the server-run project registry. It resolves local
 folders to physical paths, creates scratch workspaces under `.krater/scratch`,

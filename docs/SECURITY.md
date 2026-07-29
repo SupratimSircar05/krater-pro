@@ -69,9 +69,26 @@ Commands run from the workspace with:
 - a 1–600 second bound;
 - capped stdout/stderr;
 - a minimal environment allowlist without provider credentials;
-- process-group termination on Unix after timeout; and
-- hard blocks for common forced recursive deletion, destructive Git cleanup,
-  disk formatting, shutdown, and reboot forms.
+- best-effort termination of the initial Unix process group or Windows process
+  tree after timeout, cancellation, or shutdown; and
+- regex preflight rejections for common spellings of forced recursive
+  deletion, destructive Git cleanup, protected-secret reads, disk formatting,
+  shutdown, and reboot.
+
+The destructive-data and protected-secret checks are advisory
+defense-in-depth. They recognize documented common spellings; they are not a
+shell parser, an allowlist, or an OS security boundary. Alternate tools,
+aliases, interpreters, encodings, constructed command strings, or other shell
+forms can evade a regex guard. An attended command that passes these checks is
+not thereby safe.
+
+Attended cancellation is also best-effort rather than containment. On POSIX,
+Krater signals the command's initial process group; on Windows, it asks
+`taskkill /T /F` to terminate the initial process tree and falls back to the
+direct child. A command can escape that scope by creating a new session with
+`setsid`, detaching or re-parenting a descendant, or handing work to another
+service. Escaped work may survive timeout, cancellation, or app shutdown and
+must be cleaned up independently.
 
 Model-proposed commands require approval unless the caller deliberately
 selected fail-closed unattended mode (`--yes`). Pressing Run in the IDE terminal
@@ -80,20 +97,25 @@ a second model-approval card. Its API additionally requires the current
 `projectId`, caps the command at 8 KiB, accepts only 1–120 second timeouts, limits
 concurrency, ignores stdin, and sanitizes returned terminal control sequences.
 
-For unattended model commands on macOS, Krater uses the native adapter only
-after executable probes demonstrate undeclared-file denial, outbound-network
-denial, fork denial, and installation of hard CPU/address-space limits. The
-request binds the staged workspace, read-only host-selected dependency roots,
-existing protected paths, deny-all networking, one process, output bytes, and
-wall time. Protected paths and hard-linked aliases are denied even though the
-staged root is writable. Credential-looking argv and environment names are
-refused. The one-process ceiling is deliberately stricter than the requested
-numerical ceiling. The current model-facing shell-string integration can run
-shell builtins only; external programs and ordinary build/test commands require
-a child process and are not supported in unattended mode. Structured
-host-owned callers may use the adapter to run one exact executable. Seatbelt
-cannot safely implement an exact hostname allowlist, so no network allowlist
-capability is advertised.
+Strict unattended model execution is allowed only through a native adapter
+whose executable probes verify every requested containment control. If the
+adapter or any required control is missing, unverifiable, or weaker than the
+request, execution fails closed; it never falls back to the attended
+compatibility runner.
+
+On macOS, the verified native adapter probes undeclared-file denial,
+outbound-network denial, fork denial, and installation of hard
+CPU/address-space limits. The request binds the staged workspace, read-only
+host-selected dependency roots, existing protected paths, deny-all networking,
+one process, output bytes, and wall time. Protected paths and hard-linked
+aliases are denied even though the staged root is writable. Credential-looking
+argv and environment names are refused. The one-process ceiling is deliberately
+stricter than the requested numerical ceiling. The current model-facing
+shell-string integration can run shell builtins only; external programs and
+ordinary build/test commands require a child process and are not supported in
+unattended mode. Structured host-owned callers may use the adapter to run one
+exact executable. Seatbelt cannot safely implement an exact hostname allowlist,
+so no network allowlist capability is advertised.
 
 Explicitly approved attended commands and the user-entered IDE terminal retain
 the compatibility command runner. On macOS it uses a generated Seatbelt
@@ -103,13 +125,21 @@ labels this `macos_seatbelt_best_effort`; it is not presented as the strict
 native adapter. Without that profile, an attended result is labeled
 `approved_uncontained`.
 
-No verified Linux namespace/seccomp/cgroup or Windows restricted-token/Job
-Object adapter ships in this slice. Unattended model commands therefore fail
-closed on those platforms. Explicit attended approval remains possible, but
-the process, environment, output, and timeout controls do not form an OS
-sandbox and project code can execute with reachable user privileges. A
-successful local native probe is executable evidence for the advertised
-controls; it is not a formal proof that arbitrary project code is safe.
+The packaged Electron command gate also compares its live parent executable
+with the canonical Krater executable before accepting the internal gate route.
+That parent check is defense-in-depth only. It does not authenticate arbitrary
+same-user processes, contain descendants, or replace a verified native
+sandbox.
+
+No verified Linux namespace/seccomp/cgroup supervisor ships in this slice, and
+the Windows restricted-token/Job Object native supervisor is not yet complete.
+Unattended model commands therefore fail closed on Linux and Windows. Windows
+attended cancellation uses `taskkill`, not Job Object lifetime enforcement.
+Explicit attended approval remains possible, but the process, environment,
+output, timeout, parent-check, and regex controls do not form an OS sandbox and
+project code can execute with reachable user privileges. A successful local
+native probe is executable evidence for the advertised controls; it is not a
+formal proof that arbitrary project code is safe.
 
 ## Local server
 
@@ -134,11 +164,22 @@ rejected while a change is in progress. Mutating IDE requests also carry
 selected root. Read responses report their project ID so the client can detect
 stale state.
 
-The loopback page receives a random, HttpOnly, SameSite=Strict local-session
-cookie. API routes require that token (or its same-session request header),
-enforce loopback Host and matching Origin checks, and set CSP, frame denial,
-no-referrer, `no-store`, and MIME-sniffing protections. This is a local
-single-user boundary, not internet-facing authentication.
+Each server start creates a random local-session token. Every launch URL carries
+a separate one-use bootstrap token in its URL fragment. Browsers do not send
+fragments in HTTP requests. The UI removes the fragment from the address bar,
+posts it once as a bootstrap header, and receives the session token. Invalid or
+reused bootstrap tokens are rejected. A newly created desktop window receives
+a fresh bootstrap. Treat an unconsumed launch URL as sensitive and do not copy
+it into chat, logs, or screenshots.
+
+The renderer keeps the returned session token in memory and origin-scoped
+`sessionStorage`, whose origin includes the loopback port, then attaches it as
+an API request header. Krater does not put this bearer in a cookie, so another
+service on a different loopback port cannot receive it through ambient cookie
+rules. API routes also enforce loopback Host and matching Origin checks and set
+CSP, frame denial, no-referrer, `no-store`, and MIME-sniffing protections. This
+one-use local launch bootstrap is a local single-user boundary, not Krater
+account authentication or an internet-facing multi-user login.
 
 Do not expose the port through tunnels, reverse proxies, containers, or port
 forwarding without adding real authentication, authorization, origin/CSRF
@@ -149,8 +190,10 @@ controls, TLS, audit logs, quotas, and multi-user workspace isolation.
 The macOS, Windows, and Linux apps run this same server on `127.0.0.1`. By
 default, the launcher selects an available ephemeral port; a fixed port can be
 requested, but the host cannot be changed. A single-instance lock prevents
-accidental duplicate shells, and app shutdown aborts agent activity, denies
-pending approvals, closes HTTP connections, and releases the port.
+accidental duplicate shells, and app shutdown requests cancellation of agent
+activity, denies pending approvals, closes HTTP connections, and releases the
+port. As described above, attended descendants that escape the initial process
+group or Windows task tree may survive that cancellation request.
 
 The Electron renderer has `nodeIntegration` disabled, context isolation and
 sandboxing enabled, no preload bridge, no remote module, and no persistent

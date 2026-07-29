@@ -122,10 +122,12 @@ and expected repository.
 Platform checks:
 
 - macOS ARM64 and Intel: `codesign --verify --deep --strict`, Gatekeeper
-  assessment, notarization staple, application launch, renderer mount.
-- Windows x64: Authenticode `Valid`, installer and portable launch smoke.
-- Linux x64: checksum/attestation/signature verification, AppImage and DEB
-  metadata, unpacked launch under the supported Chromium sandbox.
+  assessment, notarization staple, and an authenticated launch from the
+  extracted release ZIP.
+- Windows x64: Authenticode `Valid` for the installer, portable wrapper, and
+  shipped inner executable, plus an authenticated portable launch.
+- Linux x64: checksum/attestation/signature verification, DEB metadata, and an
+  authenticated AppImage launch under the supported Chromium sandbox.
 
 ## Homebrew tap
 

@@ -490,8 +490,36 @@ describe("Workspace file operations", () => {
     await expect(workspace.writeTextFile("../new.txt", "must not escape")).rejects.toThrow(
       /outside the workspace/,
     );
+    await expect(workspace.readFile("line\nbreak.txt")).rejects.toThrow(
+      /forbidden control character/,
+    );
+    await expect(workspace.readFile(`/${"x".repeat(4_097)}`)).rejects.toThrow(
+      /Path is too long/,
+    );
     await expect(readFile(join(outside, "new.txt"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
+    });
+  });
+
+  it("reconstructs valid nested paths with spaces and Unicode segments", async () => {
+    const root = await temporaryDirectory();
+    const nested = join(root, "Design Notes", "ಕನ್ನಡ");
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(nested, "résumé.txt"), "safe unicode path\n");
+    const workspace = new Workspace(root);
+
+    await expect(
+      workspace.readTextDocument("Design Notes/ಕನ್ನಡ/résumé.txt"),
+    ).resolves.toMatchObject({
+      path: "Design Notes/ಕನ್ನಡ/résumé.txt",
+      content: "safe unicode path\n",
+    });
+    await expect(
+      workspace.readTextDocument(
+        join(workspace.root, "Design Notes", "ಕನ್ನಡ", "résumé.txt"),
+      ),
+    ).resolves.toMatchObject({
+      path: "Design Notes/ಕನ್ನಡ/résumé.txt",
     });
   });
 
@@ -701,6 +729,66 @@ describe("Workspace command execution", () => {
     expect(result.execution.authorization).toBe("host_direct");
   });
 
+  it.runIf(process.platform !== "win32")(
+    "does not trust relative, workspace, or arbitrary absolute PATH entries for its gate or Git",
+    async () => {
+      const root = await temporaryDirectory("krater-host-path-");
+      const outsideTools = await temporaryDirectory("krater-host-tools-");
+      const fakeCat = join(root, "cat");
+      const fakeGit = join(outsideTools, "git");
+      const catMarker = join(root, "cat-helper-ran");
+      const gitMarker = join(root, "git-helper-ran");
+      await writeFile(
+        fakeCat,
+        `#!/bin/sh\n: > ${JSON.stringify(catMarker)}\n/bin/cat "$@"\n`,
+      );
+      await writeFile(
+        fakeGit,
+        `#!/bin/sh\n: > ${JSON.stringify(gitMarker)}\nexit 99\n`,
+      );
+      await chmod(fakeCat, 0o755);
+      await chmod(fakeGit, 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${outsideTools}:.:${root}:${previousPath ?? ""}`;
+      try {
+        const workspace = new Workspace(root);
+        await expect(
+          workspace.runCommand("printf TRUSTED_BOOTSTRAP"),
+        ).resolves.toMatchObject({
+          exitCode: 0,
+          stdout: "TRUSTED_BOOTSTRAP",
+        });
+        await expect(workspace.gitStatus()).rejects.toThrow(
+          /repository boundaries|not a git repository|workspace is not a repository/i,
+        );
+        await expect(stat(catMarker)).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(stat(gitMarker)).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+      }
+    },
+    15_000,
+  );
+
+  it("preserves script sequencing while commands receive EOF on stdin", async () => {
+    if (process.platform === "win32") return;
+    const root = await temporaryDirectory();
+    const workspace = new Workspace(root);
+
+    const result = await workspace.runCommand(
+      "read value\ncat\necho SHOULD_RUN",
+      5_000,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "SHOULD_RUN\n",
+      stderr: "",
+      timedOut: false,
+    });
+  });
+
   it("blocks direct shell reads of protected secret files", async () => {
     const root = await temporaryDirectory();
     await writeFile(join(root, ".env"), "KRATER_API_KEY=kr_do_not_expose\n");
@@ -908,6 +996,49 @@ describe("Workspace command execution", () => {
 });
 
 describe("Workspace Git inspection", () => {
+  it("rejects a configured Git executable contained in the writable workspace", async () => {
+    const root = await temporaryDirectory("krater-workspace-git-");
+    const executable = join(
+      root,
+      process.platform === "win32" ? "git.cmd" : "git",
+    );
+    await writeFile(
+      executable,
+      process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+    );
+    await chmod(executable, 0o755);
+
+    expect(() => new Workspace(root, { gitExecutable: executable })).toThrow(
+      /outside writable workspace roots/i,
+    );
+  });
+
+  it("rejects an in-place rewrite of its pinned Git executable", async () => {
+    const root = await temporaryDirectory("krater-workspace-git-rewrite-");
+    const tools = await temporaryDirectory("krater-workspace-tools-");
+    const executable = join(
+      tools,
+      process.platform === "win32" ? "git.cmd" : "git",
+    );
+    await writeFile(
+      executable,
+      process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+    );
+    await chmod(executable, 0o755);
+    const workspace = new Workspace(root, { gitExecutable: executable });
+    await mkdir(join(root, ".git"));
+    const before = await stat(executable);
+    await writeFile(executable, Buffer.alloc(before.size, 0x41));
+    const after = await stat(executable);
+
+    expect(after.dev).toBe(before.dev);
+    expect(after.ino).toBe(before.ino);
+    expect(after.size).toBe(before.size);
+    await expect(workspace.gitStatus()).rejects.toThrow(
+      /trusted Git executable changed or disappeared/i,
+    );
+  });
+
   it("excludes protected file contents from unstaged and staged diffs", async () => {
     const root = await temporaryDirectory();
     await writeFile(join(root, "safe.txt"), "safe before\n");

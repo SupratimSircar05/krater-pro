@@ -13,7 +13,7 @@ Core CLI/server configuration selects its effective key in this order:
 
 1. CLI `--api-key`
 2. process `KRATER_API_KEY`
-3. an OS-protected credential referenced by the selected workspace
+3. an OS-protected credential scoped to the selected workspace path
 4. selected workspace `.env`
 
 Browser requests add one request-scoped layer: a non-empty key entered in GUI
@@ -39,14 +39,33 @@ The recommended persistence backend is selected by the host:
 - Linux: Secret Service through `secret-tool`; the value is supplied on
   standard input. Setup fails closed if the binary or session service is
   unavailable.
-- Windows: a CurrentUser DPAPI-encrypted blob. PowerShell reads the value from
-  standard input; the plaintext is not part of the script or arguments.
+- Windows: a CurrentUser DPAPI-encrypted binary value in the current user's
+  fixed Krater Pro registry key. PowerShell reads the plaintext from standard
+  input; neither the plaintext nor a workspace pathname is part of the script
+  arguments.
 
-The workspace stores only a permission-restricted, non-secret handle under
-`.krater/credentials/`. A handle is scoped to that workspace path. If secure
-storage is unavailable or declined, setup explains that `.env` is plaintext
-and asks separately before writing an owner-only file. `--env-fallback` is the
-explicit non-default choice for that fallback.
+The account name is a one-way digest of the normalized selected workspace path.
+Credential lookup derives that account and host backend directly; it does not
+trust a workspace marker. Secure credential storage writes no marker or
+encrypted blob into the workspace, and it does not delete legacy credential
+files through workspace pathnames. If secure storage is unavailable or
+declined, setup explains that `.env` is plaintext and asks separately before
+writing an owner-only file. `--env-fallback` is the explicit non-default choice
+for that fallback.
+
+### Upgrade note for legacy Windows blobs
+
+macOS Keychain and Linux Secret Service entries remain compatible for the same
+normalized workspace path because they already use the deterministic account
+identity. Older Windows versions stored a CurrentUser DPAPI blob in
+`.krater/credentials/api-key.dpapi`. Krater Pro intentionally does not
+auto-import that file: opening it by workspace pathname would reintroduce the
+ancestor swap race this design removes. Run `krater setup` again to store the
+credential in the fixed current-user registry key.
+
+Legacy marker and DPAPI files remain untouched. After the new setup succeeds
+and the credential is verified, review and remove those legacy files manually
+if desired.
 
 To rotate a credential, run `krater setup --replace`. The existing value stays
 active until the replacement passes model discovery and the selected backend
@@ -136,6 +155,25 @@ configured; it neither validates the key with Krater nor accounts for a
 tab-only key. Key source and value are never sent to the browser. Consequently,
 the GUI labels describe configured/readiness state, not verified authentication
 or model entitlement.
+
+## Local launch bootstrap
+
+The local web and desktop UI use a one-time launch bootstrap that is separate
+from Krater API authentication. Each server start creates a random
+local-session token and a distinct bootstrap token. The exact launch URL
+contains the bootstrap token in its fragment, which is not sent to the HTTP
+server. The UI removes it from the address bar and exchanges it once through a
+dedicated header. The returned session token stays in memory and
+origin-and-port-scoped `sessionStorage`; API calls attach it as a header.
+Invalid or reused bootstrap tokens are rejected, and cookies are not used for
+local API authorization.
+
+The desktop main process loads that URL directly. `krater web` prints it for
+the local user to open. Treat the unconsumed URL as sensitive and do not share
+it in logs, screenshots, or chat. Possession of the local session token
+authorizes requests only to that loopback server instance; it does not
+authenticate a Krater account, grant API/model access, or provide multi-user
+authentication.
 
 ## Child-process isolation
 

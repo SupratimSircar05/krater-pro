@@ -1,6 +1,8 @@
 import {
+  mkdir,
   mkdtemp,
   readFile,
+  rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,7 +26,12 @@ import {
   stableJson,
 } from "./release-utils.mjs";
 import { signingPlan } from "./sign-release-artifacts.mjs";
-import { smokeCommand } from "./smoke-built-desktop.mjs";
+import {
+  resolveSmokeArtifacts,
+  smokeCommand,
+  smokeEnvironment,
+  validSmokeProof,
+} from "./smoke-built-desktop.mjs";
 import {
   stableRequirements,
   validateReleaseEnvironment,
@@ -242,5 +249,128 @@ describe("release automation", () => {
       command: "/app/Krater Pro",
       arguments: ["--krater-smoke-test"],
     });
+    expect(
+      smokeEnvironment({
+        platform: "linux",
+        workspace: "/tmp/krater",
+        environment: { SOURCE_DATE_EPOCH: "0" },
+      }),
+    ).toEqual({
+      APPIMAGE_EXTRACT_AND_RUN: "1",
+      KRATER_API_KEY: "",
+      KRATER_DESKTOP_WORKSPACE: "/tmp/krater",
+      SOURCE_DATE_EPOCH: "0",
+    });
+    expect(
+      smokeEnvironment({
+        platform: "win",
+        workspace: "C:\\Temp\\krater",
+        environment: {},
+      }),
+    ).not.toHaveProperty("APPIMAGE_EXTRACT_AND_RUN");
+    expect(
+      validSmokeProof(
+        {
+          architecture: "x64",
+          commandGate: true,
+          platform: "win32",
+          renderer: true,
+          reopened: true,
+          schemaVersion: 1,
+        },
+        "win",
+      ),
+    ).toBe(true);
+    expect(
+      validSmokeProof(
+        {
+          architecture: "x64",
+          commandGate: true,
+          platform: "win32",
+          renderer: true,
+          reopened: false,
+          schemaVersion: 1,
+        },
+        "win",
+      ),
+    ).toBe(false);
+  });
+
+  it("launches distributed macOS ZIP, Windows portable, and Linux AppImage artifacts", async () => {
+    const releaseRoot = await mkdtemp(join(tmpdir(), "krater-native-smoke-"));
+    try {
+      const unpackedWindows = join(
+        releaseRoot,
+        "win-unpacked",
+        "KraterPro.exe",
+      );
+      const portableWindows = join(
+        releaseRoot,
+        "Krater-Pro-Portable-0.1.0-x64.exe",
+      );
+      await mkdir(join(releaseRoot, "win-unpacked"), { recursive: true });
+      await writeFile(unpackedWindows, "unpacked");
+      await writeFile(portableWindows, "portable");
+
+      await expect(
+        resolveSmokeArtifacts({ platform: "win", releaseRoot }),
+      ).resolves.toMatchObject({
+        artifactPath: portableWindows,
+        boundaryExecutable: unpackedWindows,
+        launchExecutable: portableWindows,
+      });
+
+      const macArchive = join(releaseRoot, "Krater-Pro-0.1.0-arm64.zip");
+      const extractedMac = join(
+        releaseRoot,
+        "extracted",
+        "Krater Pro.app",
+        "Contents",
+        "MacOS",
+        "Krater Pro",
+      );
+      let extractedFrom;
+      await expect(
+        resolveSmokeArtifacts({
+          platform: "mac",
+          releaseRoot,
+          extractMacArchive: async (root) => {
+            extractedFrom = root;
+            return {
+              archive: macArchive,
+              executable: extractedMac,
+              extractionRoot: join(releaseRoot, "extracted"),
+            };
+          },
+        }),
+      ).resolves.toMatchObject({
+        artifactPath: macArchive,
+        boundaryExecutable: extractedMac,
+        launchExecutable: extractedMac,
+      });
+      expect(extractedFrom).toBe(releaseRoot);
+
+      const unpackedLinux = join(
+        releaseRoot,
+        "linux-unpacked",
+        "krater-pro",
+      );
+      const appImage = join(
+        releaseRoot,
+        "Krater-Pro-0.1.0-x64.AppImage",
+      );
+      await mkdir(join(releaseRoot, "linux-unpacked"), { recursive: true });
+      await writeFile(unpackedLinux, "unpacked");
+      await writeFile(appImage, "appimage");
+      await expect(
+        resolveSmokeArtifacts({ platform: "linux", releaseRoot }),
+      ).resolves.toMatchObject({
+        artifactPath: appImage,
+        boundaryExecutable: unpackedLinux,
+        launchExecutable: appImage,
+      });
+    } finally {
+      await rm(releaseRoot, { recursive: true, force: true });
+    }
   });
 });

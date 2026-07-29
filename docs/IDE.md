@@ -14,10 +14,16 @@ npm run build
 krater web
 ```
 
-Open <http://127.0.0.1:4317>. The app starts in **IDE** view. Use the
-IDE/Chat/Evidence switch in the top bar to move among the workbench,
-full-width transcript, and durable task review without duplicating an active
-IDE/Chat task.
+Open the exact launch URL printed by `krater web`. It contains a one-time local
+bootstrap token in its fragment. The UI removes that fragment from the address
+bar, exchanges it once, and retains the returned session bearer only in
+origin-and-port-scoped session state for API headers. Do not share or log the
+unconsumed URL. A reused bootstrap token is rejected, and the bare loopback URL
+is not API-authorized.
+
+The app starts in **IDE** view. Use the IDE/Chat/Evidence switch in the top bar
+to move among the workbench, full-width transcript, and durable task review
+without duplicating an active IDE/Chat task.
 
 The server accepts loopback hosts only. Do not expose it through a tunnel,
 reverse proxy, container port, or public interface without adding a real
@@ -105,8 +111,18 @@ Every command:
 - carries the current `projectId`;
 - receives a minimal environment without the Krater key or unrelated provider
   credentials;
-- is rejected when it matches destructive-data or protected-secret reads; and
-- is terminated as a process group after timeout, cancellation, or shutdown.
+- is rejected when a regex guard matches common spellings of destructive-data
+  operations or protected-secret reads; and
+- receives a best-effort termination request after timeout, cancellation, or
+  shutdown.
+
+The regex checks are advisory defense-in-depth, not a shell parser or complete
+command policy. Alternate tools, aliases, interpreters, encodings, and
+constructed commands can evade them. On POSIX, cancellation targets the
+initial process group. On Windows, it uses `taskkill /T /F` for the initial
+process tree and falls back to the direct child. A descendant that invokes
+`setsid`, detaches, re-parents, or delegates work to another service can escape
+and survive cancellation.
 
 The IDE terminal is an attended user action. On macOS, when
 `/usr/bin/sandbox-exec` is available, Krater Pro additionally runs it in the
@@ -125,8 +141,13 @@ version control and do not run untrusted commands.
 The user-entered terminal is separate from model tool approval: submitting its
 Run button is the user's explicit request to execute that command. Commands
 proposed by the model continue through the normal Allow/Deny workflow. A model
-command covered only by unattended policy uses the stricter native adapter or
-fails closed; it never silently falls back to this attended path.
+command covered only by unattended policy runs only after a native adapter
+verifies every requested containment control; otherwise it fails closed and
+never falls back to this attended path. The Windows restricted-token/Job Object
+native supervisor is not yet complete, and no verified Linux supervisor ships
+in this release. Windows and Linux unattended model commands therefore fail
+closed. Windows attended commands use `taskkill`, not Job Object lifetime
+enforcement.
 
 ## Source control
 
