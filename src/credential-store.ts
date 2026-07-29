@@ -67,6 +67,17 @@ function safeEnvironment(): NodeJS.ProcessEnv {
     "TMPDIR",
     "TEMP",
     "TMP",
+    // CurrentUser DPAPI locates its master-key material through the loaded
+    // Windows profile. Preserve only the non-secret identity/location values
+    // required by that OS service; executable selection remains fixed and
+    // independent of all of them.
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "USERNAME",
+    "USERDOMAIN",
     "DBUS_SESSION_BUS_ADDRESS",
     "XDG_RUNTIME_DIR",
   ]) {
