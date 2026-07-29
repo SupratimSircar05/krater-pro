@@ -35,6 +35,19 @@ test("resolves the fixed Windows parent-query executable to a spawn path", () =>
   );
 });
 
+test.runIf(process.platform === "win32")(
+  "queries a live Windows process with the default resolver and shell",
+  () => {
+    assert.doesNotThrow(() =>
+      assertTrustedCommandGateParent({
+        parentPid: process.pid,
+        currentExecutable: process.execPath,
+        currentParentPid: () => process.pid,
+      }),
+    );
+  },
+);
+
 test("accepts a live Linux parent using the same canonical executable", () => {
   assert.doesNotThrow(() =>
     assertTrustedCommandGateParent({

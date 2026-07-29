@@ -6,14 +6,24 @@ const objectManagerSystem32 =
   String.raw`\\?\GLOBALROOT\SystemRoot\System32`;
 
 describe("Windows system executable resolution", () => {
-  it.each(["cmd.exe", "taskkill.exe"] as const)(
+  it.each([
+    ["cmd.exe", "cmd.exe"],
+    [
+      "powershell.exe",
+      String.raw`WindowsPowerShell\v1.0\powershell.exe`,
+    ],
+    ["taskkill.exe", "taskkill.exe"],
+  ] as const)(
     "resolves %s to a spawn-compatible path on a non-C system drive",
-    (name) => {
+    (name, relativeExecutable) => {
       const resolvedSystem32 = String.raw`D:\Windows\System32`;
-      const resolvedExecutable = `${resolvedSystem32}\\${name}`;
+      const objectManagerExecutable =
+        `${objectManagerSystem32}\\${relativeExecutable}`;
+      const resolvedExecutable =
+        `${resolvedSystem32}\\${relativeExecutable}`;
       const realpath = vi.fn((path: string) => {
         if (path === objectManagerSystem32) return resolvedSystem32;
-        if (path === `${objectManagerSystem32}\\${name}`) {
+        if (path === objectManagerExecutable) {
           return resolvedExecutable;
         }
         throw new Error(`Unexpected resolution input: ${path}`);
@@ -24,7 +34,7 @@ describe("Windows system executable resolution", () => {
       );
       expect(realpath.mock.calls).toEqual([
         [objectManagerSystem32],
-        [`${objectManagerSystem32}\\${name}`],
+        [objectManagerExecutable],
       ]);
     },
   );
@@ -63,6 +73,7 @@ describe("Windows system executable resolution", () => {
         shell: false,
         windowsHide: true,
         encoding: "utf8",
+        timeout: 5_000,
       });
 
       expect(result.error).toBeUndefined();

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, renameSync } from "node:fs";
 import {
@@ -21,6 +22,7 @@ import {
   readStoredCredentialSync,
   storeCredential,
 } from "./credential-store.js";
+import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 const temporaryPaths: string[] = [];
 
@@ -46,6 +48,10 @@ function decodedPowerShellCommand(args: readonly string[]): string {
   return Buffer.from(encodedCommand, "base64").toString("utf16le");
 }
 
+function encodedPowerShellCommand(script: string): string {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryPaths
@@ -55,6 +61,64 @@ afterEach(async () => {
 });
 
 describe("credential store", () => {
+  it.runIf(process.platform === "win32")(
+    "probes the live Windows DPAPI backend through canonical PowerShell",
+    async () => {
+      await expect(inspectCredentialStore()).resolves.toMatchObject({
+        available: true,
+        backend: "windows_dpapi",
+      });
+    },
+  );
+
+  it.runIf(process.platform === "win32")(
+    "round-trips a live DPAPI credential through canonical PowerShell",
+    async () => {
+      const cwd = await temporaryDirectory();
+      const credentialValue = ["krater", "windows", "roundtrip"].join("-");
+      const account = expectedWorkspaceAccount(cwd);
+      const canonicalPowerShell = windowsSystemExecutable("powershell.exe");
+      const cleanupScript = [
+        `$keyPath = 'Software\\KraterPro\\Credentials'`,
+        `$name = '${account}'`,
+        "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($keyPath, $true)",
+        "if ($null -ne $key) { try { $key.DeleteValue($name, $false) } finally { $key.Dispose() } }",
+      ].join("; ");
+
+      try {
+        expect(canonicalPowerShell).toMatch(
+          /^[a-z]:\\.+\\system32\\windowspowershell\\v1\.0\\powershell\.exe$/i,
+        );
+        await expect(storeCredential(cwd, credentialValue)).resolves.toMatchObject(
+          {
+            stored: true,
+            backend: "windows_dpapi",
+          },
+        );
+        expect(readStoredCredentialSync(cwd)).toBe(credentialValue);
+      } finally {
+        const cleanup = spawnSync(
+          canonicalPowerShell,
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-EncodedCommand",
+            encodedPowerShellCommand(cleanupScript),
+          ],
+          {
+            shell: false,
+            windowsHide: true,
+            stdio: "ignore",
+            timeout: 5_000,
+          },
+        );
+        expect(cleanup.error).toBeUndefined();
+        expect(cleanup.status).toBe(0);
+      }
+    },
+    20_000,
+  );
+
   it("passes a macOS credential only through stdin and leaves no workspace marker", async () => {
     const cwd = await temporaryDirectory();
     const credentialValue = ["unit", "credential", "alpha"].join("-");

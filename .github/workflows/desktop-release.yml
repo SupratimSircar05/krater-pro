@@ -218,6 +218,9 @@ jobs:
         run: >-
           npm test --
           src/command-gate.test.ts
+          src/credential-store.test.ts
+          src/credential-store.windows-launch.test.ts
+          src/windows-system-executable.test.ts
           src/workspace.command-security.test.ts
           desktop/tests/command-gate-parent.test.mjs
           --testTimeout=20000

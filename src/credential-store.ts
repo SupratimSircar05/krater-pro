@@ -1,10 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 const KEYCHAIN_SERVICE = "com.supratimsircar.kraterpro.api-key";
 const SECRET_SERVICE_APPLICATION = "krater-pro";
 const DPAPI_REGISTRY_PATH = String.raw`Software\KraterPro\Credentials`;
+const WINDOWS_DPAPI_POWERSHELL =
+  String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`;
 
 export type CredentialBackend =
   "macos_keychain" | "linux_secret_service" | "windows_dpapi";
@@ -72,14 +75,32 @@ function safeEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
+function spawnCompatibleSecretExecutable(executable: string): string {
+  return process.platform === "win32" &&
+    executable === WINDOWS_DPAPI_POWERSHELL
+    ? windowsSystemExecutable("powershell.exe")
+    : executable;
+}
+
 const defaultRunner: SecretCommandRunner = (executable, args, stdin) =>
   new Promise((resolveRun) => {
-    const child = spawn(executable, [...args], {
-      env: safeEnvironment(),
-      shell: false,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "ignore"],
-    });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(spawnCompatibleSecretExecutable(executable), [...args], {
+        env: safeEnvironment(),
+        shell: false,
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+    } catch {
+      resolveRun({ ok: false, stdout: "" });
+      return;
+    }
+    if (!child.stdin || !child.stdout) {
+      child.kill();
+      resolveRun({ ok: false, stdout: "" });
+      return;
+    }
     let stdout = "";
     let settled = false;
     const finish = (result: CommandResult) => {
@@ -107,22 +128,30 @@ const defaultRunner: SecretCommandRunner = (executable, args, stdin) =>
   });
 
 const defaultReader: SecretCommandReader = (executable, args) => {
-  const result = spawnSync(executable, [...args], {
-    env: safeEnvironment(),
-    shell: false,
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "ignore"],
-    encoding: "utf8",
-    timeout: 15_000,
-    maxBuffer: 64 * 1024,
-  });
-  return {
-    ok: result.status === 0 && !result.error,
-    stdout:
-      typeof result.stdout === "string"
-        ? result.stdout.slice(0, 64 * 1024)
-        : "",
-  };
+  try {
+    const result = spawnSync(
+      spawnCompatibleSecretExecutable(executable),
+      [...args],
+      {
+        env: safeEnvironment(),
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf8",
+        timeout: 15_000,
+        maxBuffer: 64 * 1024,
+      },
+    );
+    return {
+      ok: result.status === 0 && !result.error,
+      stdout:
+        typeof result.stdout === "string"
+          ? result.stdout.slice(0, 64 * 1024)
+          : "",
+    };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
 };
 
 function backendForPlatform(
@@ -145,7 +174,7 @@ function backendExecutable(backend: CredentialBackend): {
       return { executable: "/usr/bin/secret-tool", probeArgs: ["--help"] };
     case "windows_dpapi":
       return {
-        executable: String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`,
+        executable: WINDOWS_DPAPI_POWERSHELL,
         probeArgs: ["-NoProfile", "-NonInteractive", "-Command", "exit 0"],
       };
   }

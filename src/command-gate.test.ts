@@ -213,17 +213,24 @@ describe("command gate runtime", () => {
     expect(Date.now() - started).toBeLessThan(3_000);
   });
 
-  it("exits promptly after a normal fixed Git command while fd 5 remains open", async () => {
-    const root = await temporaryDirectory("krater-gate-git-");
-    const config = configFor(root, "git");
-    config.gitArguments = ["--version"];
-    const gate = startGate(root, config);
+  it(
+    "exits promptly after a normal fixed Git command while fd 5 remains open",
+    async () => {
+      const root = await temporaryDirectory("krater-gate-git-");
+      const config = configFor(root, "git");
+      config.gitArguments = ["--version"];
+      const gate = startGate(root, config);
 
-    const result = await within(gate.completed, 3_000);
+      // A clean hosted macOS runner can spend more than three seconds resolving
+      // and hashing the trusted Git executable. Keep this bounded well below the
+      // CI step timeout while testing descriptor closure rather than runner I/O.
+      const result = await within(gate.completed, 8_000);
 
-    expect(result).toMatchObject({ code: 0, signal: null, stderr: "" });
-    expect(result.stdout).toMatch(/^git version /);
-  });
+      expect(result).toMatchObject({ code: 0, signal: null, stderr: "" });
+      expect(result.stdout).toMatch(/^git version /);
+    },
+    10_000,
+  );
 
   it("rejects a trusted Git executable rewritten in place after approval", async () => {
     const root = await temporaryDirectory("krater-gate-git-root-");
