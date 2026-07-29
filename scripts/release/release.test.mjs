@@ -115,8 +115,22 @@ describe("release automation", () => {
     );
   });
 
-  it("uses the supported POSIX npm executable for SBOM generation", () => {
-    expect(npmInvocation(["sbom"])).toEqual({
+  it("runs Windows npm shims through cmd.exe and uses npm on POSIX", () => {
+    expect(
+      npmInvocation(["ci", "--omit=dev"], {
+        platform: "win32",
+        environment: { ComSpec: String.raw`C:\Windows\System32\cmd.exe` },
+      }),
+    ).toEqual({
+      executable: String.raw`C:\Windows\System32\cmd.exe`,
+      arguments: ["/d", "/s", "/c", "npm.cmd", "ci", "--omit=dev"],
+    });
+    expect(
+      npmInvocation(["sbom"], {
+        platform: "linux",
+        environment: {},
+      }),
+    ).toEqual({
       executable: "npm",
       arguments: ["sbom"],
     });
@@ -203,7 +217,7 @@ describe("release automation", () => {
   it("recognizes only intentional release artifact suffixes", () => {
     expect(isManifestArtifact("krater-pro-cli-0.1.0.tgz")).toBe(true);
     expect(isManifestArtifact("Krater-Pro-0.1.0-x64.AppImage")).toBe(true);
-    expect(isManifestArtifact("Krater-Pro-0.1.0-x64.exe")).toBe(false);
+    expect(isManifestArtifact("Krater-Pro-0.1.0-x64.exe")).toBe(true);
     expect(isManifestArtifact("builder-debug.yml")).toBe(false);
     expect(isManifestArtifact("SHA256SUMS.txt.asc")).toBe(false);
   });
@@ -236,23 +250,25 @@ describe("release automation", () => {
         environment: {},
       }),
     ).toEqual({ stable: false, missing: [] });
-    expect(() =>
-      validateReleaseEnvironment({
-        platform: "mac",
-        stable: true,
-        environment: {},
-      }),
-    ).toThrow(stableRequirements.mac[0]);
-    const environment = Object.fromEntries(
-      stableRequirements.mac.map((name) => [name, "configured"]),
-    );
-    expect(
-      validateReleaseEnvironment({
-        platform: "mac",
-        stable: true,
-        environment,
-      }),
-    ).toEqual({ stable: true, missing: [] });
+    for (const platform of ["mac", "win"]) {
+      expect(() =>
+        validateReleaseEnvironment({
+          platform,
+          stable: true,
+          environment: {},
+        }),
+      ).toThrow(stableRequirements[platform][0]);
+      const environment = Object.fromEntries(
+        stableRequirements[platform].map((name) => [name, "configured"]),
+      );
+      expect(
+        validateReleaseEnvironment({
+          platform,
+          stable: true,
+          environment,
+        }),
+      ).toEqual({ stable: true, missing: [] });
+    }
   });
 
   it("uses a real virtual display only for Linux launch smoke", () => {
@@ -262,6 +278,10 @@ describe("release automation", () => {
     });
     expect(smokeCommand("mac", "/app/Krater Pro")).toEqual({
       command: "/app/Krater Pro",
+      arguments: ["--krater-smoke-test"],
+    });
+    expect(smokeCommand("win", String.raw`C:\KraterPro.exe`)).toEqual({
+      command: String.raw`C:\KraterPro.exe`,
       arguments: ["--krater-smoke-test"],
     });
     expect(
@@ -276,11 +296,64 @@ describe("release automation", () => {
       KRATER_DESKTOP_WORKSPACE: "/tmp/krater",
       SOURCE_DATE_EPOCH: "0",
     });
+    expect(
+      smokeEnvironment({
+        platform: "win",
+        workspace: String.raw`C:\Temp\krater`,
+        environment: {},
+      }),
+    ).not.toHaveProperty("APPIMAGE_EXTRACT_AND_RUN");
+    expect(
+      validSmokeProof(
+        {
+          architecture: "x64",
+          commandGate: true,
+          platform: "win32",
+          renderer: true,
+          reopened: true,
+          schemaVersion: 1,
+        },
+        "win",
+      ),
+    ).toBe(true);
+    expect(
+      validSmokeProof(
+        {
+          architecture: "x64",
+          commandGate: true,
+          platform: "win32",
+          renderer: true,
+          reopened: false,
+          schemaVersion: 1,
+        },
+        "win",
+      ),
+    ).toBe(false);
   });
 
-  it("launches distributed macOS ZIP and Linux AppImage artifacts", async () => {
+  it("launches distributed macOS ZIP, Windows portable, and Linux AppImage artifacts", async () => {
     const releaseRoot = await mkdtemp(join(tmpdir(), "krater-native-smoke-"));
     try {
+      const unpackedWindows = join(
+        releaseRoot,
+        "win-unpacked",
+        "KraterPro.exe",
+      );
+      const portableWindows = join(
+        releaseRoot,
+        "Krater-Pro-Portable-0.1.0-x64.exe",
+      );
+      await mkdir(join(releaseRoot, "win-unpacked"), { recursive: true });
+      await writeFile(unpackedWindows, "unpacked");
+      await writeFile(portableWindows, "portable");
+      await expect(
+        resolveSmokeArtifacts({ platform: "win", releaseRoot }),
+      ).resolves.toMatchObject({
+        artifactPath: portableWindows,
+        boundaryExecutable: unpackedWindows,
+        launchExecutable: portableWindows,
+      });
+
       const macArchive = join(releaseRoot, "Krater-Pro-0.1.0-arm64.zip");
       const extractedMac = join(
         releaseRoot,

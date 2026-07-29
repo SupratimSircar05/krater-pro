@@ -15,10 +15,6 @@
     "url": "https://github.com/SupratimSircar05/krater-pro/issues"
   },
   "type": "module",
-  "os": [
-    "darwin",
-    "linux"
-  ],
   "bin": {
     "krater": "./dist/cli.js",
     "krater-pro": "./dist/cli.js"
@@ -69,6 +65,7 @@
     "desktop:prepare": "npm run build && npm run desktop:icons && npm run desktop:test",
     "desktop:dist": "npm run desktop:prepare && node desktop/scripts/build.mjs",
     "desktop:dist:mac": "npm run desktop:prepare && node desktop/scripts/build.mjs --mac",
+    "desktop:dist:win": "npm run desktop:prepare && node desktop/scripts/build.mjs --win",
     "desktop:dist:linux": "npm run desktop:prepare && node desktop/scripts/build.mjs --linux",
     "release:cli": "node scripts/release/build-cli-artifact.mjs --output release/cli --verify-reproducible",
     "release:sbom:desktop": "node scripts/release/create-sbom.mjs --profile desktop --output release/krater-pro-desktop.spdx.json",

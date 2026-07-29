@@ -90,7 +90,19 @@ export function addElectronPackage(document, manifest) {
   return document;
 }
 
-export function npmInvocation(arguments_) {
+export function npmInvocation(
+  arguments_,
+  {
+    platform = process.platform,
+    environment = process.env,
+  } = {},
+) {
+  if (platform === "win32") {
+    return {
+      executable: environment.ComSpec || environment.COMSPEC || "cmd.exe",
+      arguments: ["/d", "/s", "/c", "npm.cmd", ...arguments_],
+    };
+  }
   return {
     executable: "npm",
     arguments: arguments_,

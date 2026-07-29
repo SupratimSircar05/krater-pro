@@ -10,6 +10,7 @@ const artifactSuffixes = [
   ".AppImage",
   ".deb",
   ".dmg",
+  ".exe",
   ".spdx.json",
   ".tgz",
   ".zip",

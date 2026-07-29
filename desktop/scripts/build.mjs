@@ -20,22 +20,31 @@ const cliPath = resolve(
   "cli.js",
 );
 const forwarded = process.argv.slice(2);
-const requestsWindows = forwarded.some(
-  (argument) =>
-    argument.startsWith("-w") ||
-    argument === "--win" ||
-    argument.startsWith("--win=") ||
-    argument === "--windows" ||
-    argument.startsWith("--windows="),
-);
-if (!["darwin", "linux"].includes(process.platform) || requestsWindows) {
-  throw new Error(
-    "Krater Pro desktop builds support macOS and Linux only; Windows packaging has been removed.",
+const shortTargetFlags = forwarded
+  .filter((argument) => /^-[mwl]+$/u.test(argument))
+  .join("");
+const explicitlyTargetsWindows =
+  shortTargetFlags.includes("w") ||
+  forwarded.includes("--win") ||
+  forwarded.includes("--windows") ||
+  forwarded.some(
+    (argument) =>
+      argument.startsWith("--win=") || argument.startsWith("--windows="),
   );
-}
+const explicitlyTargetsMac =
+  shortTargetFlags.includes("m") || forwarded.includes("--mac");
+const explicitlyTargetsLinux =
+  shortTargetFlags.includes("l") || forwarded.includes("--linux");
 const targetsMac =
-  forwarded.includes("--mac") ||
-  (!forwarded.includes("--linux") && process.platform === "darwin");
+  explicitlyTargetsMac ||
+  (!explicitlyTargetsWindows &&
+    !explicitlyTargetsLinux &&
+    process.platform === "darwin");
+const targetsWindows =
+  explicitlyTargetsWindows ||
+  (!explicitlyTargetsMac &&
+    !explicitlyTargetsLinux &&
+    process.platform === "win32");
 const environment = { ...process.env };
 // GitHub expressions materialize unavailable secrets as empty strings. An
 // empty CSC_LINK is not equivalent to an unset value in electron-builder: it
@@ -57,6 +66,13 @@ if (!stableRelease || !targetsMac) {
 if (stableRelease && targetsMac) {
   validateReleaseEnvironment({
     platform: "mac",
+    stable: true,
+    environment,
+  });
+}
+if (stableRelease && targetsWindows) {
+  validateReleaseEnvironment({
+    platform: "win",
     stable: true,
     environment,
   });

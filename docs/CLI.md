@@ -97,9 +97,9 @@ configuration/provider/runtime errors.
 `--yes` does not turn commands into unrestricted background shell access. On
 macOS the current unattended `run_command` path permits shell builtins only
 after live native-containment probes; external programs and subprocess-based
-builds fail closed and require a later, explicit attended approval. Linux does
-not yet ship a verified native unattended adapter, so model commands fail
-closed there. File tools remain bounded to the staged workspace.
+builds fail closed and require a later, explicit attended approval. Linux and
+Windows do not yet ship a verified native unattended adapter, so model commands
+fail closed there. File tools remain bounded to the staged workspace.
 
 Before provider selection or staging, Krater performs bounded repository
 ambiguity preflight. Unique referenced filenames are resolved and recorded
@@ -126,8 +126,8 @@ krater doctor --live
 `setup` inspects the selected workspace and can open the official Krater
 developer page. In a terminal it reads the key with terminal echo disabled,
 validates it using authenticated model discovery, and only then offers an OS
-credential backend. Credential values are sent to macOS Keychain or Linux
-Secret Service through standard input, never process arguments.
+credential backend. Credential values are sent to macOS Keychain, Linux Secret
+Service, or Windows DPAPI through standard input, never process arguments.
 
 If secure storage is unavailable or declined, setup explains the plaintext
 owner-only `.env` tradeoff and asks separately. `--env-fallback` explicitly
@@ -239,7 +239,7 @@ workspace digest before and after the run, rejects credential-shaped arguments
 and sensitive environment names/values, bounds time and output, denies network
 and writes, and executes unattended only when the native adapter verifies every
 required containment control. The initial production adapter is macOS-only;
-Linux fails closed until its native supervisor ships. Put the
+Windows and Linux fail closed until their native supervisors ship. Put the
 input artifact outside the selected workspace source manifest (or below the
 ignored `.krater/` state directory) so writing the plan does not change the
 digest it declares.

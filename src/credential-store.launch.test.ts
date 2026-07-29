@@ -138,6 +138,8 @@ describe("credential helper launch boundary", () => {
         expect(launch?.options.env).not.toHaveProperty("KRATER_API_KEY");
         expect(launch?.options.env).not.toHaveProperty("GITHUB_TOKEN");
         expect(launch?.options.env).not.toHaveProperty("PATH");
+        expect(launch?.options.env).not.toHaveProperty("USERPROFILE");
+        expect(launch?.options.env).not.toHaveProperty("APPDATA");
       }
       expect(observed.asynchronous[0]?.options).toMatchObject({
         shell: false,

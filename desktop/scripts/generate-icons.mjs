@@ -42,6 +42,32 @@ function createIcns(pngBySize) {
   return Buffer.concat([header, ...entries]);
 }
 
+function createIco(pngBySize) {
+  const sizes = [16, 24, 32, 48, 64, 128, 256];
+  const directory = Buffer.alloc(6 + sizes.length * 16);
+  directory.writeUInt16LE(0, 0);
+  directory.writeUInt16LE(1, 2);
+  directory.writeUInt16LE(sizes.length, 4);
+
+  let offset = directory.length;
+  const images = sizes.map((size, index) => {
+    const image = pngBySize.get(size);
+    const entryOffset = 6 + index * 16;
+    directory.writeUInt8(size === 256 ? 0 : size, entryOffset);
+    directory.writeUInt8(size === 256 ? 0 : size, entryOffset + 1);
+    directory.writeUInt8(0, entryOffset + 2);
+    directory.writeUInt8(0, entryOffset + 3);
+    directory.writeUInt16LE(1, entryOffset + 4);
+    directory.writeUInt16LE(32, entryOffset + 6);
+    directory.writeUInt32LE(image.length, entryOffset + 8);
+    directory.writeUInt32LE(offset, entryOffset + 12);
+    offset += image.length;
+    return image;
+  });
+
+  return Buffer.concat([directory, ...images]);
+}
+
 export async function generateDesktopIcons() {
   const source = await readFile(sourcePath);
   await mkdir(outputDirectory, { recursive: true });
@@ -57,6 +83,7 @@ export async function generateDesktopIcons() {
 
   await writeFile(join(outputDirectory, "icon.png"), pngBySize.get(1024));
   await writeFile(join(outputDirectory, "icon.icns"), createIcns(pngBySize));
+  await writeFile(join(outputDirectory, "icon.ico"), createIco(pngBySize));
   await writeFile(join(outputDirectory, "icon.svg"), source);
 }
 
