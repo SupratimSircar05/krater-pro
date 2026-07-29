@@ -1,6 +1,8 @@
 # Krater Pro Homebrew tap
 
-Install the CLI:
+The CLI formula installs Krater Pro, Node.js 22, locked production
+dependencies, shell completions, and the manual page in one command on macOS,
+Linux, and WSL 2:
 
 ```sh
 brew install {{TAP_REPOSITORY}}/krater-pro
@@ -8,12 +10,20 @@ krater setup
 krater doctor
 ```
 
-Install the signed and notarized desktop application:
+The native macOS desktop application remains a separate signed and notarized
+cask:
 
 ```sh
 brew install --cask {{TAP_REPOSITORY}}/krater-pro-app
 ```
 
+Native Windows desktop distribution uses a signed WinGet package rather than
+pretending that a WSL Homebrew formula can install a Windows application.
+
 Formula and cask updates are generated only from checksum-verified Krater Pro
 GitHub Release assets. Pull requests must pass native formula lifecycle tests
 and macOS cask audit checks before merge.
+
+If `Formula/krater-pro.rb` or `Casks/krater-pro-app.rb` is absent, that channel
+has not shipped yet and the corresponding install command is intentionally not
+available.
