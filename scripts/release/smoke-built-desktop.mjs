@@ -225,7 +225,9 @@ async function findLinuxAppImage(releaseRoot) {
     releaseRoot,
     (path, entry) =>
       entry.isFile() &&
-      /^Krater-Pro-.+-(?:arm64|x64)\.AppImage$/u.test(basename(path)),
+      /^Krater-Pro-.+-(?:arm64|x86_64)\.AppImage$/u.test(
+        basename(path),
+      ),
   );
 }
 

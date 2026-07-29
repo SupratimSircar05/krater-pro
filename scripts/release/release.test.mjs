@@ -312,9 +312,17 @@ describe("release automation", () => {
       expect(extractedFrom).toBe(releaseRoot);
 
       const unpackedLinux = join(releaseRoot, "linux-unpacked", "krater-pro");
-      const appImage = join(releaseRoot, "Krater-Pro-0.1.0-x64.AppImage");
+      const appImage = join(releaseRoot, "Krater-Pro-0.1.0-x86_64.AppImage");
       await mkdir(join(releaseRoot, "linux-unpacked"), { recursive: true });
       await writeFile(unpackedLinux, "unpacked");
+      await writeFile(
+        join(releaseRoot, "Krater-Pro-0.1.0-aarch64.AppImage"),
+        "unsupported alias",
+      );
+      await writeFile(
+        join(releaseRoot, "Krater-Pro-0.1.0-x64.AppImage"),
+        "unsupported alias",
+      );
       await writeFile(appImage, "appimage");
       await expect(
         resolveSmokeArtifacts({ platform: "linux", releaseRoot }),
@@ -323,6 +331,10 @@ describe("release automation", () => {
         boundaryExecutable: unpackedLinux,
         launchExecutable: appImage,
       });
+      await rm(appImage);
+      await expect(
+        resolveSmokeArtifacts({ platform: "linux", releaseRoot }),
+      ).rejects.toThrow("No packaged Linux AppImage was found.");
     } finally {
       await rm(releaseRoot, { recursive: true, force: true });
     }

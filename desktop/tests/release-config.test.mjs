@@ -268,12 +268,12 @@ test("release tag must exactly match package version", () => {
 test("checksums cover distributables and ignore build metadata", async () => {
   const directory = await mkdtemp(join(tmpdir(), "krater-checksums-"));
   await writeFile(join(directory, "Krater-Pro-0.1.0-arm64.dmg"), "mac");
-  await writeFile(join(directory, "Krater-Pro-0.1.0-x64.AppImage"), "linux");
+  await writeFile(join(directory, "Krater-Pro-0.1.0-x86_64.AppImage"), "linux");
   await writeFile(join(directory, "builder-debug.yml"), "ignored");
   const result = await createChecksums(directory);
   assert.deepEqual(result.artifacts, [
     "Krater-Pro-0.1.0-arm64.dmg",
-    "Krater-Pro-0.1.0-x64.AppImage",
+    "Krater-Pro-0.1.0-x86_64.AppImage",
   ]);
   assert.equal(result.output.trim().split("\n").length, 2);
   assert.equal(isReleaseArtifact("Krater-Pro.exe"), false);
