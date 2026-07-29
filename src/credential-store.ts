@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { dirname, resolve, win32 } from "node:path";
+import { dirname, resolve } from "node:path";
 import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 const KEYCHAIN_SERVICE = "com.supratimsircar.kraterpro.api-key";
@@ -59,17 +59,7 @@ function workspaceAccount(cwd: string): string {
     .slice(0, 24)}`;
 }
 
-const WINDOWS_DPAPI_PROFILE_ENVIRONMENT = [
-  "USERPROFILE",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "USERNAME",
-  "USERDOMAIN",
-] as const;
-
-function safeEnvironment(includeWindowsProfile = false): NodeJS.ProcessEnv {
+function safeEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   const names = [
     "LANG",
@@ -79,33 +69,11 @@ function safeEnvironment(includeWindowsProfile = false): NodeJS.ProcessEnv {
     "TMP",
     "DBUS_SESSION_BUS_ADDRESS",
     "XDG_RUNTIME_DIR",
-    ...(includeWindowsProfile ? WINDOWS_DPAPI_PROFILE_ENVIRONMENT : []),
   ];
   for (const name of names) {
     if (process.env[name] !== undefined) environment[name] = process.env[name];
   }
   return environment;
-}
-
-function windowsDpapiEnvironment(): NodeJS.ProcessEnv {
-  const commandProcessor = windowsSystemExecutable("cmd.exe");
-  const systemDirectory = win32.dirname(commandProcessor);
-  const systemRoot = win32.dirname(systemDirectory);
-  if (
-    win32.basename(systemDirectory).toLowerCase() !== "system32" ||
-    !win32.isAbsolute(systemRoot)
-  ) {
-    throw new Error("The canonical Windows system directory is invalid.");
-  }
-  return {
-    ...safeEnvironment(true),
-    // Windows PowerShell 5.1 and the .NET Framework use these values during
-    // startup and assembly resolution. Derive all three from the audited
-    // object-manager path instead of inheriting caller-controlled values.
-    SystemRoot: systemRoot,
-    WINDIR: systemRoot,
-    ComSpec: commandProcessor,
-  };
 }
 
 function secretCommandLaunch(executable: string): {
@@ -123,7 +91,12 @@ function secretCommandLaunch(executable: string): {
     // All credential helpers are compile-time absolute paths. A trusted cwd
     // prevents assembly/module resolution from searching the user workspace.
     cwd: dirname(resolvedExecutable),
-    env: isWindowsDpapi ? windowsDpapiEnvironment() : safeEnvironment(),
+    // An empty Windows environment is intentional. libuv supplies the
+    // operating-system-required launch context, while no caller-controlled
+    // profile, PATH, module, profiler, or credential value crosses the
+    // boundary. CurrentUser DPAPI is bound to the process token, not an
+    // inherited USERPROFILE string.
+    env: isWindowsDpapi ? {} : safeEnvironment(),
   };
 }
 
@@ -211,15 +184,19 @@ const defaultRunner: SecretCommandRunner = (executable, args, stdin) =>
         failure: timedOut ? "timeout" : "spawn_error",
       });
     });
-    child.once("close", (code) =>
+    const finishFromExit = (code: number | null) =>
       timedOut
         ? finish({ ok: false, stdout: "", failure: "timeout" })
         : finish({
             ok: code === 0,
             stdout: stdout.slice(0, 4_096),
             ...(code === 0 ? {} : { failure: "nonzero_exit" as const }),
-          }),
-    );
+          });
+    // `exit` is the authoritative helper completion signal. Waiting only for
+    // `close` can deadlock on Windows when an inherited console/CLR handle
+    // keeps a pipe open after the fixed PowerShell process has exited.
+    child.once("exit", finishFromExit);
+    child.once("close", finishFromExit);
     if (stdin !== undefined) child.stdin.end(stdin);
     else child.stdin.end();
   });
