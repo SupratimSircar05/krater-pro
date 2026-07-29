@@ -52,7 +52,7 @@ vi.mock("node:child_process", async (importOriginal) => {
         kill: () => true,
       });
       stdin.once("finish", () => {
-        queueMicrotask(() => child.emit("close", 0, null));
+        queueMicrotask(() => child.emit("exit", 0, null));
       });
       return child;
     },
@@ -87,15 +87,11 @@ import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 describe("Windows credential executable launch", () => {
   it.runIf(process.platform === "win32")(
-    "uses canonical PowerShell, a trusted cwd, and only required profile context",
+    "uses canonical PowerShell, a trusted cwd, and no caller environment",
     async () => {
       observedLaunches.asynchronous.length = 0;
       observedLaunches.synchronous.length = 0;
       const expected = windowsSystemExecutable("powershell.exe");
-      const expectedCommandProcessor = windowsSystemExecutable("cmd.exe");
-      const expectedSystemRoot = win32.dirname(
-        win32.dirname(expectedCommandProcessor),
-      );
       const previous = new Map(
         [
           "KRATER_API_KEY",
@@ -144,14 +140,7 @@ describe("Windows credential executable launch", () => {
           expect(launch?.options.env).not.toHaveProperty("KRATER_API_KEY");
           expect(launch?.options.env).not.toHaveProperty("GITHUB_TOKEN");
           expect(launch?.options.env).not.toHaveProperty("PATH");
-          expect(launch?.options.env).toMatchObject({
-            SystemRoot: expectedSystemRoot,
-            WINDIR: expectedSystemRoot,
-            ComSpec: expectedCommandProcessor,
-            USERPROFILE: String.raw`C:\Users\krater-ci`,
-            APPDATA: String.raw`C:\Users\krater-ci\AppData\Roaming`,
-            LOCALAPPDATA: String.raw`C:\Users\krater-ci\AppData\Local`,
-          });
+          expect(launch?.options.env).toEqual({});
         }
       } finally {
         for (const [name, value] of previous) {
