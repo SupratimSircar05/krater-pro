@@ -2,6 +2,11 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { parse } from "dotenv";
 import { readStoredCredentialSync } from "./credential-store.js";
+import {
+  DEFAULT_WORKSPACE_PREFERENCES,
+  readWorkspacePreferences,
+  type DefaultAssurance,
+} from "./preferences.js";
 
 export const DEFAULT_BASE_URL = "https://api.krater.ai/v1";
 export const AUTO_MODEL = "auto";
@@ -31,6 +36,7 @@ export interface ConfigOverrides {
   maxSteps?: number;
   maxOutputTokens?: number;
   sessionTokenBudget?: number;
+  defaultAssurance?: DefaultAssurance;
 }
 
 export interface KraterConfig {
@@ -47,6 +53,7 @@ export interface KraterConfig {
   maxSteps: number;
   maxOutputTokens: number;
   sessionTokenBudget: number;
+  defaultAssurance: DefaultAssurance;
   apiKeySource:
     | "command"
     | "environment"
@@ -54,6 +61,12 @@ export interface KraterConfig {
     | ".env"
     | "missing";
   modelSource: "command" | "environment" | ".env" | "default";
+  defaultAssuranceSource:
+    | "command"
+    | "environment"
+    | ".env"
+    | "workspace_preferences"
+    | "default";
 }
 
 export interface ConfigDependencies {
@@ -118,6 +131,18 @@ function parseResponseStyle(value: string | undefined): ResponseStyle {
   );
 }
 
+function parseDefaultAssurance(
+  value: string | undefined,
+): DefaultAssurance | undefined {
+  if (value === undefined) return undefined;
+  if (value === "fast" || value === "standard" || value === "high") {
+    return value;
+  }
+  throw new Error(
+    `Invalid default assurance "${value}". Expected "fast", "standard", or "high".`,
+  );
+}
+
 export function loadConfig(
   overrides: ConfigOverrides = {},
   environment: NodeJS.ProcessEnv = process.env,
@@ -135,6 +160,7 @@ export function loadConfig(
   }
 
   const file = readEnvFile(cwd);
+  const workspacePreferences = readWorkspacePreferences(cwd);
   const gitExecutable =
     clean(overrides.gitExecutable) ??
     clean(environment.KRATER_GIT_EXECUTABLE);
@@ -273,6 +299,30 @@ export function loadConfig(
     1_000,
     10_000_000,
   );
+  const commandDefaultAssurance = parseDefaultAssurance(
+    overrides.defaultAssurance,
+  );
+  const environmentDefaultAssurance = parseDefaultAssurance(
+    clean(environment.KRATER_ASSURANCE),
+  );
+  const fileDefaultAssurance = parseDefaultAssurance(
+    clean(file.KRATER_ASSURANCE),
+  );
+  const defaultAssurance =
+    commandDefaultAssurance ??
+    environmentDefaultAssurance ??
+    fileDefaultAssurance ??
+    workspacePreferences?.defaultAssurance ??
+    DEFAULT_WORKSPACE_PREFERENCES.defaultAssurance;
+  const defaultAssuranceSource = commandDefaultAssurance
+    ? "command"
+    : environmentDefaultAssurance
+      ? "environment"
+      : fileDefaultAssurance
+        ? ".env"
+        : workspacePreferences
+          ? "workspace_preferences"
+          : "default";
 
   return {
     apiKey,
@@ -288,8 +338,10 @@ export function loadConfig(
     maxSteps,
     maxOutputTokens,
     sessionTokenBudget,
+    defaultAssurance,
     apiKeySource,
     modelSource,
+    defaultAssuranceSource,
   };
 }
 

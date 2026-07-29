@@ -23,6 +23,11 @@ import {
 } from "./credential-store.js";
 import { isStableRegularFileIdentity } from "./file-identity.js";
 import { ROUTER_FALLBACK_MODEL } from "./model-selection.js";
+import {
+  workspacePreferencesPath,
+  writeWorkspacePreferences,
+  type DefaultAssurance,
+} from "./preferences.js";
 import { KraterProvider } from "./provider.js";
 
 export const SETUP_REQUIRED_EXIT_CODE = 4;
@@ -82,6 +87,16 @@ export interface SetupResult {
     id: string;
     source: KraterConfig["modelSource"];
   };
+  preferences: {
+    path: string;
+    defaultAssurance: DefaultAssurance;
+    source: KraterConfig["defaultAssuranceSource"];
+    persisted: boolean;
+  };
+  project: {
+    path: string;
+    selected: true;
+  };
   environmentFile: {
     path: string;
     exists: boolean;
@@ -102,6 +117,7 @@ export interface SetupWorkspaceOptions {
   persistence?: SetupPersistence;
   validator?: CredentialValidator;
   credentialStore?: CredentialStoreOptions;
+  defaultAssurance?: DefaultAssurance;
 }
 
 function requiredActions(environmentPath: string): string[] {
@@ -246,6 +262,7 @@ function offlineResult(
   config: KraterConfig,
   environmentFileExists: boolean,
   environmentFileCreated: boolean,
+  requestedDefaultAssurance?: DefaultAssurance,
 ): SetupResult {
   const environmentPath = join(config.cwd, ".env");
   const configured = Boolean(config.apiKey);
@@ -272,6 +289,19 @@ function offlineResult(
     model: {
       id: config.model,
       source: config.modelSource,
+    },
+    preferences: {
+      path: workspacePreferencesPath(config.cwd),
+      defaultAssurance:
+        requestedDefaultAssurance ?? config.defaultAssurance,
+      source: requestedDefaultAssurance
+        ? "command"
+        : config.defaultAssuranceSource,
+      persisted: config.defaultAssuranceSource === "workspace_preferences",
+    },
+    project: {
+      path: config.cwd,
+      selected: true,
     },
     environmentFile: {
       path: environmentPath,
@@ -324,6 +354,7 @@ export async function setupWorkspace(
       config,
       environmentFileExists,
       environmentFileCreated,
+      options.defaultAssurance,
     );
   }
   if (!candidate || !credentialIsWellFormed(candidate)) {
@@ -331,6 +362,7 @@ export async function setupWorkspace(
       config,
       environmentFileExists,
       environmentFileCreated,
+      options.defaultAssurance,
     );
   }
 
@@ -369,6 +401,19 @@ export async function setupWorkspace(
       id: config.model,
       source: config.modelSource,
     },
+    preferences: {
+      path: workspacePreferencesPath(config.cwd),
+      defaultAssurance:
+        options.defaultAssurance ?? config.defaultAssurance,
+      source: options.defaultAssurance
+        ? "command"
+        : config.defaultAssuranceSource,
+      persisted: config.defaultAssuranceSource === "workspace_preferences",
+    },
+    project: {
+      path: config.cwd,
+      selected: true,
+    },
     environmentFile: {
       path: environmentPath,
       exists: environmentFileExists,
@@ -385,7 +430,21 @@ export async function setupWorkspace(
     );
     return baseResult;
   }
+  const persistPreferences = async (): Promise<void> => {
+    if (!options.defaultAssurance) return;
+    const path = await writeWorkspacePreferences(config.cwd, {
+      schemaVersion: 1,
+      defaultAssurance: options.defaultAssurance,
+    });
+    baseResult.preferences = {
+      path,
+      defaultAssurance: options.defaultAssurance,
+      source: "workspace_preferences",
+      persisted: true,
+    };
+  };
   if (!options.credential || requestedPersistence === "none") {
+    await persistPreferences();
     if (options.credential) {
       baseResult.actions.push(
         "The verified key was not persisted; provide KRATER_API_KEY again for future commands.",
@@ -416,6 +475,7 @@ export async function setupWorkspace(
       persistence: "credential_store",
       backend: stored.backend,
     };
+    await persistPreferences();
     return baseResult;
   }
 
@@ -438,6 +498,7 @@ export async function setupWorkspace(
   baseResult.limitations.push(
     "The key is stored as plaintext in an owner-only workspace file.",
   );
+  await persistPreferences();
   return baseResult;
 }
 
@@ -466,6 +527,16 @@ export function createSetupRequiredResult(cwd: string): SetupResult {
     model: {
       id: "auto",
       source: "default",
+    },
+    preferences: {
+      path: workspacePreferencesPath(resolvedCwd),
+      defaultAssurance: "standard",
+      source: "default",
+      persisted: false,
+    },
+    project: {
+      path: resolvedCwd,
+      selected: true,
     },
     environmentFile: {
       path: environmentPath,
@@ -522,6 +593,8 @@ export function renderSetupResult(
       `Workspace: ${result.cwd}`,
       `Credential: ${verification}; ${persistence}`,
       `Model: ${result.model.id} (${result.model.source})`,
+      `Trust dial: ${result.preferences.defaultAssurance} (${result.preferences.source})`,
+      `Initial project: ${result.project.path}`,
       ...result.actions.map((action) => `Next: ${action}`),
       "",
     ].join("\n");

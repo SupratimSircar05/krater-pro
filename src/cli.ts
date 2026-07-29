@@ -764,7 +764,7 @@ async function runPrompt(prompt: string, options: GlobalOptions): Promise<void> 
       projectId: "cli",
       request: prompt,
       ...(!isAutomaticModel(config.model) ? { model: config.model } : {}),
-      assurance: options.assurance ?? "standard",
+      assurance: options.assurance ?? config.defaultAssurance,
       ...(options.maxCostUsd === undefined
         ? {}
         : { maxCostUsd: options.maxCostUsd }),
@@ -1103,7 +1103,7 @@ async function interactive(options: GlobalOptions): Promise<void> {
           projectId: "cli",
           request: input,
           ...(!isAutomaticModel(config.model) ? { model: config.model } : {}),
-          assurance: options.assurance ?? "standard",
+          assurance: options.assurance ?? config.defaultAssurance,
           ...(options.maxCostUsd === undefined
             ? {}
             : { maxCostUsd: options.maxCostUsd }),
@@ -1264,7 +1264,6 @@ function addGlobalOptions(command: Command): Command {
         }
         return value as "fast" | "standard" | "high";
       },
-      "standard",
     )
     .option(
       "--max-cost-usd <amount>",
@@ -1314,6 +1313,8 @@ interface SetupCommandOptions {
   nonInteractive: boolean;
   envFallback: boolean;
   replace: boolean;
+  defaultAssurance?: "fast" | "standard" | "high";
+  project?: string;
 }
 
 async function runSetupCommand(
@@ -1330,13 +1331,22 @@ async function runSetupCommand(
     Boolean(process.stdout.isTTY) &&
     !options.json &&
     !setupOptions.nonInteractive;
+  const setupOverrides: ConfigOverrides = {
+    ...globalOverrides(options),
+    ...(setupOptions.project
+      ? { cwd: resolve(setupOptions.project) }
+      : {}),
+  };
 
   if (!terminalInteractive) {
     const result = await setupWorkspace({
-      overrides: globalOverrides(options),
+      overrides: setupOverrides,
       createEnvironmentFile: setupOptions.createEnv,
       validateCredential: true,
       persistence: "none",
+      ...(setupOptions.defaultAssurance
+        ? { defaultAssurance: setupOptions.defaultAssurance }
+        : {}),
     });
     process.stdout.write(renderSetupResult(result, Boolean(options.json)));
     process.exitCode =
@@ -1349,7 +1359,7 @@ async function runSetupCommand(
   }
 
   let inspection = await setupWorkspace({
-    overrides: globalOverrides(options),
+    overrides: setupOverrides,
     createEnvironmentFile: setupOptions.createEnv,
   });
   let existingVerificationFailure:
@@ -1357,7 +1367,7 @@ async function runSetupCommand(
     | undefined;
   if (inspection.credential.configured && !setupOptions.replace) {
     const result = await setupWorkspace({
-      overrides: globalOverrides(options),
+      overrides: setupOverrides,
       validateCredential: true,
       persistence: "none",
     });
@@ -1433,10 +1443,11 @@ async function runSetupCommand(
   }
 
   let result = await setupWorkspace({
-    overrides: globalOverrides(options),
+    overrides: setupOverrides,
     credential,
     validateCredential: true,
     persistence,
+    defaultAssurance: setupOptions.defaultAssurance ?? "standard",
   });
   if (
     result.status === "storage_unavailable" &&
@@ -1455,10 +1466,11 @@ async function runSetupCommand(
       );
       if (/^(y|yes)$/i.test(fallback.trim())) {
         result = await setupWorkspace({
-          overrides: globalOverrides(options),
+          overrides: setupOverrides,
           credential,
           validateCredential: true,
           persistence: "environment_file",
+          defaultAssurance: setupOptions.defaultAssurance ?? "standard",
         });
       }
     } finally {
@@ -1529,6 +1541,22 @@ program
     "--replace",
     "replace the current credential only after the new key validates",
     false,
+  )
+  .option(
+    "--default-assurance <level>",
+    "persist the default trust dial: fast, standard, or high",
+    (value) => {
+      if (!["fast", "standard", "high"].includes(value)) {
+        throw new Error(
+          'Default assurance must be "fast", "standard", or "high".',
+        );
+      }
+      return value as "fast" | "standard" | "high";
+    },
+  )
+  .option(
+    "--project <path>",
+    "select an existing local directory as the initial project",
   )
   .option("--no-open", "do not open Krater's developer page")
   .action(

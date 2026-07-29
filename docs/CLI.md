@@ -123,6 +123,7 @@ as unresolved so the agent must verify it during discovery.
 ```sh
 krater setup
 krater setup --replace
+krater setup --project /path/to/project --default-assurance standard
 KRATER_API_KEY=... krater setup --non-interactive --no-open
 krater setup --env-fallback
 krater doctor
@@ -145,6 +146,12 @@ empty private template. Until a credential is configured, setup returns a
 
 `--replace` starts hidden input even when a credential is configured. The old
 value remains usable unless the replacement validates and persists.
+
+`--project` selects an existing directory for this setup run.
+`--default-assurance` persists the non-secret `fast`, `standard`, or `high`
+trust dial under that project's protected `.krater/` state only after
+credential validation. Per-invocation `--assurance` and `KRATER_ASSURANCE`
+still take precedence.
 
 `doctor` makes no network request by default. It checks the supported Node
 version, workspace access, safely loaded configuration, credential presence and source,

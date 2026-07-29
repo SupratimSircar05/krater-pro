@@ -24,9 +24,10 @@ node dist/cli.js --help
 
 ## Homebrew installation
 
-The supported 1.0 installation command is prepared but must not be advertised
-as live until the `SupratimSircar05/homebrew-tap` repository exists and its
-native formula/cask checks pass:
+The public [`SupratimSircar05/homebrew-tap`](https://github.com/SupratimSircar05/homebrew-tap)
+repository and its empty-channel macOS/Linux checks are live. The commands
+below remain intentionally unavailable until checksum-matched Formula/Cask
+files are generated from the final release assets:
 
 ```sh
 brew install SupratimSircar05/tap/krater-pro
@@ -46,9 +47,14 @@ Release, verifies its SHA-256, installs dependencies with the release's
 the manual page and Bash, Zsh, and Fish completions. Homebrew supplies the
 formula's Node.js 22 dependency; a preinstalled system Node is not required.
 
-Until the public tap and exact release assets exist, the command above will not
-work. Use the source-checkout installation instead. Packaging operators should
-follow [`packaging/homebrew/README.md`](../packaging/homebrew/README.md).
+Until the exact release assets and generated Formula/Cask exist, the commands
+above will not work. Use the source-checkout installation instead. Packaging
+operators should follow
+[`packaging/homebrew/README.md`](../packaging/homebrew/README.md).
+
+Homebrew covers macOS, Linux, and the CLI inside WSL 2. Native Windows desktop
+installation uses the signed WinGet package; a WSL formula cannot install a
+Windows application.
 
 Common lifecycle commands after the tap is published:
 
@@ -76,6 +82,17 @@ Run setup from the project you want Krater Pro to work on:
 cd /path/to/project
 krater setup
 ```
+
+The equivalent explicit project selection and trust-dial configuration is:
+
+```sh
+krater setup --project /path/to/project --default-assurance standard
+```
+
+The selected non-secret trust dial is written atomically to the owner-private
+`.krater/preferences.json` only after credential validation succeeds. The
+default is **Build and verify** (`standard`). A failed credential check does
+not create or update the preference.
 
 In an interactive terminal, setup opens Krater's official developer page,
 accepts the key without terminal echo, and validates API/model access before

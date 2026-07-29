@@ -2006,7 +2006,7 @@ export async function createApp(
     try {
       const body = requestObject(request.body, "Task");
       const taskRequest = requestString(body.request, 'Task "request"');
-      const assurance = body.assurance ?? "standard";
+      const assurance = body.assurance ?? config.defaultAssurance;
       if (
         assurance !== "fast" &&
         assurance !== "standard" &&
@@ -3436,7 +3436,7 @@ export async function createApp(
         : config.model;
     const assurance =
       request.body?.assurance === undefined
-        ? "standard"
+        ? config.defaultAssurance
         : request.body.assurance;
     if (!message) {
       sendError(response, 400, "Message cannot be empty.");

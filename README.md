@@ -354,12 +354,14 @@ directory).
 | `KRATER_CONTEXT_CHARS` | `120000` | Estimated context-character budget |
 | `KRATER_TOOL_OUTPUT_CHARS` | `18000` | Per-tool retained-output budget |
 | `KRATER_RESPONSE_STYLE` | `concise` | `concise` or `standard` |
+| `KRATER_ASSURANCE` | `standard` | Default trust dial: `fast`, `standard`, or `high` |
 | `KRATER_MAX_STEPS` | `48` | Maximum model/tool turns, from 1 to 128 |
 | `KRATER_MAX_OUTPUT_TOKENS` | `8192` | Per-response generation ceiling |
 | `KRATER_SESSION_TOKEN_BUDGET` | `250000` | Stop before another request after this reported session total |
 
-Explicit CLI options override environment values, which override `.env`, which
-override defaults.
+Explicit CLI options override environment values, which override `.env`.
+For the trust dial only, a validated `krater setup --default-assurance ...`
+workspace preference is the next fallback before the `standard` default.
 
 `KRATER_GIT_EXECUTABLE` is deliberately host-only: set it in the process
 environment or with `--git-executable`; a workspace `.env` entry is ignored.

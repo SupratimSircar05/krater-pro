@@ -53,6 +53,8 @@ describe("loadConfig", () => {
       maxSteps: DEFAULT_MAX_STEPS,
       maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       sessionTokenBudget: DEFAULT_SESSION_TOKEN_BUDGET,
+      defaultAssurance: "standard",
+      defaultAssuranceSource: "default",
     });
   });
 
@@ -72,6 +74,7 @@ describe("loadConfig", () => {
         "KRATER_MAX_STEPS=64",
         "KRATER_MAX_OUTPUT_TOKENS=12288",
         "KRATER_SESSION_TOKEN_BUDGET=300000",
+        "KRATER_ASSURANCE=high",
       ].join("\n"),
     );
 
@@ -90,6 +93,8 @@ describe("loadConfig", () => {
     expect(config.maxSteps).toBe(64);
     expect(config.maxOutputTokens).toBe(12_288);
     expect(config.sessionTokenBudget).toBe(300_000);
+    expect(config.defaultAssurance).toBe("high");
+    expect(config.defaultAssuranceSource).toBe(".env");
   });
 
   it("applies command overrides before process environment and .env values", async () => {
@@ -116,6 +121,7 @@ describe("loadConfig", () => {
       KRATER_MAX_STEPS: "72",
       KRATER_MAX_OUTPUT_TOKENS: "10000",
       KRATER_SESSION_TOKEN_BUDGET: "280000",
+      KRATER_ASSURANCE: "fast",
     };
 
     const config = loadConfig(
@@ -132,6 +138,7 @@ describe("loadConfig", () => {
         maxSteps: 80,
         maxOutputTokens: 11_000,
         sessionTokenBudget: 290_000,
+        defaultAssurance: "high",
       },
       environment,
     );
@@ -149,6 +156,8 @@ describe("loadConfig", () => {
     expect(config.maxSteps).toBe(80);
     expect(config.maxOutputTokens).toBe(11_000);
     expect(config.sessionTokenBudget).toBe(290_000);
+    expect(config.defaultAssurance).toBe("high");
+    expect(config.defaultAssuranceSource).toBe("command");
   });
 
   it("falls back to environment configuration when command strings are blank", async () => {
