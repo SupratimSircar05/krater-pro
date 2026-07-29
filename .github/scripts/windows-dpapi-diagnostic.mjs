@@ -10,7 +10,7 @@ const objectManagerPowerShell =
   String.raw`\\?\GLOBALROOT\SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`;
 const executable = realpathSync.native(objectManagerPowerShell);
 const script = [
-  "Add-Type -AssemblyName System.Security",
+  "[void][System.Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')",
   "$plain = [byte[]](75, 82, 65, 84, 69, 82)",
   "$protected = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
   "$roundtrip = [Security.Cryptography.ProtectedData]::Unprotect($protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
@@ -39,7 +39,8 @@ const auditedEnvironment = {
 };
 
 for (const [label, environment] of [
-  ["audited", auditedEnvironment],
+  ["empty-strong-assembly", {}],
+  ["audited-strong-assembly", auditedEnvironment],
   ["inherited", process.env],
 ]) {
   const startedAt = Date.now();
