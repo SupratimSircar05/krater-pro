@@ -6,6 +6,13 @@ export const DESKTOP_PORT_ENV = "KRATER_DESKTOP_PORT";
 export const DESKTOP_WORKSPACE_ENV = "KRATER_DESKTOP_WORKSPACE";
 export const DESKTOP_SMOKE_FLAG = "--krater-smoke-test";
 
+export function shouldQuitWhenAllWindowsClosed(
+  platform,
+  smokeTestActive = false,
+) {
+  return platform !== "darwin" && !smokeTestActive;
+}
+
 function readOption(argv, name) {
   const exactIndex = argv.indexOf(name);
   if (exactIndex >= 0) {

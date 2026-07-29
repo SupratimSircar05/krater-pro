@@ -12,6 +12,7 @@ import {
 } from "electron";
 import {
   parseDesktopLaunchOptions,
+  shouldQuitWhenAllWindowsClosed,
   startOnLoopback,
 } from "./runtime.mjs";
 import {
@@ -35,6 +36,7 @@ let pendingLaunchUrl;
 let shutdownPromise;
 let shutdownComplete = false;
 let quitting = false;
+let smokeTestActive = false;
 
 app.setName(APP_NAME);
 app.enableSandbox();
@@ -441,6 +443,7 @@ async function launch() {
     environment: process.env,
     defaultWorkspace,
   });
+  smokeTestActive = options.smokeTest;
 
   if (!options.workspaceWasExplicit) {
     await mkdir(options.workspace, { recursive: true });
@@ -477,7 +480,9 @@ app.on("activate", () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (shouldQuitWhenAllWindowsClosed(process.platform, smokeTestActive)) {
+    app.quit();
+  }
 });
 
 app.on("before-quit", (event) => {

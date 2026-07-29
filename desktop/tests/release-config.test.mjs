@@ -125,6 +125,11 @@ test("desktop shutdown exits after asynchronous loopback cleanup", async () => {
   assert.match(main, /KRATER_DESKTOP_REOPEN_OK/);
   assert.match(main, /localServer\.createLaunchUrl/);
   assert.match(main, /reopenMainWindow\(\{ showWhenReady: false \}\)/);
+  assert.match(main, /smokeTestActive = options\.smokeTest/);
+  assert.match(
+    main,
+    /shouldQuitWhenAllWindowsClosed\(process\.platform, smokeTestActive\)/,
+  );
   assert.match(
     main,
     /app\.on\("activate", \(\) => \{\s+reopenMainWindow\(\)/,

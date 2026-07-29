@@ -10,6 +10,7 @@ import {
   isSafeExternalUrl,
   parseDesktopLaunchOptions,
   parseDesktopPort,
+  shouldQuitWhenAllWindowsClosed,
   startOnLoopback,
 } from "../runtime.mjs";
 
@@ -60,6 +61,14 @@ test("packaged smoke mode is explicit and cannot be enabled by a value suffix", 
   });
   assert.equal(enabled.smokeTest, true);
   assert.equal(disabled.smokeTest, false);
+});
+
+test("desktop window lifecycle preserves smoke-mode window turnover", () => {
+  assert.equal(shouldQuitWhenAllWindowsClosed("darwin", false), false);
+  assert.equal(shouldQuitWhenAllWindowsClosed("win32", false), true);
+  assert.equal(shouldQuitWhenAllWindowsClosed("linux", false), true);
+  assert.equal(shouldQuitWhenAllWindowsClosed("win32", true), false);
+  assert.equal(shouldQuitWhenAllWindowsClosed("linux", true), false);
 });
 
 test("launch options reject missing values", () => {
