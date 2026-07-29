@@ -92,11 +92,18 @@ describe("Windows credential executable launch", () => {
       observedLaunches.asynchronous.length = 0;
       observedLaunches.synchronous.length = 0;
       const expected = windowsSystemExecutable("powershell.exe");
+      const expectedCommandProcessor = windowsSystemExecutable("cmd.exe");
+      const expectedSystemRoot = win32.dirname(
+        win32.dirname(expectedCommandProcessor),
+      );
       const previous = new Map(
         [
           "KRATER_API_KEY",
           "GITHUB_TOKEN",
           "PATH",
+          "SystemRoot",
+          "WINDIR",
+          "ComSpec",
           "USERPROFILE",
           "APPDATA",
           "LOCALAPPDATA",
@@ -105,6 +112,9 @@ describe("Windows credential executable launch", () => {
       process.env.KRATER_API_KEY = "must-not-reach-child";
       process.env.GITHUB_TOKEN = "must-not-reach-child";
       process.env.PATH = String.raw`C:\attacker-controlled`;
+      process.env.SystemRoot = String.raw`C:\attacker-controlled`;
+      process.env.WINDIR = String.raw`C:\attacker-controlled`;
+      process.env.ComSpec = String.raw`C:\attacker-controlled\cmd.exe`;
       process.env.USERPROFILE = String.raw`C:\Users\krater-ci`;
       process.env.APPDATA = String.raw`C:\Users\krater-ci\AppData\Roaming`;
       process.env.LOCALAPPDATA = String.raw`C:\Users\krater-ci\AppData\Local`;
@@ -135,6 +145,9 @@ describe("Windows credential executable launch", () => {
           expect(launch?.options.env).not.toHaveProperty("GITHUB_TOKEN");
           expect(launch?.options.env).not.toHaveProperty("PATH");
           expect(launch?.options.env).toMatchObject({
+            SystemRoot: expectedSystemRoot,
+            WINDIR: expectedSystemRoot,
+            ComSpec: expectedCommandProcessor,
             USERPROFILE: String.raw`C:\Users\krater-ci`,
             APPDATA: String.raw`C:\Users\krater-ci\AppData\Roaming`,
             LOCALAPPDATA: String.raw`C:\Users\krater-ci\AppData\Local`,

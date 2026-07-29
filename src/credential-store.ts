@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, win32 } from "node:path";
 import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 const KEYCHAIN_SERVICE = "com.supratimsircar.kraterpro.api-key";
@@ -87,19 +87,43 @@ function safeEnvironment(includeWindowsProfile = false): NodeJS.ProcessEnv {
   return environment;
 }
 
+function windowsDpapiEnvironment(): NodeJS.ProcessEnv {
+  const commandProcessor = windowsSystemExecutable("cmd.exe");
+  const systemDirectory = win32.dirname(commandProcessor);
+  const systemRoot = win32.dirname(systemDirectory);
+  if (
+    win32.basename(systemDirectory).toLowerCase() !== "system32" ||
+    !win32.isAbsolute(systemRoot)
+  ) {
+    throw new Error("The canonical Windows system directory is invalid.");
+  }
+  return {
+    ...safeEnvironment(true),
+    // Windows PowerShell 5.1 and the .NET Framework use these values during
+    // startup and assembly resolution. Derive all three from the audited
+    // object-manager path instead of inheriting caller-controlled values.
+    SystemRoot: systemRoot,
+    WINDIR: systemRoot,
+    ComSpec: commandProcessor,
+  };
+}
+
 function secretCommandLaunch(executable: string): {
   executable: string;
   cwd: string;
+  env: NodeJS.ProcessEnv;
 } {
-  const resolvedExecutable =
-    process.platform === "win32" && executable === WINDOWS_DPAPI_POWERSHELL
-      ? windowsSystemExecutable("powershell.exe")
-      : executable;
+  const isWindowsDpapi =
+    process.platform === "win32" && executable === WINDOWS_DPAPI_POWERSHELL;
+  const resolvedExecutable = isWindowsDpapi
+    ? windowsSystemExecutable("powershell.exe")
+    : executable;
   return {
     executable: resolvedExecutable,
     // All credential helpers are compile-time absolute paths. A trusted cwd
     // prevents assembly/module resolution from searching the user workspace.
     cwd: dirname(resolvedExecutable),
+    env: isWindowsDpapi ? windowsDpapiEnvironment() : safeEnvironment(),
   };
 }
 
@@ -110,9 +134,7 @@ const defaultRunner: SecretCommandRunner = (executable, args, stdin) =>
       const launch = secretCommandLaunch(executable);
       child = spawn(launch.executable, [...args], {
         cwd: launch.cwd,
-        // CurrentUser DPAPI locates its master keys through the loaded profile.
-        // Preserve only its required non-secret identity/location context.
-        env: safeEnvironment(executable === WINDOWS_DPAPI_POWERSHELL),
+        env: launch.env,
         shell: false,
         windowsHide: true,
         stdio: ["pipe", "pipe", "ignore"],
@@ -207,7 +229,7 @@ const defaultReader: SecretCommandReader = (executable, args) => {
     const launch = secretCommandLaunch(executable);
     const result = spawnSync(launch.executable, [...args], {
       cwd: launch.cwd,
-      env: safeEnvironment(executable === WINDOWS_DPAPI_POWERSHELL),
+      env: launch.env,
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "ignore"],
