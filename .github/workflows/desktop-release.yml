@@ -175,6 +175,7 @@ jobs:
             subjects: release/*.exe
             paths: |
               release/*.exe
+              release/*.authenticode.json
               release/*.spdx.json
           - label: Linux x64
             os: ubuntu-22.04
@@ -267,24 +268,10 @@ jobs:
       - name: Verify Windows Authenticode signatures
         if: github.event_name == 'push' && matrix.platform == 'win'
         shell: pwsh
-        run: |
-          $releaseExecutables = @(Get-ChildItem release -File -Filter *.exe)
-          if ($releaseExecutables.Count -eq 0) {
-            throw "No Windows release executables were produced."
-          }
-          $innerExecutable = Join-Path (Join-Path "release" "win-unpacked") "KraterPro.exe"
-          if (-not (Test-Path -LiteralPath $innerExecutable -PathType Leaf)) {
-            throw "The shipped inner Windows executable was not produced: $innerExecutable"
-          }
-          $executablesToVerify = @($releaseExecutables) + @(
-            Get-Item -LiteralPath $innerExecutable
-          )
-          $executablesToVerify | ForEach-Object {
-            $signature = Get-AuthenticodeSignature $_.FullName
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for $($_.Name): $($signature.Status)"
-            }
-          }
+        run: >-
+          ./scripts/release/verify-windows-authenticode.ps1
+          -ReleaseDirectory release
+          -Version "${{ needs.validate.outputs.version }}"
       - name: Remove ephemeral notarization material
         if: always() && matrix.platform == 'mac'
         shell: bash
@@ -331,6 +318,13 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+      - name: Render signed-installer-bound WinGet manifests
+        if: github.event_name == 'push'
+        run: >-
+          node packaging/winget/prepare-winget.mjs
+          --assets release-assets
+          --output release-assets
+          --version "${{ needs.validate.outputs.version }}"
       - name: Create checksums and source-bound release manifest
         run: >-
           node scripts/release/create-release-manifest.mjs

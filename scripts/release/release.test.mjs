@@ -218,7 +218,15 @@ describe("release automation", () => {
     expect(isManifestArtifact("krater-pro-cli-0.1.0.tgz")).toBe(true);
     expect(isManifestArtifact("Krater-Pro-0.1.0-x64.AppImage")).toBe(true);
     expect(isManifestArtifact("Krater-Pro-0.1.0-x64.exe")).toBe(true);
+    expect(
+      isManifestArtifact("krater-pro-windows-0.1.0.authenticode.json"),
+    ).toBe(true);
+    expect(
+      isManifestArtifact("SupratimSircar05.KraterPro.installer.yaml"),
+    ).toBe(true);
     expect(isManifestArtifact("builder-debug.yml")).toBe(false);
+    expect(isManifestArtifact("unrelated.yaml")).toBe(false);
+    expect(isManifestArtifact("unrelated.json")).toBe(false);
     expect(isManifestArtifact("SHA256SUMS.txt.asc")).toBe(false);
   });
 

@@ -125,7 +125,8 @@ Platform checks:
   assessment, notarization staple, and an authenticated launch from the
   extracted release ZIP.
 - Windows x64: Authenticode `Valid` for the installer, portable wrapper, and
-  shipped inner executable, plus an authenticated portable launch.
+  shipped inner executable, an Authenticode receipt bound to the exact NSIS
+  installer digest, plus an authenticated portable launch.
 - Linux x64: checksum/attestation/signature verification, DEB metadata, and an
   authenticated AppImage launch under the supported Chromium sandbox.
 
@@ -144,6 +145,36 @@ the tap with:
 
 The workflow fails if the head changed. It publishes bottles to GitHub Packages
 and updates the formula bottle block only after `bottle-publication` approval.
+
+## WinGet manifest
+
+Homebrew supports macOS, Linux, and WSL 2. Native Windows distribution uses
+WinGet and the signed NSIS installer.
+
+Only a stable release can produce WinGet files. The protected Windows job first
+requires valid, timestamped Authenticode signatures for the setup executable,
+portable executable, and shipped inner executable. It emits a receipt bound to
+the exact setup filename, version, tag, signer identities, and SHA-256. Release
+assembly then renders WinGet 1.12 manifests with a fixed GitHub Release URL and
+recomputes the installer digest from the same bytes. The URL and digest cannot
+be supplied on the command line. The receipt and generated manifests are
+covered by the release checksums, detached signature, and release manifest.
+
+Generating release files does not publish to the WinGet community source.
+Before a separate, reviewed submission:
+
+1. verify the release checksums, detached signature, attestation, and
+   Authenticode receipt;
+2. place the three `SupratimSircar05.KraterPro*.yaml` files in one empty
+   directory on Windows;
+3. run `winget validate <directory>`;
+4. install and uninstall with `winget install --manifest <directory>`;
+5. verify silent install, upgrade, publisher, version, and Add/Remove Programs
+   correlation; and
+6. submit a dedicated PR to `microsoft/winget-pkgs`.
+
+Never replace a submitted version's installer URL or digest. Publish a new
+Krater Pro version for any corrected artifact.
 
 ## Recovery
 

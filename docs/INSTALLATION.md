@@ -56,6 +56,19 @@ Homebrew covers macOS, Linux, and the CLI inside WSL 2. Native Windows desktop
 installation uses the signed WinGet package; a WSL formula cannot install a
 Windows application.
 
+After the signed package and reviewed community manifest are published, native
+Windows installation uses:
+
+```powershell
+winget install --exact --id SupratimSircar05.KraterPro
+```
+
+That command is intentionally not advertised as live until Microsoft accepts
+the exact versioned manifest. The release pipeline generates checksum-bound
+WinGet 1.12 manifests from the signed NSIS installer, but it does not submit
+them automatically. See
+[`packaging/winget/README.md`](../packaging/winget/README.md).
+
 Common lifecycle commands after the tap is published:
 
 ```sh

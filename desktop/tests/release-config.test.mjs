@@ -217,8 +217,9 @@ test("write-capable release automation pins actions and isolates permission", as
     "WIN_CSC_KEY_PASSWORD",
     "HAS_WINDOWS_SIGNING",
     "Verify Windows Authenticode signatures",
-    '"release" "win-unpacked"',
-    "Test-Path -LiteralPath $innerExecutable -PathType Leaf",
+    "verify-windows-authenticode.ps1",
+    "release/*.authenticode.json",
+    "prepare-winget.mjs",
     "validate-release-environment.mjs",
     "create-release-manifest.mjs",
     "sign-release-artifacts.mjs",
@@ -233,6 +234,30 @@ test("write-capable release automation pins actions and isolates permission", as
     /echo\s+["']?\$\{\{\s*secrets\./,
     "release workflow must never print a secret expression",
   );
+
+  const windowsSignatureVerifier = await readFile(
+    join(
+      repositoryRoot,
+      "scripts",
+      "release",
+      "verify-windows-authenticode.ps1",
+    ),
+    "utf8",
+  );
+  for (const required of [
+    'Join-Path $releaseRoot "win-unpacked"',
+    "Get-AuthenticodeSignature -LiteralPath",
+    '$signature.Status -ne "Valid"',
+    "$signature.TimeStamperCertificate",
+    "Get-FileHash -LiteralPath $installerPath -Algorithm SHA256",
+    "[IO.FileMode]::CreateNew",
+    "authenticode.json",
+  ]) {
+    assert.ok(
+      windowsSignatureVerifier.includes(required),
+      `missing Windows signature receipt gate: ${required}`,
+    );
+  }
 });
 
 test("pull-request CI exercises macOS, Windows, and Linux command boundaries", async () => {

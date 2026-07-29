@@ -18,7 +18,13 @@ const artifactSuffixes = [
 
 export function isManifestArtifact(name) {
   return (
-    artifactSuffixes.some((suffix) => name.endsWith(suffix)) &&
+    (artifactSuffixes.some((suffix) => name.endsWith(suffix)) ||
+      /^krater-pro-windows-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.authenticode\.json$/u.test(
+        name,
+      ) ||
+      /^SupratimSircar05\.KraterPro(?:\.installer|\.locale\.en-US)?\.yaml$/u.test(
+        name,
+      )) &&
     !name.endsWith(".asc")
   );
 }
