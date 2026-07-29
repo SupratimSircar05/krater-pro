@@ -44,14 +44,21 @@ the model response. Commands:
 
 - `/help`: show the short command card;
 - `/clear`: clear any active task context before the next prompt;
-- `/contract`: show the latest outcome contract;
+- `/understood`: show the latest outcome contract (`/contract` remains an
+  alias);
+- `/plan`: show the current versioned executable plan;
 - `/assumptions`: show recorded assumptions;
-- `/evidence`: show the latest evidence verdict and gaps;
+- `/proof`: show the latest evidence verdict and gaps (`/evidence` remains an
+  alias);
 - `/why`: show claims and the known gaps behind the latest verdict;
 - `/publish`: publish the most recent reviewed ProofPatch, asking before
   accepting any evidence gaps;
-- `/rollback`: discard the most recent staged ProofPatch or restore its
-  published files; and
+- `/ship`: report structured GitHub/Cloudflare adapter readiness without
+  discovering ambient credentials or executing a raw-shell deployment;
+- `/watch`: show the locally recorded Proof Lease and production-observation
+  snapshot without claiming background monitoring;
+- `/undo`: discard the most recent staged ProofPatch or restore its published
+  files (`/rollback` remains an alias); and
 - `/exit` or `/quit`: close cleanly.
 
 Streaming text is printed immediately. Tool calls show their name and compact

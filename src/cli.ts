@@ -43,6 +43,7 @@ import {
   type ConfigOverrides,
   type ResponseStyle,
 } from "./config.js";
+import { resolveInteractiveCommand } from "./interactive-commands.js";
 import {
   doctorExitCode,
   renderDoctorReport,
@@ -886,23 +887,28 @@ async function interactive(options: GlobalOptions): Promise<void> {
         break;
       }
       if (!input) continue;
-      if (["/exit", "/quit"].includes(input)) break;
-      if (input === "/clear") {
+      const interactiveCommand = resolveInteractiveCommand(input);
+      if (interactiveCommand === "exit") break;
+      if (interactiveCommand === "clear") {
         active?.agent.clear();
         active = undefined;
         process.stdout.write(`${dim}Conversation cleared.${reset}\n`);
         continue;
       }
-      if (input === "/help") {
+      if (interactiveCommand === "help") {
         process.stdout.write(
           [
             `${dim}/clear${reset}  clear conversation context`,
-            `${dim}/contract${reset} show the latest outcome contract`,
+            `${dim}/understood${reset} show what Krater understood`,
+            `${dim}/plan${reset} show the current executable plan`,
             `${dim}/assumptions${reset} show recorded assumptions`,
-            `${dim}/evidence${reset} show the latest evidence verdict`,
+            `${dim}/proof${reset} show the latest evidence verdict`,
             `${dim}/why${reset} explain the latest action gate and gaps`,
             `${dim}/publish${reset} publish only an atomic reviewed ProofPatch`,
-            `${dim}/rollback${reset} roll back a published ProofPatch transaction`,
+            `${dim}/ship${reset} explain structured shipping readiness`,
+            `${dim}/watch${reset} show recorded Proof Lease state`,
+            `${dim}/undo${reset} roll back a published ProofPatch transaction`,
+            `${dim}Aliases:${reset} /contract /evidence /rollback`,
             `${dim}/exit${reset}   leave Krater Pro`,
             `${dim}Tip:${reset} file edits and shell commands ask before running`,
             "",
@@ -910,7 +916,7 @@ async function interactive(options: GlobalOptions): Promise<void> {
         );
         continue;
       }
-      if (input === "/contract") {
+      if (interactiveCommand === "contract") {
         if (!lastProjection) {
           process.stdout.write(`${dim}No completed task contract yet.${reset}\n`);
         } else {
@@ -920,7 +926,16 @@ async function interactive(options: GlobalOptions): Promise<void> {
         }
         continue;
       }
-      if (input === "/assumptions") {
+      if (interactiveCommand === "plan") {
+        const plan = lastProjection?.autopilot.currentPlan;
+        if (!plan) {
+          process.stdout.write(`${dim}No executable task plan yet.${reset}\n`);
+        } else {
+          printTaskPlan(plan, false);
+        }
+        continue;
+      }
+      if (interactiveCommand === "assumptions") {
         const assumptions = lastProjection?.contract.assumptions ?? [];
         process.stdout.write(
           assumptions.length
@@ -934,10 +949,13 @@ async function interactive(options: GlobalOptions): Promise<void> {
         );
         continue;
       }
-      if (input === "/evidence" || input === "/why") {
+      if (
+        interactiveCommand === "evidence" ||
+        interactiveCommand === "why"
+      ) {
         if (!lastProjection) {
           process.stdout.write(`${dim}No evidence capsule yet.${reset}\n`);
-        } else if (input === "/evidence") {
+        } else if (interactiveCommand === "evidence") {
           printTaskVerdict(lastProjection);
         } else {
           const claims = lastProjection.claims.map((claim) => claim.statement);
@@ -956,7 +974,41 @@ async function interactive(options: GlobalOptions): Promise<void> {
         }
         continue;
       }
-      if (input === "/publish") {
+      if (interactiveCommand === "ship") {
+        if (!lastProjection) {
+          process.stdout.write(`${dim}No reviewed task is available to ship.${reset}\n`);
+        } else {
+          const externalEffects =
+            lastProjection.autopilot.externalEffectPlans;
+          process.stdout.write(
+            [
+              `${cyan}◇ Structured shipping${reset} ${externalEffects.length} recorded external effect plan(s).`,
+              `${dim}The standalone CLI does not discover ambient provider credentials or perform a raw-shell deployment. Configure a host-owned GitHub or Cloudflare adapter, then use its digest-bound preflight, confirmation, and execution flow.${reset}`,
+              "",
+            ].join("\n"),
+          );
+        }
+        continue;
+      }
+      if (interactiveCommand === "watch") {
+        if (!lastProjection) {
+          process.stdout.write(`${dim}No task has recorded Proof Lease state yet.${reset}\n`);
+        } else {
+          const store = await openEvidenceStore(config.cwd);
+          const result = await recordedWatchSnapshot(
+            lastProjection.autopilot,
+            new VerifiedAutopilotService(store),
+          );
+          process.stdout.write(
+            `${cyan}◇ ${result.state.replaceAll("_", " ")}${reset}` +
+              ` · ${result.productionObservations.length} recorded observation(s)` +
+              ` · ${result.proofLeases.length} proof lease(s)\n` +
+              `${dim}${result.note}${reset}\n`,
+          );
+        }
+        continue;
+      }
+      if (interactiveCommand === "publish") {
         if (!lastTaskId || !lastProjection) {
           process.stdout.write(`${dim}No reviewed ProofPatch is available.${reset}\n`);
           continue;
@@ -1015,7 +1067,7 @@ async function interactive(options: GlobalOptions): Promise<void> {
         }
         continue;
       }
-      if (input === "/rollback") {
+      if (interactiveCommand === "rollback") {
         if (!lastTaskId) {
           process.stdout.write(`${dim}No ProofPatch transaction is available.${reset}\n`);
           continue;

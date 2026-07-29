@@ -463,10 +463,14 @@ envelope. A clarification-required result is different: it emits one
 structured object and exits `3` before provider execution. `--max-cost-usd` is
 quoted but not enforced against actual provider spend.
 
-Interactive mode adds `/contract`, `/assumptions`, `/evidence`, `/why`,
-`/publish`, and `/rollback`. Every prompt gets a fresh isolated staging
-workspace. `/publish` acts on the most recently reviewed task and asks before
-accepting gaps; `/rollback` acts on that task's durable binding.
+Interactive mode exposes `/understood`, `/plan`, `/proof`, `/ship`, `/watch`,
+and `/undo`, while preserving `/contract`, `/evidence`, and `/rollback` as
+compatibility aliases. `/assumptions`, `/why`, and `/publish` remain available.
+Every prompt gets a fresh isolated staging workspace. `/publish` acts on the
+most recently reviewed task and asks before accepting gaps; `/undo` acts on
+that task's durable binding. `/ship` is informational unless a trusted host has
+configured the typed provider adapter, and `/watch` is explicitly a local
+record snapshot rather than a background production poller.
 
 Cancellation never doubles as rollback: a task whose ProofPatch has been
 published is refused with an explicit `task rollback` instruction. ProofPatch

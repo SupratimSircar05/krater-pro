@@ -207,12 +207,15 @@ krater --context-chars 90000 --tool-output-chars 12000 \
   "Review the current implementation"
 ```
 
-Interactive commands include `/contract`, `/assumptions`, `/evidence`, `/why`,
-`/publish`, and `/rollback`, plus `/help`, `/clear`, `/exit`, and `/quit`. File
-edits and commands ask for approval unless `--yes` is set. Under `--yes`, file
-edits use the staged workspace and commands use the verified fail-closed
-unattended policy described below. Non-interactive protected actions are denied
-unless `--yes` is supplied.
+Interactive mode centers the beginner-facing `/understood`, `/plan`, `/proof`,
+`/ship`, `/watch`, and `/undo` commands. Existing `/contract`, `/evidence`, and
+`/rollback` aliases remain compatible; `/assumptions`, `/why`, `/publish`,
+`/help`, `/clear`, `/exit`, and `/quit` remain available. `/ship` reports
+structured-adapter readiness and never turns ambient credentials or raw shell
+approval into deployment authority. File edits and commands ask for approval
+unless `--yes` is set. Under `--yes`, file edits use the staged workspace and
+commands use the verified fail-closed unattended policy described below.
+Non-interactive protected actions are denied unless `--yes` is supplied.
 
 Full command reference: [docs/CLI.md](docs/CLI.md).
 
