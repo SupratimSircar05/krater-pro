@@ -1,15 +1,18 @@
+import { constants } from "node:fs";
 import {
   chmod,
   copyFile,
   link,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
   rm,
   stat,
   symlink,
   writeFile,
+  type FileHandle,
 } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -24,6 +27,25 @@ import {
 
 const temporaryPaths: string[] = [];
 const execFileAsync = promisify(execFile);
+
+async function rewriteOpenFileInPlace(handle: FileHandle) {
+  const before = await handle.stat({ bigint: true });
+  if (!before.isFile() || before.size < 1n) {
+    throw new Error("The rewrite fixture requires a non-empty regular file.");
+  }
+  const original = Buffer.alloc(1);
+  const read = await handle.read(original, 0, original.length, 0);
+  if (read.bytesRead !== original.length) {
+    throw new Error("The rewrite fixture could not read the opened file.");
+  }
+  const replacement = Buffer.from([(original[0] ?? 0) ^ 0xff]);
+  const written = await handle.write(replacement, 0, replacement.length, 0);
+  if (written.bytesWritten !== replacement.length) {
+    throw new Error("The rewrite fixture could not update the opened file.");
+  }
+  await handle.sync();
+  return { before, after: await handle.stat({ bigint: true }) };
+}
 
 async function temporaryDirectory(prefix = "krater-workspace-"): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), prefix));
@@ -1027,10 +1049,17 @@ describe("Workspace Git inspection", () => {
     await chmod(executable, 0o755);
     const workspace = new Workspace(root, { gitExecutable: executable });
     await mkdir(join(root, ".git"));
-    const before = await stat(executable);
-    await writeFile(executable, Buffer.alloc(before.size, 0x41));
-    const after = await stat(executable);
-
+    const handle = await open(
+      executable,
+      constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+    );
+    let mutation: Awaited<ReturnType<typeof rewriteOpenFileInPlace>>;
+    try {
+      mutation = await rewriteOpenFileInPlace(handle);
+    } finally {
+      await handle.close();
+    }
+    const { before, after } = mutation;
     expect(after.dev).toBe(before.dev);
     expect(after.ino).toBe(before.ino);
     expect(after.size).toBe(before.size);

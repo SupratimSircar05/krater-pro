@@ -1,7 +1,10 @@
+import { constants } from "node:fs";
 import {
   chmod,
+  type FileHandle,
   mkdtemp,
   mkdir,
+  open,
   readFile,
   realpath,
   rename,
@@ -24,6 +27,25 @@ async function temporaryDirectory(prefix: string): Promise<string> {
   const physicalPath = await realpath(path);
   temporaryPaths.push(physicalPath);
   return physicalPath;
+}
+
+async function rewriteOpenFileInPlace(handle: FileHandle) {
+  const before = await handle.stat({ bigint: true });
+  if (!before.isFile() || before.size < 1n) {
+    throw new Error("The rewrite fixture requires a non-empty regular file.");
+  }
+  const original = Buffer.alloc(1);
+  const read = await handle.read(original, 0, original.length, 0);
+  if (read.bytesRead !== original.length) {
+    throw new Error("The rewrite fixture could not read the opened file.");
+  }
+  const replacement = Buffer.from([(original[0] ?? 0) ^ 0xff]);
+  const written = await handle.write(replacement, 0, replacement.length, 0);
+  if (written.bytesWritten !== replacement.length) {
+    throw new Error("The rewrite fixture could not update the opened file.");
+  }
+  await handle.sync();
+  return { before, after: await handle.stat({ bigint: true }) };
 }
 
 async function fakeGit(
@@ -339,12 +361,23 @@ describe("ProjectRegistry", () => {
   it("rejects an in-place rewrite of the pinned Git executable", async () => {
     const root = await temporaryDirectory("krater-git-rewrite-");
     const executable = await fakeGit(root);
-    const registry = new ProjectRegistry(root, {
-      gitExecutable: executable,
-    });
-    const before = await stat(executable);
-    await writeFile(executable, Buffer.alloc(before.size, 0x41));
-    const after = await stat(executable);
+    const handle = await open(
+      executable,
+      constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+    );
+    const { registry, before, after } = await (async () => {
+      try {
+        const registry = new ProjectRegistry(root, {
+          gitExecutable: executable,
+        });
+        return {
+          registry,
+          ...(await rewriteOpenFileInPlace(handle)),
+        };
+      } finally {
+        await handle.close();
+      }
+    })();
 
     expect(after.dev).toBe(before.dev);
     expect(after.ino).toBe(before.ino);

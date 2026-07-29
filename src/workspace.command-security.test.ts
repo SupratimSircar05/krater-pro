@@ -320,10 +320,18 @@ describe("command launch boundary", () => {
     try {
       await workspace.runCommand("echo portable");
       expect(spawnMock.mock.calls[0]?.[0]).toBe(process.execPath);
-      expect(spawnMock.mock.calls[0]?.[2].env).toMatchObject({
-        Path: String.raw`D:\Tools;D:\Windows\System32`,
-        ComSpec: String.raw`D:\Windows\System32\cmd.exe`,
-      });
+      const spawnedEnvironment =
+        spawnMock.mock.calls[0]?.[2].env as NodeJS.ProcessEnv;
+      const windowsEnvironmentValue = (name: string) =>
+        Object.entries(spawnedEnvironment).find(
+          ([candidate]) => candidate.toUpperCase() === name.toUpperCase(),
+        )?.[1];
+      expect(windowsEnvironmentValue("Path")).toBe(
+        String.raw`D:\Tools;D:\Windows\System32`,
+      );
+      expect(windowsEnvironmentValue("ComSpec")).toBe(
+        String.raw`D:\Windows\System32\cmd.exe`,
+      );
       expect(JSON.parse(configInput.end.mock.calls[0]![0])).toMatchObject({
         mode: "shell-windows",
       });
@@ -449,17 +457,20 @@ describe("command launch boundary", () => {
     expect(child.kill).not.toHaveBeenCalled();
   });
 
-  it("rejects workspace quotes instead of partially escaping Seatbelt regexes", async () => {
-    const parent = await temporaryDirectory();
-    const root = join(parent, 'quoted-"workspace');
-    await mkdir(root);
-    const workspace = new Workspace(root);
-    const internals = workspace as unknown as {
-      commandSandboxProfile(temporaryDirectory: string): string;
-    };
+  it.runIf(process.platform !== "win32")(
+    "rejects workspace quotes instead of partially escaping Seatbelt regexes",
+    async () => {
+      const parent = await temporaryDirectory();
+      const root = join(parent, 'quoted-"workspace');
+      await mkdir(root);
+      const workspace = new Workspace(root);
+      const internals = workspace as unknown as {
+        commandSandboxProfile(temporaryDirectory: string): string;
+      };
 
-    expect(() => internals.commandSandboxProfile(parent)).toThrow(
-      /cannot contain quotes or control lines/,
-    );
-  });
+      expect(() => internals.commandSandboxProfile(parent)).toThrow(
+        /cannot contain quotes or control lines/,
+      );
+    },
+  );
 });

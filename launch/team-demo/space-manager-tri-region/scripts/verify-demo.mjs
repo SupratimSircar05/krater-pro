@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import sharp from "sharp";
+import { countWebVttCues } from "./webvtt.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(scriptDirectory, "..");
@@ -118,7 +119,7 @@ await sharp({
 const captionExtraction = join(qa, "embedded-captions.vtt");
 run(["-y", "-i", video, "-map", "0:s:0", captionExtraction]);
 const extractedCaptions = readFileSync(captionExtraction, "utf8");
-const cueCount = (extractedCaptions.match(/-->/g) || []).length;
+const cueCount = countWebVttCues(extractedCaptions);
 if (cueCount !== 12) throw new Error(`Expected 12 subtitle cues; found ${cueCount}.`);
 
 const textFiles = [
@@ -130,7 +131,8 @@ const textFiles = [
   "evidence-manifest.json",
   "generated/render-receipt.json",
   "scripts/render-demo.mjs",
-  "scripts/verify-demo.mjs"
+  "scripts/verify-demo.mjs",
+  "scripts/webvtt.mjs"
 ];
 const combinedText = textFiles
   .map(path => readFileSync(join(root, path), "utf8"))

@@ -23,6 +23,7 @@ import {
   isSerializedTrustedGitExecutable,
   type SerializedTrustedGitExecutable,
 } from "./trusted-git.js";
+import { windowsSystemExecutable } from "./windows-system-executable.js";
 
 type GateMode = "git" | "shell-posix" | "shell-windows";
 
@@ -113,10 +114,6 @@ function verifyInheritedRoot(config: GateConfig): void {
   ) {
     fail("the inherited working directory did not match the selected project");
   }
-}
-
-function windowsSystemExecutable(name: "cmd.exe" | "taskkill.exe"): string {
-  return String.raw`\\?\GLOBALROOT\SystemRoot\System32\${name}`;
 }
 
 interface CancellationChannel {

@@ -42,6 +42,9 @@ transient Krater API key.
   bounded workspace terminal, Git status/diffs, and the active Krater agent
 - Native macOS, Windows, and Linux apps with a sandboxed Electron renderer,
   loopback-only ephemeral server, and reproducible GitHub Release automation
+- One-use, fragment-delivered local launch tokens that are exchanged for an
+  in-memory API session without cookies, query-string secrets, or persistent
+  browser credentials
 - Local app-style GUI with streaming, tool activity, project and model
   selection, settings, responsive layouts, and Allow/Deny actions
 - One-click switching among existing local folders, isolated public GitHub
@@ -67,6 +70,8 @@ transient Krater API key.
 - Workspace confinement, protected secret paths, journaled conflict-checked
   multi-file ProofPatch publication, minimal child-process environments,
   destructive-command guards, and loopback-only web serving
+- Host-pinned Git execution with executable identity and SHA-256 revalidation;
+  model-controlled workspaces cannot replace Git through `PATH` or `.env`
 
 ## Quick start
 
@@ -510,12 +515,49 @@ the compatibility macOS profile or an explicitly approved uncontained path. See
 [docs/SECURITY.md](docs/SECURITY.md) and
 [docs/evidence-native.md](docs/evidence-native.md).
 
+### Hardened local trust boundary
+
+The local web and desktop applications bootstrap through a fresh 43-character
+token in the URL fragment. The server consumes that token exactly once and
+returns a bearer session held in memory, with tab-scoped `sessionStorage` used
+only for reload recovery. The token is never a cookie or query parameter, a
+stale token cannot authorize a second client, and reopening a desktop window
+creates a new bootstrap. API routes reject unauthenticated and mixed-case
+variants.
+
+Krater never searches a project-controlled `PATH` for Git. The host resolves an
+absolute executable outside the writable workspace, records its filesystem
+identity and SHA-256 digest, and revalidates both immediately before each Git
+operation and inside the isolated command gate. Command scripts travel over a
+private descriptor rather than process arguments or user stdin. Windows system
+commands use fixed `GLOBALROOT` executables so a modified drive or `ComSpec`
+cannot select an attacker-controlled shell.
+
+Credential setup writes directly to macOS Keychain, Linux Secret Service, or a
+Windows DPAPI ciphertext stored under Krater's fixed per-user registry key.
+Private key values are never written to ProofGraph events, exported passports,
+release assets, or Homebrew metadata. Workspace `.env` remains an explicitly
+disclosed fallback only.
+
+The verified checkpoint workflow runs the complete source, ProofGraph,
+ProofPatch, cloud, benchmark-catalog, packaging, and secret-scan gates, plus
+native command-boundary and source-Electron smoke tests on macOS and Windows.
+Candidate release workflows additionally launch the distributed macOS ZIP,
+Windows portable executable, and Linux AppImage before publication. CodeQL and
+dependency findings are repaired in source rather than dismissed as test-only
+alerts.
+
 ## Development and verification
 
 ```sh
 npm run typecheck
 npm test
+npm run guard:secrets
 npm run benchmark:validate
+npm run benchmark:evidence:validate
+npm run desktop:test
+npm run release:test
+npm audit --audit-level=low
 npm run build
 node dist/cli.js --help
 ```
