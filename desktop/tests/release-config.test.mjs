@@ -165,6 +165,7 @@ test("write-capable release automation pins actions and isolates permission", as
     "ubuntu-22.04",
     "node-version: 22.23.1",
     "NPM_VERSION: 11.16.0",
+    "NODE_OPTIONS: --max-old-space-size=6144",
     'npm install --global "npm@${{ env.NPM_VERSION }}"',
     "NODE_OPTIONS: --max-old-space-size=6144",
     "release:cli",
@@ -199,6 +200,7 @@ test("pull-request CI exercises macOS and Windows command boundaries", async () 
     "native-boundary:",
     "os: macos-15\n",
     "windows-2022",
+    "NODE_OPTIONS: --max-old-space-size=6144",
     'npm install --global "npm@${{ env.NPM_VERSION }}"',
     "npm run build",
     "src/command-gate.test.ts",
@@ -210,6 +212,13 @@ test("pull-request CI exercises macOS and Windows command boundaries", async () 
   ]) {
     assert.ok(workflow.includes(required), `missing PR boundary gate: ${required}`);
   }
+  assert.ok(
+    workflow.indexOf("npm run build") <
+      workflow.indexOf(
+        "npm test -- --testTimeout=120000 --hookTimeout=30000",
+      ),
+    "the production shell must be built before server tests execute",
+  );
 });
 
 test("release tag must exactly match package version", () => {

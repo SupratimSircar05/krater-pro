@@ -15,6 +15,7 @@ concurrency:
 
 env:
   NPM_VERSION: 11.16.0
+  NODE_OPTIONS: --max-old-space-size=6144
 
 jobs:
   validate:
@@ -34,9 +35,9 @@ jobs:
         run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - run: npm ci
       - run: npm run guard:secrets
-      - run: npm test
       - run: npm run typecheck
       - run: npm run build
+      - run: npm test
       - run: npm run desktop:test
       - run: npm run cloud:test
       - run: npm run benchmark:evidence:validate
