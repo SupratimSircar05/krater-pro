@@ -54,6 +54,9 @@ jobs:
           - label: macOS
             os: macos-15
             platform: mac
+          - label: Windows
+            os: windows-2022
+            platform: win
           - label: Linux
             os: ubuntu-22.04
             platform: linux
@@ -77,6 +80,8 @@ jobs:
           src/command-gate.test.ts
           src/credential-store.test.ts
           src/credential-store.launch.test.ts
+          src/credential-store.windows-launch.test.ts
+          src/windows-system-executable.test.ts
           src/workspace.command-security.test.ts
           desktop/tests/command-gate-parent.test.mjs
           --testTimeout=20000
@@ -87,6 +92,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes xvfb
       - name: Launch source Electron on macOS
         if: matrix.platform == 'mac'
+        env:
+          KRATER_API_KEY: ""
+          KRATER_DESKTOP_WORKSPACE: ${{ runner.temp }}/krater-pro-native-smoke
+        run: |
+          node -e "require('node:fs').mkdirSync(process.env.KRATER_DESKTOP_WORKSPACE, { recursive: true })"
+          npm run desktop:start -- --krater-smoke-test
+      - name: Launch source Electron on Windows
+        if: matrix.platform == 'win'
         env:
           KRATER_API_KEY: ""
           KRATER_DESKTOP_WORKSPACE: ${{ runner.temp }}/krater-pro-native-smoke

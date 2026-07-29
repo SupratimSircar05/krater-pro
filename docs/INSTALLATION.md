@@ -96,10 +96,11 @@ not create or update the preference.
 
 In an interactive terminal, setup opens Krater's official developer page,
 accepts the key without terminal echo, and validates API/model access before
-persistence. It then recommends macOS Keychain or Linux Secret Service. The key
-travels to the credential backend through standard input, never command
-arguments or logs; no credential marker or encrypted blob is written into the
-workspace.
+persistence. It then recommends macOS Keychain, Linux Secret Service, or
+Windows CurrentUser DPAPI backed by the current user's fixed Krater Pro
+registry key. The key travels to the credential backend through standard
+input, never command arguments or logs; no credential marker or encrypted blob
+is written into the workspace.
 
 If the backend is unavailable or declined, setup explains that `.env` is
 plaintext and requires a separate yes/no decision. The explicit equivalent is:
@@ -155,9 +156,9 @@ whether ProofGraph/ProofPatch storage has been initialized, and completion
 generation readiness. It never prints the credential, labels a configured key
 as unverified, and does not claim existing evidence artifacts are healthy.
 On macOS it executes the native containment probes and reports the adapter,
-control matrix, and deny-only/no-fork limitation. Linux currently reports
-native containment as unverified; unattended model commands remain fail-closed,
-while exact attended approvals remain available.
+control matrix, and deny-only/no-fork limitation. Linux and Windows currently
+report native containment as unverified; unattended model commands remain
+fail-closed, while exact attended approvals remain available.
 
 Live credential verification is deliberately opt-in:
 

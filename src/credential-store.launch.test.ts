@@ -23,7 +23,7 @@ const observed = vi.hoisted(() => ({
       killSignal?: NodeJS.Signals | number;
     };
   }>,
-  mode: "close" as "close" | "hang" | "pipe-error" | "early-pipe-error",
+  mode: "exit" as "exit" | "close" | "hang" | "pipe-error" | "early-pipe-error",
   signals: [] as Array<NodeJS.Signals | number | undefined>,
 }));
 
@@ -62,7 +62,9 @@ vi.mock("node:child_process", async (importOriginal) => {
         },
       });
       stdin.once("finish", () => {
-        if (observed.mode === "close") {
+        if (observed.mode === "exit") {
+          queueMicrotask(() => child.emit("exit", 0, null));
+        } else if (observed.mode === "close") {
           queueMicrotask(() => child.emit("close", 0, null));
         } else if (observed.mode === "early-pipe-error") {
           queueMicrotask(() =>
@@ -104,7 +106,7 @@ describe("credential helper launch boundary", () => {
     observed.asynchronous.length = 0;
     observed.synchronous.length = 0;
     observed.signals.length = 0;
-    observed.mode = "close";
+    observed.mode = "exit";
   });
 
   it("uses the fixed macOS helper, trusted cwd, and a minimal environment", async () => {
@@ -138,6 +140,8 @@ describe("credential helper launch boundary", () => {
         expect(launch?.options.env).not.toHaveProperty("KRATER_API_KEY");
         expect(launch?.options.env).not.toHaveProperty("GITHUB_TOKEN");
         expect(launch?.options.env).not.toHaveProperty("PATH");
+        expect(launch?.options.env).not.toHaveProperty("USERPROFILE");
+        expect(launch?.options.env).not.toHaveProperty("APPDATA");
       }
       expect(observed.asynchronous[0]?.options).toMatchObject({
         shell: false,
@@ -170,7 +174,7 @@ describe("credential helper launch boundary", () => {
       });
       expect(observed.signals).toEqual(["SIGTERM", "SIGKILL"]);
     } finally {
-      observed.mode = "close";
+      observed.mode = "exit";
       vi.useRealTimers();
     }
   });
@@ -187,7 +191,7 @@ describe("credential helper launch boundary", () => {
       });
       expect(observed.signals).toEqual(["SIGTERM", "SIGKILL"]);
     } finally {
-      observed.mode = "close";
+      observed.mode = "exit";
       vi.useRealTimers();
     }
   });

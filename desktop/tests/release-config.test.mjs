@@ -24,8 +24,11 @@ test("desktop release config covers every requested native format", async () => 
     "version}-${arch}",
     "dmg",
     "zip",
+    "nsis",
+    "portable",
     "AppImage",
     "deb",
+    "icon.ico",
     "asar: true",
     "resetAdHocDarwinSignature: true",
     "runAsNode: false",
@@ -39,9 +42,6 @@ test("desktop release config covers every requested native format", async () => 
     "syncDesktopName: true",
   ]) {
     assert.ok(config.includes(required), `missing desktop config: ${required}`);
-  }
-  for (const removed of ["\nwin:", "\nnsis:", "\nportable:", "icon.ico"]) {
-    assert.ok(!config.includes(removed), `obsolete Windows target: ${removed}`);
   }
 
   const buildScript = await readFile(
@@ -68,7 +68,6 @@ test("desktop release config covers every requested native format", async () => 
   );
   assert.match(buildScript, /KRATER_RELEASE_MODE === "stable"/);
   assert.match(buildScript, /"--config\.mac\.notarize=true"/);
-  assert.match(buildScript, /Windows packaging has been removed/);
   for (const alias of [
     "-w",
     "-wm",
@@ -79,17 +78,29 @@ test("desktop release config covers every requested native format", async () => 
     const result = spawnSync(
       process.execPath,
       [join(repositoryRoot, "desktop", "scripts", "build.mjs"), alias],
-      { cwd: repositoryRoot, encoding: "utf8" },
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          KRATER_RELEASE_MODE: "stable",
+          CSC_LINK: "",
+          CSC_KEY_PASSWORD: "",
+        },
+      },
     );
-    assert.notEqual(result.status, 0, `${alias} must fail closed`);
-    assert.match(result.stderr, /Windows packaging has been removed/);
+    assert.notEqual(result.status, 0, `${alias} must validate Windows signing`);
+    assert.match(result.stderr, /CSC_LINK/);
   }
 
   const packageManifest = JSON.parse(
     await readFile(join(repositoryRoot, "package.json"), "utf8"),
   );
-  assert.deepEqual(packageManifest.os, ["darwin", "linux"]);
-  assert.equal(packageManifest.scripts["desktop:dist:win"], undefined);
+  assert.equal(packageManifest.os, undefined);
+  assert.equal(
+    packageManifest.scripts["desktop:dist:win"],
+    "npm run desktop:prepare && node desktop/scripts/build.mjs --win",
+  );
 
   const afterPack = await readFile(
     join(repositoryRoot, "desktop", "scripts", "after-pack.mjs"),
@@ -103,12 +114,10 @@ test("desktop release config covers every requested native format", async () => 
   );
   assert.match(bootstrap, /assertTrustedCommandGateParent/);
   assert.match(bootstrap, /command gate refused an untrusted parent process/);
-  assert.match(bootstrap, /process\.platform === "win32"/);
-  assert.match(bootstrap, /Windows support has been removed/);
+  assert.doesNotMatch(bootstrap, /Windows support has been removed/);
 
   const cli = await readFile(join(repositoryRoot, "src", "cli.ts"), "utf8");
-  assert.match(cli, /process\.platform === "win32"/);
-  assert.match(cli, /Windows support has been removed/);
+  assert.doesNotMatch(cli, /Windows support has been removed/);
 
   for (const entitlementFile of [
     "entitlements.mac.plist",
@@ -185,14 +194,11 @@ test("write-capable release automation pins actions and isolates permission", as
   );
   assert.equal(/uses:\s+[^@\s]+@v\d/.test(workflow), false);
   assert.doesNotMatch(workflow, /macos-14/);
-  assert.doesNotMatch(
-    workflow,
-    /windows-2022|desktop:dist:win|WIN_CSC|Authenticode|\.exe|DPAPI|krater-interactive/i,
-  );
   assert.ok((workflow.match(/persist-credentials: false/g) ?? []).length >= 5);
   for (const required of [
     "os: macos-15\n",
     "macos-15-intel",
+    "windows-2022",
     "ubuntu-22.04",
     "node-version: 22.23.1",
     "NPM_VERSION: 11.16.0",
@@ -204,6 +210,15 @@ test("write-capable release automation pins actions and isolates permission", as
     "smoke-workspace-command.mjs",
     "src/command-gate.test.ts",
     "src/credential-store.launch.test.ts",
+    "src/credential-store.windows-launch.test.ts",
+    "src/windows-system-executable.test.ts",
+    "desktop:dist:win",
+    "WIN_CSC_LINK",
+    "WIN_CSC_KEY_PASSWORD",
+    "HAS_WINDOWS_SIGNING",
+    "Verify Windows Authenticode signatures",
+    '"release" "win-unpacked"',
+    "Test-Path -LiteralPath $innerExecutable -PathType Leaf",
     "validate-release-environment.mjs",
     "create-release-manifest.mjs",
     "sign-release-artifacts.mjs",
@@ -220,20 +235,18 @@ test("write-capable release automation pins actions and isolates permission", as
   );
 });
 
-test("pull-request CI exercises macOS and Linux command boundaries", async () => {
+test("pull-request CI exercises macOS, Windows, and Linux command boundaries", async () => {
   const workflow = await readFile(
     join(repositoryRoot, ".github", "workflows", "ci.yml"),
     "utf8",
   );
   assert.doesNotMatch(workflow, /macos-14/);
-  assert.doesNotMatch(
-    workflow,
-    /windows-2022|credential-store\.windows|windows-system-executable/i,
-  );
   for (const required of [
     "native-boundary:",
     "os: macos-15\n",
+    "windows-2022",
     "ubuntu-22.04",
+    "platform: win",
     "platform: linux",
     "xvfb-run -a npm run desktop:start -- --krater-smoke-test",
     "NODE_OPTIONS: --max-old-space-size=6144",
@@ -241,6 +254,8 @@ test("pull-request CI exercises macOS and Linux command boundaries", async () =>
     "npm run build",
     "src/command-gate.test.ts",
     "src/credential-store.launch.test.ts",
+    "src/credential-store.windows-launch.test.ts",
+    "src/windows-system-executable.test.ts",
     "src/workspace.command-security.test.ts",
     "desktop/tests/command-gate-parent.test.mjs",
     "smoke-workspace-command.mjs",
@@ -268,14 +283,16 @@ test("release tag must exactly match package version", () => {
 test("checksums cover distributables and ignore build metadata", async () => {
   const directory = await mkdtemp(join(tmpdir(), "krater-checksums-"));
   await writeFile(join(directory, "Krater-Pro-0.1.0-arm64.dmg"), "mac");
+  await writeFile(join(directory, "Krater-Pro-0.1.0-x64.exe"), "windows");
   await writeFile(join(directory, "Krater-Pro-0.1.0-x86_64.AppImage"), "linux");
   await writeFile(join(directory, "builder-debug.yml"), "ignored");
   const result = await createChecksums(directory);
   assert.deepEqual(result.artifacts, [
     "Krater-Pro-0.1.0-arm64.dmg",
+    "Krater-Pro-0.1.0-x64.exe",
     "Krater-Pro-0.1.0-x86_64.AppImage",
   ]);
-  assert.equal(result.output.trim().split("\n").length, 2);
-  assert.equal(isReleaseArtifact("Krater-Pro.exe"), false);
+  assert.equal(result.output.trim().split("\n").length, 3);
+  assert.equal(isReleaseArtifact("Krater-Pro.exe"), true);
   assert.equal(isReleaseArtifact("latest.yml"), false);
 });

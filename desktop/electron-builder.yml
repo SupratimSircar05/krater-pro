@@ -65,6 +65,27 @@ dmg:
   title: Krater Pro ${version}
   writeUpdateInfo: false
 
+win:
+  icon: icon.ico
+  executableName: KraterPro
+  requestedExecutionLevel: asInvoker
+  target:
+    - nsis
+    - portable
+
+nsis:
+  artifactName: Krater-Pro-Setup-${version}-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Krater Pro
+  uninstallDisplayName: Krater Pro
+
+portable:
+  artifactName: Krater-Pro-Portable-${version}-${arch}.${ext}
+
 linux:
   icon: icon.png
   executableName: krater-pro

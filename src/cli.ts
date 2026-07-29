@@ -2573,16 +2573,7 @@ program
     process.once("SIGTERM", stop);
   });
 
-const invocation =
-  process.platform === "win32"
-    ? Promise.reject(
-        new Error(
-          "Krater Pro supports macOS and Linux only; Windows support has been removed.",
-        ),
-      )
-    : program.parseAsync(process.argv);
-
-invocation.catch((error) => {
+program.parseAsync(process.argv).catch((error) => {
   if (isSetupRequiredError(error)) {
     const options = program.opts<GlobalOptions>();
     const result = createSetupRequiredResult(

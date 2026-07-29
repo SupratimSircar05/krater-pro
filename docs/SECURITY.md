@@ -69,8 +69,8 @@ Commands run from the workspace with:
 - a 1–600 second bound;
 - capped stdout/stderr;
 - a minimal environment allowlist without provider credentials;
-- best-effort termination of the initial POSIX process group after timeout,
-  cancellation, or shutdown; and
+- best-effort termination of the initial Unix process group or Windows process
+  tree after timeout, cancellation, or shutdown; and
 - regex preflight rejections for common spellings of forced recursive
   deletion, destructive Git cleanup, protected-secret reads, disk formatting,
   shutdown, and reboot.
@@ -82,11 +82,13 @@ aliases, interpreters, encodings, constructed command strings, or other shell
 forms can evade a regex guard. An attended command that passes these checks is
 not thereby safe.
 
-Attended cancellation is also best-effort rather than containment. Krater
-signals the command's initial POSIX process group. A command can escape that
-scope by creating a new session with `setsid`, detaching or re-parenting a
-descendant, or handing work to another service. Escaped work may survive
-timeout, cancellation, or app shutdown and must be cleaned up independently.
+Attended cancellation is also best-effort rather than containment. On POSIX,
+Krater signals the command's initial process group; on Windows, it asks
+`taskkill /T /F` to terminate the initial process tree and falls back to the
+direct child. A command can escape that scope by creating a new session with
+`setsid`, detaching or re-parenting a descendant, or handing work to another
+service. Escaped work may survive timeout, cancellation, or app shutdown and
+must be cleaned up independently.
 
 Model-proposed commands require approval unless the caller deliberately
 selected fail-closed unattended mode (`--yes`). Pressing Run in the IDE terminal
@@ -129,13 +131,15 @@ That parent check is defense-in-depth only. It does not authenticate arbitrary
 same-user processes, contain descendants, or replace a verified native
 sandbox.
 
-No verified Linux namespace/seccomp/cgroup supervisor ships in this slice.
-Unattended model commands therefore fail closed on Linux. Explicit attended
-approval remains possible, but the process, environment, output, timeout,
-parent-check, and regex controls do not form an OS sandbox and project code can
-execute with reachable user privileges. A successful local native probe is
-executable evidence for the advertised controls; it is not a formal proof that
-arbitrary project code is safe.
+No verified Linux namespace/seccomp/cgroup supervisor ships in this slice, and
+the Windows restricted-token/Job Object native supervisor is not yet complete.
+Unattended model commands therefore fail closed on Linux and Windows. Windows
+attended cancellation uses `taskkill`, not Job Object lifetime enforcement.
+Explicit attended approval remains possible, but the process, environment,
+output, timeout, parent-check, and regex controls do not form an OS sandbox and
+project code can execute with reachable user privileges. A successful local
+native probe is executable evidence for the advertised controls; it is not a
+formal proof that arbitrary project code is safe.
 
 ## Local server
 
@@ -183,13 +187,13 @@ controls, TLS, audit logs, quotas, and multi-user workspace isolation.
 
 ## Native desktop shell
 
-The macOS and Linux apps run this same server on `127.0.0.1`. By
+The macOS, Windows, and Linux apps run this same server on `127.0.0.1`. By
 default, the launcher selects an available ephemeral port; a fixed port can be
 requested, but the host cannot be changed. A single-instance lock prevents
 accidental duplicate shells, and app shutdown requests cancellation of agent
 activity, denies pending approvals, closes HTTP connections, and releases the
 port. As described above, attended descendants that escape the initial process
-group may survive that cancellation request.
+group or Windows task tree may survive that cancellation request.
 
 The Electron renderer has `nodeIntegration` disabled, context isolation and
 sandboxing enabled, no preload bridge, no remote module, and no persistent
@@ -204,8 +208,9 @@ An API key inherited by the main process or loaded from the launch workspace's
 existing in-memory web flow and disappears when the app exits. Electron does
 not add key storage, IPC, logging, analytics, update services, or crash uploads.
 
-Unsigned macOS community installers may trigger Gatekeeper warnings. Published
-release checksums provide integrity checking but not publisher identity. See
+Version 0.1.0 community installers are unsigned and are therefore expected to
+trigger macOS Gatekeeper or Windows SmartScreen warnings. Published release
+checksums provide integrity checking but not publisher identity. See
 [DESKTOP.md](DESKTOP.md) for the warning and future signing/notarization secret
 names.
 

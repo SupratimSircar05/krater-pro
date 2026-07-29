@@ -7,6 +7,10 @@ const objectManagerSystem32 = String.raw`\\?\GLOBALROOT\SystemRoot\System32`;
 describe("Windows system executable resolution", () => {
   it.each([
     ["cmd.exe", "cmd.exe"],
+    [
+      "powershell.exe",
+      String.raw`WindowsPowerShell\v1.0\powershell.exe`,
+    ],
     ["taskkill.exe", "taskkill.exe"],
   ] as const)(
     "resolves %s to a spawn-compatible path on a non-C system drive",

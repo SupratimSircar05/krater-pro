@@ -10,8 +10,8 @@
 
 Krater Pro is an independent, tool-using coding agent powered by the
 [Krater API](https://api.krater.ai/). The same TypeScript agent runs as an
-interactive CLI, a polished local React application, and native macOS and
-Linux desktop apps.
+interactive CLI, a polished local React application, and native macOS,
+Windows, and Linux desktop apps.
 
 It can map a repository, read and search source, load language-specific expert
 skills, edit files, run development commands, inspect Git state, stream model
@@ -40,7 +40,7 @@ transient Krater API key.
   from live Krater pricing and capability metadata
 - Full agentic IDE with a safe file explorer, conflict-aware Monaco editor,
   bounded workspace terminal, Git status/diffs, and the active Krater agent
-- Native macOS and Linux apps with a sandboxed Electron renderer,
+- Native macOS, Windows, and Linux apps with a sandboxed Electron renderer,
   loopback-only ephemeral server, and reproducible GitHub Release automation
 - One-use, fragment-delivered local launch tokens that are exchanged for an
   in-memory API session without cookies, query-string secrets, or persistent
@@ -75,8 +75,8 @@ transient Krater API key.
 
 ## Quick start
 
-Requirements: macOS or Linux, Node.js `^20.19.0 || >=22.12.0`, npm, and a
-Krater account with API access.
+Requirements: Node.js `^20.19.0 || >=22.12.0`, npm, and a Krater account with
+API access.
 
 ```sh
 npm install
@@ -113,15 +113,14 @@ uninstall guidance: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 ## Desktop apps
 
-Download the macOS DMG/ZIP or Linux AppImage/DEB from
+Download the macOS DMG/ZIP, Windows installer/portable EXE, or Linux
+AppImage/DEB from
 [GitHub Releases](https://github.com/SupratimSircar05/krater-pro/releases).
 Each release includes `SHA256SUMS.txt`.
 
-Windows builds and runtime support have been discontinued. The supported local
-platforms are macOS and Linux.
-
-Unsigned macOS community binaries may show an unknown-developer warning; verify
-the checksum before using the operating system's one-app approval flow. Do not
+The 0.1.0 community binaries are unsigned. macOS Gatekeeper and Windows
+SmartScreen may therefore show an unknown-developer warning; verify the
+checksum before using the operating system's one-app approval flow. Do not
 disable platform security globally.
 
 For a source checkout:
@@ -165,8 +164,8 @@ krater auth status
 ```
 
 `krater setup` accepts the key without terminal echo, validates authenticated
-model discovery, then recommends macOS Keychain or Linux Secret Service. The
-key is never placed in process arguments or output. A
+model discovery, then recommends macOS Keychain, Linux Secret Service, or
+Windows DPAPI. The key is never placed in process arguments or output. A
 permission-restricted plaintext `.env` is offered only as an explicitly
 disclosed fallback. `krater doctor` is offline by default;
 `krater doctor --live` explicitly repeats authenticated discovery.
@@ -281,7 +280,7 @@ view offers the same publish, explicit gap-acceptance, discard, and rollback
 flow.
 
 This is a foundation release, not the completed nine-month roadmap. Persistent
-verified-cache reuse, end-to-end taint enforcement, native supported-platform
+verified-cache reuse, end-to-end taint enforcement, native cross-platform
 containment, blind verification, jury orchestration, live Causal Twin process
 execution, Mastery Mode UI, signed passports, OS-key encryption, desktop
 platform acceptance, and the remaining v2 task-creation, clarification,
@@ -513,8 +512,8 @@ initial shell-string integration therefore supports shell builtins only. The
 underlying native adapter can run one exact executable for structured,
 host-owned callers, but external programs and builds are refused through
 `run_command` because they require a child process. Exact network allowlists
-are not claimed. If any required control is unavailable—or on Linux, where no
-verified native adapter ships yet—the unattended command fails closed
+are not claimed. If any required control is unavailable—or on Linux/Windows,
+where no verified native adapter ships yet—the unattended command fails closed
 without turning itself into an approval prompt. An interactive user may still
 approve the exact attended command, whose result identifies whether it used
 the compatibility macOS profile or an explicitly approved uncontained path. See
@@ -535,18 +534,22 @@ Krater never searches a project-controlled `PATH` for Git. The host resolves an
 absolute executable outside the writable workspace, records its filesystem
 identity and SHA-256 digest, and revalidates both immediately before each Git
 operation and inside the isolated command gate. Command scripts travel over a
-private descriptor rather than process arguments or user stdin.
+private descriptor rather than process arguments or user stdin. Windows system
+commands resolve a compile-time `GLOBALROOT` allowlist to canonical,
+spawn-compatible System32 paths, so a modified drive, `PATH`, `SystemRoot`, or
+`ComSpec` cannot select an attacker-controlled shell.
 
-Credential setup writes directly to macOS Keychain or Linux Secret Service.
+Credential setup writes directly to macOS Keychain, Linux Secret Service, or a
+Windows DPAPI ciphertext stored under Krater's fixed per-user registry key.
 Private key values are never written to ProofGraph events, exported passports,
 release assets, or Homebrew metadata. Workspace `.env` remains an explicitly
 disclosed fallback only.
 
 The verified checkpoint workflow runs the complete source, ProofGraph,
 ProofPatch, cloud, benchmark-catalog, packaging, and secret-scan gates, plus
-native command-boundary and source-Electron smoke tests on macOS and Linux.
-Candidate release workflows additionally launch the distributed macOS ZIP and
-Linux AppImage before publication. CodeQL and
+native command-boundary and source-Electron smoke tests on macOS and Windows.
+Candidate release workflows additionally launch the distributed macOS ZIP,
+Windows portable executable, and Linux AppImage before publication. CodeQL and
 dependency findings are repaired in source rather than dismissed as test-only
 alerts.
 

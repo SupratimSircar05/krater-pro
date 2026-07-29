@@ -77,7 +77,15 @@ export function releaseShrinkwrap(lockfile) {
 }
 
 async function runNpm(arguments_, options = {}) {
-  return execFileAsync("npm", arguments_, {
+  const executable =
+    process.platform === "win32"
+      ? process.env.ComSpec || process.env.COMSPEC || "cmd.exe"
+      : "npm";
+  const invocationArguments =
+    process.platform === "win32"
+      ? ["/d", "/s", "/c", "npm.cmd", ...arguments_]
+      : arguments_;
+  return execFileAsync(executable, invocationArguments, {
     encoding: "utf8",
     maxBuffer: 50 * 1024 * 1024,
     ...options,
