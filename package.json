@@ -115,7 +115,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "brace-expansion": "file:vendor/brace-expansion-compat",
-    "electron": "43.2.0",
+    "electron": "43.5.0",
     "electron-builder": "26.15.3",
     "sharp": "0.35.3",
     "tsx": "^4.20.0",
